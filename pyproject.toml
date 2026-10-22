@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "barrett-faceswap"
+version = "0.1.0"
+description = "Phase 1 face-swap toolkit: detect, align, ONNX inswapper-style swap, paste-back, and an opt-in compliance gate."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Barrett-QClabs" }]
+keywords = ["face-swap", "onnxruntime", "insightface", "computer-vision"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+  "numpy>=1.26",
+  "opencv-python-headless>=4.9",
+  "Pillow>=10.0",
+  "PyYAML>=6.0",
+  "tqdm>=4.66",
+  "onnxruntime>=1.17",
+  "onnx>=1.15",
+  "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+# Install in place of onnxruntime, not beside it. See the README.
+gpu = ["onnxruntime-gpu>=1.17"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+barrett-faceswap = "barrett_faceswap.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Barrett-QClabs/barrett-faceswap"
+Documentation = "https://github.com/Barrett-QClabs/barrett-faceswap/blob/main/docs/ARCHITECTURE.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+barrett_faceswap = ["py.typed", "i18n/locales/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
