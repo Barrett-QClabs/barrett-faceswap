@@ -23,6 +23,42 @@ def test_blend_respects_the_amount() -> None:
     assert int(blend_images(restored, original, 1).mean()) == 0
 
 
+def test_lower_eye_blend_keeps_more_of_the_target() -> None:
+    original = np.full((4, 4, 3), 200, dtype=np.uint8)
+    restored = np.zeros((4, 4, 3), dtype=np.uint8)
+    mask = np.zeros((4, 4), dtype=np.float32)
+    mask[0, 0] = 1.0
+    mixed = blend_images(restored, original, 0.6, eye_mask=mask, eye_amount=0.35)
+    assert int(mixed[0, 0, 0]) > int(mixed[3, 3, 0])
+    assert int(mixed[0, 0, 0]) > 100
+    assert int(mixed[3, 3, 0]) < 100
+
+
+def test_temporal_mixes_the_previous_crop_until_motion_is_large(tmp_path: Path) -> None:
+    config = load_config(write_config(tmp_path, enabled=False))
+    config = config.model_copy(
+        update={"enhancer": config.enhancer.model_copy(update={"temporal": 0.5, "temporal_motion": 0.04})}
+    )
+    enhancer = FaceEnhancer(config, ["cpu"])
+    landmarks = np.array(
+        [[30.0, 40.0], [70.0, 40.0], [50.0, 55.0], [40.0, 75.0], [60.0, 75.0]],
+        dtype=np.float32,
+    )
+    face = Face(bbox=np.array([0.0, 0.0, 100.0, 100.0], np.float32), score=0.9, landmarks=landmarks)
+    previous = np.zeros((8, 8, 3), dtype=np.uint8)
+    current = np.full((8, 8, 3), 100, dtype=np.uint8)
+    enhancer._previous = [(previous, landmarks.copy())]
+    mixed = enhancer._stabilize(0, face, current)
+    assert int(mixed.mean()) == 50
+    shifted = landmarks.copy()
+    shifted[:, 0] += 20.0
+    moved = Face(bbox=face.bbox.copy(), score=face.score, landmarks=shifted)
+    assert np.array_equal(enhancer._stabilize(0, moved, current), current)
+    enhancer.post_process()
+    assert enhancer._previous == []
+    assert np.array_equal(enhancer._stabilize(0, face, current), current)
+
+
 def test_codeformer_weight_input_is_accepted(tmp_path: Path) -> None:
     path = tmp_path / "codeformer.onnx"
     write_identity_with_weight(path, 16)

@@ -22,7 +22,7 @@ import numpy as np
 from barrett_faceswap.commercial import guard_commercial
 from barrett_faceswap.compliance.policy import CompliancePolicy
 from barrett_faceswap.config import AppConfig
-from barrett_faceswap.errors import MediaToolError
+from barrett_faceswap.errors import MediaToolError, NoFaceError
 from barrett_faceswap.face_cache import DetectionCache
 from barrett_faceswap.i18n import t
 from barrett_faceswap.processors import create_processor
@@ -107,6 +107,8 @@ class LiveSession:
         *,
         processors: list | None = None,
         policy: CompliancePolicy | None = None,
+        hint_source=None,
+        hint_target=None,
     ) -> None:
         self.config = config
         self.request = request
@@ -114,6 +116,8 @@ class LiveSession:
         self.stats = LiveStats()
         self._context = None
         self._processors = processors
+        self._hint_source = hint_source
+        self._hint_target = hint_target
         self._shared: ProcessContext | None = None
         self._cache = DetectionCache(config.live.detect_every, iou_threshold=config.swap.track_iou)
         self._screen_every = max(1, int(config.video.filter_every_n_frames))
@@ -139,6 +143,7 @@ class LiveSession:
             target_face_index=self.request.target_face_index,
             notes=notes,
             log_every_frame=False,
+            source_face=self._hint_source,
         )
         for processor in self._processors:
             processor.pre_check(self._shared)
@@ -164,7 +169,14 @@ class LiveSession:
         else:
             detect_started = time.perf_counter()
             if self._cache.wants_detection():
-                detected = _detect_with(self._processors, frame)
+                try:
+                    detected = _detect_with(self._processors, frame)
+                except NoFaceError:
+                    if self._hint_target is None:
+                        raise
+                    detected = []
+                if not detected and self._hint_target is not None:
+                    detected = [self._hint_target]
                 faces = self._cache.observe(detected)
             else:
                 faces = self._cache.observe(None)
@@ -206,12 +218,16 @@ class LivePipeline:
         writer=None,
         preview: bool | None = None,
         processors: list | None = None,
+        hint_source=None,
+        hint_target=None,
     ) -> tuple[SwapResult, LiveStats]:
         session = LiveSession(
             self.config,
             request,
             processors=processors,
             policy=CompliancePolicy(self.config, admin_path=self.admin_path),
+            hint_source=hint_source,
+            hint_target=hint_target,
         )
         show = self.config.live.preview if preview is None else preview
         incoming: LatestQueue = LatestQueue(self.config.live.queue_size)

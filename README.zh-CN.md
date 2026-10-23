@@ -112,7 +112,7 @@ barrett-faceswap swap \
   --output outputs/swap.png \
   --processors face_swapper,face_enhancer \
   --enhancer-model gfpgan_1.4 \
-  --enhancer-blend 0.8
+  --enhancer-blend 0.6
 ```
 
 `--enhancer-model codeformer` 选择另一张图。`--enhancer-weight` 是 CodeFormer 的保真输入。
@@ -140,7 +140,7 @@ barrett-faceswap swap \
   --dry-run
 ```
 
-`--swapper-model` 选择图。权重不会被下载，见 `scripts/download_models.zh-CN.md`。不传 `--pixel-boost`（或传 0）表示用模型的原生尺寸（inswapper 仍遵守 `swap.resolution`）。在 `inswapper_128` 上使用 `--pixel-boost 256` 或 `512` 会按更大的裁剪对齐，再跑 128 像素的切块，视频同样生效。`--eye-mode blend`（默认）在羽化蒙版下把目标眼睛混回去。`swap` 保留换过的眼睛。`target` 保留原来的眼睛。`--with-enhancer` 会追加 `face_enhancer`；眼部使用 `enhancer.eye_blend`（默认 1）。某一帧没有检测到脸不会中止视频。静态图像仍然会失败。脸映射是 JSON 列表，每项为 `{source, target_index?, reference?}`，优先于 `--many-faces` 和 `--reference`。
+`--swapper-model` 选择图。权重不会被下载，见 `scripts/download_models.zh-CN.md`。不传 `--pixel-boost`（或传 0）表示用模型的原生尺寸（inswapper 仍遵守 `swap.resolution`）。在 `inswapper_128` 上使用 `--pixel-boost 256` 或 `512` 会按更大的裁剪对齐，再跑 128 像素的切块，视频同样生效。`--eye-mode blend`（默认）在羽化蒙版下把目标眼睛混回去。`swap` 保留换过的眼睛。`target` 保留原来的眼睛。`--with-enhancer` 会追加 `face_enhancer`。脸部混合默认是 `0.6`。`enhancer.eye_blend` 默认是 `0.35`，低于脸部混合，因此修复时仍保留目标眼睛。`enhancer.temporal`（默认 `0.4`）在人脸几乎不动时混入上一帧的增强裁剪。某一帧没有检测到脸不会中止视频。静态图像仍然会失败。脸映射是 JSON 列表，每项为 `{source, target_index?, reference?}`，优先于 `--many-faces` 和 `--reference`。ONNX 会话只在加载时计算一次哈希；之后的帧复用会话，不再重读文件。
 
 ```bash
 barrett-faceswap jobs submit \
@@ -160,9 +160,13 @@ barrett-faceswap jobs resume clip-a
 ```bash
 barrett-faceswap benchmark --dry-run --frames 32
 barrett-faceswap benchmark --live --dry-run --frames 8
+barrett-faceswap benchmark \
+  --source path/to/authorized-source.png \
+  --target path/to/authorized-target.png \
+  --frames 32
 ```
 
-这一行会给出每秒帧数、`realtime_fps` 和各阶段毫秒数。PATH 里没有 `nvidia-smi` 时，`vram_mb` 是 `unavailable`。只有配置的权重都在时才去掉 `--dry-run`；没有人脸的合成帧仍然会让检测失败。`--live` 使用合成帧，不会打开摄像头。
+这一行会给出每秒帧数、`realtime_fps` 和各阶段毫秒数。PATH 里没有 `nvidia-smi` 时，`vram_mb` 是 `unavailable`。只有配置的权重都在时才去掉 `--dry-run`。不传 `--source` 和 `--target` 时，会用一张绘制的人脸及其关键点，替换仍然会跑。两张静态图一起传入时，检测跑在真实人脸上。`--live` 不会打开摄像头。
 
 不需要显示器、也不需要权重的实时试跑：
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 
+import cv2
 import numpy as np
 
 from barrett_faceswap.align import align_face, ffhq_template
@@ -49,6 +50,7 @@ class FaceEnhancer:
         self._lock = threading.Lock()
         self._miss_noted = False
         self._detector_obj: FaceDetector | None = None
+        self._previous: list[tuple[np.ndarray, np.ndarray]] = []
 
     def pre_check(self, ctx: ProcessContext) -> None:
         if ctx.dry_run:
@@ -84,8 +86,9 @@ class FaceEnhancer:
         network_h, network_w = session_hw(self.enhancer_session, record.input_size)
         side = max(network_h, network_w)
         output = frame
-        for face in faces:
-            crop, matrix = align_face(output, face.landmarks, side, template=ffhq_template(side))
+        carried: list[tuple[np.ndarray, np.ndarray]] = []
+        for index, face in enumerate(faces):
+            crop, matrix = align_face(output, face.landmarks[:5], side, template=ffhq_template(side))
             restored = run_enhancer(self.enhancer_session, crop, weight=self.config.enhancer.weight)
             eyes = eye_mask(side, ffhq_template(side), self.config.blend.mask_blur)
             blended = blend_images(
@@ -95,8 +98,11 @@ class FaceEnhancer:
                 eye_mask=eyes,
                 eye_amount=self.config.enhancer.eye_blend,
             )
+            blended = self._stabilize(index, face, blended)
+            carried.append((blended, np.asarray(face.landmarks[:5], dtype=np.float32).copy()))
             mask = region_mask(side, self.config.blend.mask_blur)
             output = paste_back(output, blended, matrix, mask)
+        self._previous = carried
         if ctx.log_every_frame:
             ctx.notes.append(
                 t(
@@ -109,7 +115,20 @@ class FaceEnhancer:
         return output
 
     def post_process(self) -> None:
-        return None
+        self._previous = []
+
+    def _stabilize(self, index: int, face, blended: np.ndarray) -> np.ndarray:
+        """Mix the previous enhanced crop when the landmarks barely moved."""
+
+        amount = float(self.config.enhancer.temporal)
+        if amount <= 0 or index >= len(self._previous):
+            return blended
+        previous, previous_landmarks = self._previous[index]
+        if _motion(previous_landmarks, face) > float(self.config.enhancer.temporal_motion):
+            return blended
+        if previous.shape[:2] != blended.shape[:2]:
+            previous = cv2.resize(previous, (blended.shape[1], blended.shape[0]), interpolation=cv2.INTER_LINEAR)
+        return blend_images(previous, blended, amount)
 
     def _detector(self) -> FaceDetector:
         if self._detector_obj is None:
@@ -127,6 +146,16 @@ class FaceEnhancer:
             if ctx.log_every_frame or not self._miss_noted:
                 ctx.notes.append(t("processor.enhancer_no_face"))
                 self._miss_noted = True
+
+
+def _motion(previous: np.ndarray, face) -> float:
+    current = np.asarray(face.landmarks[:5], dtype=np.float32)
+    earlier = np.asarray(previous, dtype=np.float32).reshape(-1, 2)[:5]
+    if current.shape != earlier.shape:
+        return 1.0
+    shift = float(np.linalg.norm(current - earlier, axis=1).mean())
+    width = max(float(face.bbox[2]) - float(face.bbox[0]), 1.0)
+    return shift / width
 
 
 @register_processor("face_enhancer")

@@ -37,6 +37,8 @@ class ProcessContext:
     known_faces: list | None = None
     # Video sets this so a frame with no face is returned unchanged.
     allow_missing_face: bool = False
+    # When set, the source embedding uses this face and skips source detection.
+    source_face: Face | None = None
 
 
 class SwapRequest(BaseModel):

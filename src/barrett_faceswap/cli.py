@@ -180,6 +180,8 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--frames", type=int, default=32, help=t("cli.benchmark_frames"))
     bench.add_argument("--width", type=int, default=256, help=t("cli.benchmark_width"))
     bench.add_argument("--height", type=int, default=256, help=t("cli.benchmark_height"))
+    bench.add_argument("--source", type=Path, default=None, help=t("cli.benchmark_source"))
+    bench.add_argument("--target", type=Path, default=None, help=t("cli.benchmark_target"))
     bench.add_argument("--dry-run", action="store_true", help=t("cli.dry_run"))
     bench.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
     bench.add_argument("--live", action="store_true", help=t("cli.benchmark_live"))
@@ -241,6 +243,8 @@ def _dispatch(namespace: argparse.Namespace) -> int:
             height=namespace.height,
             dry_run=namespace.dry_run,
             providers=namespace.execution_provider,
+            source_path=namespace.source,
+            target_path=namespace.target,
         )
         print(report.line())
         return 0

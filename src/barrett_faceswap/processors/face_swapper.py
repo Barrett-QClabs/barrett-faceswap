@@ -173,7 +173,8 @@ class FaceSwapper:
         slots: list[_Slot] = []
         for entry in entries:
             image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
-            arc, source_score = self._embed_image(backend, image)
+            hint = ctx.source_face if not entry.source else None
+            arc, source_score = self._embed_image(backend, image, hint)
             match = arc
             if entry.reference:
                 match, _reference_score = self._embed_image(backend, read_image(Path(entry.reference)))
@@ -198,8 +199,9 @@ class FaceSwapper:
             reference = str(self.config.swap.reference)
         return [FaceMapEntry(source="", target_index=None, reference=reference)]
 
-    def _embed_image(self, backend, image: np.ndarray) -> tuple[np.ndarray, float]:
-        face = select_face(self._detect(image), 0)
+    def _embed_image(self, backend, image: np.ndarray, face: Face | None = None) -> tuple[np.ndarray, float]:
+        if face is None:
+            face = select_face(self._detect(image), 0)
         if self._spec.embedding == "emap":
             vector = backend.embed(image, face.landmarks)
         else:
