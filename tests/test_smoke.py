@@ -58,6 +58,7 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.compliance.watermark.font_path is None
     assert config.execution.tensorrt.fp16 is False
     assert config.execution.providers[0] == "cuda"
+    assert config.detect.score_threshold == pytest.approx(0.5)
     assert config.masks.occluder_model == "xseg_1"
     assert "face_enhancer" not in config.processors
     assert config.landmarks.refine == "auto"

@@ -88,6 +88,8 @@ UI_KEYS = (
     "ui.output_group",
     "ui.eye_mode",
     "ui.target_index",
+    "ui.detect_score",
+    "ui.detect_score_hint",
     "ui.progress",
     "ui.progress_label",
     "ui.progress_running",

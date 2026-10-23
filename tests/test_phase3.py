@@ -330,6 +330,61 @@ def test_overrides_keep_blend_and_select_model(tmp_path: Path) -> None:
     assert updated.compliance.enabled is False
 
 
+def test_detect_score_override_reaches_the_detector(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = _config(tmp_path)
+    assert config.detect.score_threshold == pytest.approx(0.5)
+    request = SwapRequest(
+        source_path=tmp_path / "a.png",
+        target_path=tmp_path / "b.png",
+        output_path=tmp_path / "c.png",
+        detect_score=0.2,
+    )
+    updated = apply_request_overrides(config, request)
+    assert updated.detect.score_threshold == pytest.approx(0.2)
+    assert updated.compliance.enabled is False
+    kept = apply_request_overrides(
+        config.model_copy(update={"detect": config.detect.model_copy(update={"score_threshold": 0.35})}),
+        SwapRequest(
+            source_path=tmp_path / "a.png",
+            target_path=tmp_path / "b.png",
+            output_path=tmp_path / "c.png",
+        ),
+    )
+    assert kept.detect.score_threshold == pytest.approx(0.35)
+    zero = apply_request_overrides(
+        config,
+        SwapRequest(
+            source_path=tmp_path / "a.png",
+            target_path=tmp_path / "b.png",
+            output_path=tmp_path / "c.png",
+            detect_score=0.0,
+        ),
+    )
+    assert zero.detect.score_threshold == pytest.approx(0.0)
+    with pytest.raises(ConfigError):
+        apply_request_overrides(
+            config,
+            SwapRequest(
+                source_path=tmp_path / "a.png",
+                target_path=tmp_path / "b.png",
+                output_path=tmp_path / "c.png",
+                detect_score=1.5,
+            ),
+        )
+    seen: dict[str, float] = {}
+
+    def fake_init(self, session, det_size, score_threshold, nms_threshold):
+        del session, det_size, nms_threshold
+        seen["score"] = float(score_threshold)
+        self.score_threshold = float(score_threshold)
+
+    monkeypatch.setattr("barrett_faceswap.processors.face_swapper.FaceDetector.__init__", fake_init)
+    swapper = FaceSwapper(updated, ["cpu"])
+    swapper.store = type("Store", (), {"session": lambda self, role: object()})()
+    swapper._detector()
+    assert seen["score"] == pytest.approx(0.2)
+
+
 def test_pixel_boost_zero_overrides_a_larger_config(tmp_path: Path) -> None:
     config = _config(tmp_path)
     config = config.model_copy(update={"swap": config.swap.model_copy(update={"pixel_boost": 256})})

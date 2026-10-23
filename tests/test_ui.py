@@ -145,6 +145,15 @@ def test_gradio_blocks_build() -> None:
         isinstance(getattr(block, "value", None), str) and getattr(block, "value", None) == "balanced"
         for block in demo.blocks.values()
     )
+    labels = [getattr(block, "label", None) for block in demo.blocks.values()]
+    values = [getattr(block, "value", None) for block in demo.blocks.values()]
+    assert "检测阈值" in labels
+    assert any(isinstance(item, str) and "误检" in item for item in values)
+    assert any(getattr(block, "value", None) == 0.5 for block in demo.blocks.values())
     english = build_demo(REPO / "configs" / "default.yaml", language="en")
     assert english is not None
     assert get_language() == "en"
+    english_labels = [getattr(block, "label", None) for block in english.blocks.values()]
+    english_values = [getattr(block, "value", None) for block in english.blocks.values()]
+    assert "Detect score threshold" in english_labels
+    assert any(isinstance(item, str) and "false positives" in item for item in english_values)

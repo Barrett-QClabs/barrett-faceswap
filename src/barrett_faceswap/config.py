@@ -174,6 +174,13 @@ class DetectConfig(_Model):
             raise ValueError(t("config.det_size"))
         return value
 
+    @field_validator("score_threshold")
+    @classmethod
+    def _score_threshold(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
+
 
 class SwapConfig(_Model):
     """``model`` selects the registry swapper. ``pixel_boost`` 0 keeps ``resolution`` for inswapper."""
@@ -693,6 +700,16 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
     occluder_model = getattr(request, "occluder_model", None)
     if occluder_model:
         masks = masks.model_copy(update={"occluder_model": occluder_model})
+    detect = config.detect
+    # 0 is a legal threshold. A truthy check would keep the config value.
+    detect_score = getattr(request, "detect_score", None)
+    if detect_score is not None:
+        try:
+            detect = DetectConfig.model_validate(
+                {**detect.model_dump(), "score_threshold": float(detect_score)}
+            )
+        except ValidationError as exc:
+            raise ConfigError(t("config.unit_interval")) from exc
     return config.model_copy(
         update={
             "enhancer": enhancer,
@@ -701,6 +718,7 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
             "blend": blend,
             "execution": execution,
             "masks": masks,
+            "detect": detect,
         }
     )
 
