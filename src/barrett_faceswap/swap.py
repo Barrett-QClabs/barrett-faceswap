@@ -30,17 +30,7 @@ class IdentitySwapper:
         self._emap: np.ndarray | None = None
 
     def embed(self, source_bgr: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
-        session = self.store.session("recognizer")
-        size = _spatial_size(session, fallback=112)
-        crop, _matrix = align_face(source_bgr, landmarks, size)
-        blob = _recognizer_blob(crop)
-        input_name = session.get_inputs()[0].name
-        output = session.run(None, {input_name: blob})[0]
-        vector = np.asarray(output, dtype=np.float32).reshape(-1)
-        if vector.shape[0] != 512:
-            raise SwapError(t("swap.embedding_length", length=vector.shape[0]))
-        norm = float(np.linalg.norm(vector)) + 1e-8
-        return (vector / norm).astype(np.float32)
+        return embed_arcface(self.store, source_bgr, landmarks)
 
     def forward(self, target_crop_bgr: np.ndarray, embedding: np.ndarray) -> np.ndarray:
         session = self.store.session("swapper")
@@ -112,6 +102,93 @@ def _recognizer_blob(crop_bgr: np.ndarray) -> np.ndarray:
 
 
 def _swapper_blob(crop_bgr: np.ndarray) -> np.ndarray:
+    return _normalize_blob(crop_bgr, "zero_one")
+
+
+def embed_arcface(store: ModelStore, image_bgr: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
+    """L2-normalized 512-d ArcFace embedding for one set of landmarks."""
+
+    session = store.session("recognizer")
+    size = _spatial_size(session, fallback=112)
+    crop, _matrix = align_face(image_bgr, landmarks, size)
+    blob = _recognizer_blob(crop)
+    input_name = session.get_inputs()[0].name
+    output = session.run(None, {input_name: blob})[0]
+    vector = np.asarray(output, dtype=np.float32).reshape(-1)
+    if vector.shape[0] != 512:
+        raise SwapError(t("swap.embedding_length", length=vector.shape[0]))
+    norm = float(np.linalg.norm(vector)) + 1e-8
+    return (vector / norm).astype(np.float32)
+
+
+class GraphSwapper:
+    """Swapper that takes a 4-D image and a 512-d latent, plus an optional converter.
+
+    Inswapper stays on :class:`IdentitySwapper` because its latent is
+    ``embedding @ emap`` from an initializer, not a second ONNX file.
+    HyperSwap, SimSwap, and Ghost use this class. A crossface graph, when the
+    spec names one, maps ArcFace into that swapper's embedding space.
+    """
+
+    def __init__(self, store: ModelStore, spec) -> None:
+        self.store = store
+        self.spec = spec
+        self.native_size = int(spec.native_size)
+
+    def project(self, arcface: np.ndarray) -> np.ndarray:
+        """Return the latent the swap graph consumes."""
+
+        if self.spec.embedding != "crossface" or not self.spec.crossface_role:
+            vector = np.asarray(arcface, dtype=np.float32).reshape(-1)
+            norm = float(np.linalg.norm(vector)) + 1e-8
+            return (vector / norm).astype(np.float32)
+        session = self.store.session(self.spec.crossface_role)
+        return _run_vector(session, arcface)
+
+    def forward(self, target_crop_bgr: np.ndarray, latent: np.ndarray) -> np.ndarray:
+        session = self.store.session(self.spec.role)
+        image_name, latent_name = _bind_swap_inputs(session)
+        blob = _normalize_blob(target_crop_bgr, self.spec.normalize)
+        vector = np.asarray(latent, dtype=np.float32).reshape(1, -1)
+        prediction = session.run(None, {latent_name: vector, image_name: blob})[0]
+        array = np.asarray(prediction, dtype=np.float32)
+        if array.ndim != 4:
+            raise SwapError(t("swap.output_rank", rank=array.ndim))
+        return _bgr_from_nchw(array)
+
+
+def _normalize_blob(crop_bgr: np.ndarray, mode: str) -> np.ndarray:
     rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
-    rgb = rgb / 255.0
-    return np.transpose(rgb, (2, 0, 1))[None, ...]
+    if mode == "minus_one_one":
+        rgb = (rgb / 255.0 - 0.5) / 0.5
+    elif mode == "zero_one":
+        rgb = rgb / 255.0
+    else:
+        raise SwapError(t("swap.normalize", mode=mode))
+    return np.transpose(rgb, (2, 0, 1))[None, ...].astype(np.float32)
+
+
+def _bgr_from_nchw(array: np.ndarray) -> np.ndarray:
+    """Decode a swapper image. Ranges match the enhancer helper."""
+
+    from barrett_faceswap.onnx_io import nchw_to_bgr
+
+    return nchw_to_bgr(array)
+
+
+def _run_vector(session, vector: np.ndarray) -> np.ndarray:
+    incoming = np.asarray(vector, dtype=np.float32).reshape(-1)
+    if incoming.shape[0] != 512:
+        raise SwapError(t("swap.embedding_length", length=int(incoming.shape[0])))
+    item = session.get_inputs()[0]
+    shape = list(item.shape)
+    if len(shape) <= 1:
+        payload = incoming
+    else:
+        payload = incoming.reshape(1, 512)
+    output = session.run(None, {item.name: payload.astype(np.float32)})[0]
+    converted = np.asarray(output, dtype=np.float32).reshape(-1)
+    if converted.shape[0] != 512:
+        raise SwapError(t("swap.embedding_length", length=int(converted.shape[0])))
+    norm = float(np.linalg.norm(converted)) + 1e-8
+    return (converted / norm).astype(np.float32)

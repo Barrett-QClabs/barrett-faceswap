@@ -23,8 +23,12 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 
 ## 功能
 
-- SCRFD 风格的 ONNX 检测（`det_10g`）、ArcFace 向量（`w600k_r50`）、inswapper 风格替换（`inswapper_128`）
-- 五点对齐模板和贴回
+- SCRFD 风格的 ONNX 检测（`det_10g`）、ArcFace 向量（`w600k_r50`），以及可选换脸器：`inswapper_128`（默认）、`hyperswap_1a/1b/1c_256`、`simswap_256`、`simswap_unofficial_512`、`ghost_1/2/3_256`。注册表每一行都有许可键，并且 `commercial_use` 为 false。HyperSwap、SimSwap 和 Ghost 需要操作者提供的 crossface ONNX，把 ArcFace 映射到该图的隐向量
+- 像素提升：把更大的对齐裁剪切成原生尺寸的小块，逐块推理后再拼回去（128 / 256 / 512 / 768 / 1024，且该尺寸必须能被所选模型整除）
+- 选脸：按序号选一张、`--many-faces` 替换每一张、用 ArcFace 余弦相似度对参考脸，或用 JSON 做源脸到目标脸的映射。视频用一个小的 IoU 跟踪器保持这次选择
+- 贴回默认是 alpha。`--blend-mode poisson` 使用 `cv2.seamlessClone`。颜色迁移是 `mean_std`（默认）、`lab`、`histogram` 或 `none`
+- 任务把规格和下一帧未完成的序号存在 `jobs/<id>/`，中断的视频可以续跑
+- 视频默认把帧写到磁盘。`--video-mode pipe` 经 ffmpeg 管道解码和编码，不为每一帧写 PNG
 - 蒙版按像素取最小值合并：内缩方框、xseg 风格的遮挡 ONNX、BiSeNet 人脸解析区域。蒙版文件缺失时仍使用椭圆或全 1 占位
 - `face_enhancer`：GFPGAN 1.4 或 CodeFormer ONNX，带混合系数。它已注册，但默认不在处理器列表里，因此换脸不强制要求这些文件
 - 视频：ffprobe、抽帧、线程池走同一套处理器、`libx264` 或 `h264_nvenc`，再把原音轨混回去。可以裁剪时间段
@@ -34,7 +38,7 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - 中英文目录（`--lang`、`ui.language`、`BARRETT_FACESWAP_LANG`）。Gradio 的语言下拉会切换全部标签
 - 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志。视频只在开始时走一次前置检查，按间隔抽样过滤，强制打开时给每一帧加水印，并写一行审计
 
-以后再做、不承诺日期：摄像头循环、TensorRT 引擎缓存、pixel boost，以及更多换脸后端。
+以后再做、不承诺日期：摄像头循环、CUDA 图、TensorRT 引擎缓存、这组之外的换脸器，以及自动下载权重。
 
 ## 安装
 
@@ -110,7 +114,37 @@ Gradio：
 barrett-faceswap ui
 ```
 
-页面上有源、目标、输出、处理器、执行提供者、增强器、视频编码器和预览。语言下拉（`zh-CN` / `en`）会按目录重写全部标签，包括按钮。视频预览只处理第一帧。目标是视频时，运行会采用编码器下拉框的值。静态图像的运行会忽略它。除非勾选合规或配置里已经打开，否则合规保持关闭。
+页面上有源、目标、输出、处理器、执行提供者、增强器、换脸模型、像素提升、多人脸、参考脸、脸映射、融合、颜色迁移、视频模式、视频编码器和预览。语言下拉（`zh-CN` / `en`）会按目录重写全部标签，包括按钮。视频预览只处理第一帧。目标是视频并且点击运行时，才会采用编码器和视频模式下拉框的值。静态图像的运行会忽略它们。除非勾选合规或配置里已经打开，否则合规保持关闭。
+
+```bash
+barrett-faceswap swap \
+  --source path/to/authorized-source.png \
+  --target path/to/authorized-clip.mp4 \
+  --output outputs/clip.mp4 \
+  --swapper-model simswap_256 \
+  --pixel-boost 512 \
+  --many-faces \
+  --blend-mode poisson \
+  --color-transfer lab \
+  --video-mode pipe \
+  --job-id clip-a \
+  --dry-run
+```
+
+`--swapper-model` 选择图。权重不会被下载，见 `scripts/download_models.zh-CN.md`。不传 `--pixel-boost`（或传 0）表示用模型的原生尺寸（inswapper 仍遵守 `swap.resolution`）。脸映射是 JSON 列表，每项为 `{source, target_index?, reference?}`，优先于 `--many-faces` 和 `--reference`。
+
+```bash
+barrett-faceswap jobs submit \
+  --source path/to/authorized-source.png \
+  --target path/to/authorized-clip.mp4 \
+  --output outputs/clip.mp4 \
+  --dry-run \
+  --job-id clip-a
+barrett-faceswap jobs list
+barrett-faceswap jobs resume clip-a
+```
+
+`jobs submit` 只写入规格。`jobs resume` 和 `swap --job-id ID --resume` 从 `next_frame` 继续。磁盘模式复用已经抽出的帧。管道模式按时间戳定位，不是精确到帧。`jobs run` 启动最早的一条 pending、running 或 interrupted 任务。
 
 不需要权重的基准测试：
 

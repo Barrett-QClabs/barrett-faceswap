@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "barrett-faceswap"
-version = "0.2.0"
-description = "Face-swap toolkit: still images, video frames, GFPGAN/CodeFormer, masks, a bilingual Gradio UI, and an opt-in compliance gate."
+version = "0.3.0"
+description = "Face-swap toolkit: multiple swappers, video, jobs, a bilingual Gradio UI, and an opt-in compliance gate."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

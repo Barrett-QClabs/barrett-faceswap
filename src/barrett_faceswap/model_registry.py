@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.errors import ModelNotFoundError
 from barrett_faceswap.i18n import t
+from barrett_faceswap.swap_catalog import CROSSFACE_FILES, SWAPPERS
 
 
 @dataclass(frozen=True)
@@ -28,10 +29,54 @@ class ModelRecord:
     download_url: str
 
 
+def _swapper_records() -> dict[str, ModelRecord]:
+    """Registry rows for swap graphs other than the original inswapper role."""
+
+    records: dict[str, ModelRecord] = {}
+    for spec in SWAPPERS.values():
+        if spec.role == "swapper" or spec.role in records:
+            continue
+        records[spec.role] = ModelRecord(
+            role=spec.role,
+            filename=spec.filename,
+            sha256=None,
+            license_key=spec.license_key,
+            commercial_use=spec.commercial_use,
+            alignment=spec.alignment,
+            input_size=(spec.native_size, spec.native_size),
+            download_url=spec.download_url,
+        )
+    for role, filename in CROSSFACE_FILES.items():
+        records[role] = ModelRecord(
+            role=role,
+            filename=filename,
+            sha256=None,
+            license_key="models.license.crossface",
+            commercial_use=False,
+            alignment="embedding_512",
+            input_size=(1, 512),
+            download_url="",
+        )
+    return records
+
+
+_EXTRA_RECORDS = _swapper_records()
+
 ROLE_ORDER = (
     "detector",
     "recognizer",
     "swapper",
+    "hyperswap_1a",
+    "hyperswap_1b",
+    "hyperswap_1c",
+    "simswap_256",
+    "simswap_512",
+    "ghost_1",
+    "ghost_2",
+    "ghost_3",
+    "crossface_hyperswap",
+    "crossface_simswap",
+    "crossface_ghost",
     "gfpgan",
     "codeformer",
     "occluder",
@@ -110,6 +155,7 @@ BUILTIN: dict[str, ModelRecord] = {
         download_url="https://github.com/zllrunning/face-parsing.PyTorch",
     ),
 }
+BUILTIN.update(_EXTRA_RECORDS)
 
 
 def registry_record(config: AppConfig, role: str) -> ModelRecord:

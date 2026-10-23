@@ -2,7 +2,7 @@
 
 # Architecture
 
-Phase 2 keeps the Phase 1 entry point and adds a video path, a real face enhancer, occlusion and parsing masks, a Gradio UI, and a benchmark. `FaceSwapPipeline.run` is still the public call. A video target is handed to `VideoPipeline`. Both paths call `CompliancePolicy` before and after the processors. Processors return frames. They do not write the output file, so a watermark cannot be skipped by a processor that saves early.
+`FaceSwapPipeline.run` is the public call. Phase 3 adds selectable swapper graphs, pixel boost, multi-face selection, Poisson blending, a job queue that can resume, and an optional diskless video pipe. A video target is handed to `VideoPipeline`. Both paths call `CompliancePolicy` before and after the processors, including a resumed job and pipe mode. Processors return frames. They do not write the output file, so a watermark cannot be skipped by a processor that saves early.
 
 `compliance.enabled` stays `false` in `configs/default.yaml`. The policy object still runs. With that default it logs that enforcement is off and writes an unmarked file.
 
@@ -21,7 +21,7 @@ SwapRequest
        output filter, watermark, audit, write the file
 ```
 
-`--dry-run` skips ONNX and still goes through the policy. Passing `--trim-start`, `--trim-end`, or `--video-encoder` on a still image is a config error.
+`--dry-run` skips ONNX and still goes through the policy. Passing `--trim-start`, `--trim-end`, or `--video-encoder` on a still image is a config error. `video_mode: pipe` on a still image is also a config error. A job id on a still image records one frame and marks the job done.
 
 ## Video
 
@@ -41,11 +41,45 @@ ffprobe
   -> container comment + .meta.json sidecar, one audit line
 ```
 
-Frames are written to a temporary directory and deleted after encode. A diskless pipe is not implemented. `video.threads` defaults to 4. Workers share ONNX sessions. Per-frame score notes are suppressed (`log_every_frame` is false) so a long clip does not append one line per frame. A summary note records how many frames were processed.
+Disk mode (`video.mode: disk`, the default) writes frames to a temporary directory and deletes them after encode. When a job id is set, those frames stay under `jobs/<id>/{raw,processed}` so a resume can reuse them. `video.threads` defaults to 4. Workers share ONNX sessions. Per-frame score notes are suppressed (`log_every_frame` is false) so a long clip does not append one line per frame. A summary note records how many frames were processed. Many-faces, reference, map, and any job force a single worker so the tracker and `next_frame` stay in order.
 
 `h264_nvenc` does not fall back to `libx264` when the driver cannot encode. Audio is kept when `video.keep_audio` is true. A full file tries stream copy and retries AAC. A trim always re-encodes audio as AAC. `--no-audio` drops the track.
 
 Filter sampling uses `video.filter_every_n_frames` (default 30) and always includes the last frame. The watermark, when enforcement is on, is applied to every output frame, not only the sample. `apply_video_metadata` sets a container comment. If that ffmpeg call fails, the run still succeeds: the frames are already marked and the sidecar is written. Enforcement off skips the filter, the watermark, and the audit line. `before_process` returns immediately in that case and does not require sample frames.
+
+Pipe mode (`--video-mode pipe`) decodes raw BGR24 on ffmpeg stdout, runs the same processors, and encodes raw BGR24 on ffmpeg stdin. It does not write a PNG per frame. `h264_nvenc` still does not fall back. Dimensions are rounded down to even values for yuv420p. Compliance still calls `before_process` once: the sample set is estimated from duration times fps, plus the last decoded frame, collected by a decode pass that does not start an encoder. Output samples are screened before the watermark. Every output frame is watermarked when enforcement is on. One audit line is written by `complete_output`. A failure aborts the pipes and deletes the partial output. Resume seeks by adding `next_frame / fps` to the trim start. That seek is a timestamp, not a frame-exact index.
+
+## Swappers
+
+`swap_catalog.py` names the ONNX contract for each selectable model. `--swapper-model` and the UI dropdown set `swap.model`. The default remains `inswapper_128`, whose role is still `swapper` so existing `ensure_present()` calls keep working. The other graphs are optional roles. A run opens the detector, the recognizer, the selected swapper, and that swapper's crossface file when it has one. `CORE_ROLES` is unchanged, so missing optional weights do not block an inswapper swap.
+
+| Name | Native | Template | Normalize | Latent | Crossface |
+| --- | --- | --- | --- | --- | --- |
+| `inswapper_128` | 128 | inswapper (ArcFace plus the 8 px shift at 128, scaled with size) | 0..1 RGB | `embedding @ emap` from the ONNX initializer | none |
+| `hyperswap_1a/1b/1c_256` | 256 | ArcFace scaled by size/112 | [-1, 1] | crossface | `crossface_hyperswap` |
+| `simswap_256` | 256 | ArcFace scaled by size/112 | [-1, 1] | crossface | `crossface_simswap` |
+| `simswap_unofficial_512` | 512 | ArcFace scaled by size/112 | [-1, 1] | crossface | `crossface_simswap` |
+| `ghost_1/2/3_256` | 256 | ArcFace scaled by size/112 | [-1, 1] | crossface | `crossface_ghost` |
+
+Image and latent inputs are bound by rank (4-D image, 2-D latent), not by a hard-coded name. Output decoding matches the enhancer: [-1, 1] when any value is below `-0.01`, 0..255 when the max is above `1.5`, otherwise 0..1. A crossface file is a 512-d to 512-d ONNX supplied by the operator. This tree does not vendor one and does not copy FaceFusion, SimSwap, or GHOST source. Every new record sets `commercial_use` to false. Sources and the contracts above are in [scripts/download_models.md](../scripts/download_models.md).
+
+## Pixel boost
+
+`pixel_boost` aligns the crop at the boosted side, splits it into contiguous native-size squares, runs the same latent on each tile, and stitches the tiles. Allowed sides are 128, 256, 512, 768, and 1024 when the side is at least the native size and divides evenly. `0` means native size. Inswapper with boost `0` still honors `swap.resolution`, so a test can point a mock graph at a size that is not a tile multiple. A side that is not a multiple of native is one inference.
+
+## Face selection
+
+`swap.selector` is `index` (default, largest face first, `--target-face-index`), `many` (every detected face, one source), `reference` (cosine similarity against a reference image, or against the source face when no reference is passed), or `map`. The map file is a JSON list of `{source, target_index, reference}`. A locked `target_index` is assigned directly, in largest-first order. The remaining faces are matched one-to-one above `swap.similarity` (default 0.45). No match raises `swap.no_match`.
+
+`FaceTracker` is greedy IoU (`swap.track_iou`, default 0.3, drop after 8 missed frames). Once a track receives a source slot, later frames keep that slot. Tracking is on by default for reference and map.
+
+## Blend
+
+`blend.mode` is `alpha` (default inverse-warp composite) or `poisson` (`cv2.seamlessClone`, normal clone). Poisson clears a one-pixel border so the mask does not touch the frame edge, and falls back to alpha when the mask is tiny or OpenCV refuses the clone. `blend.color` is `mean_std` (default), `lab`, `histogram`, or `none`.
+
+## Jobs
+
+`jobs/<id>/job.json` stores the request, the state (`pending`, `running`, `interrupted`, `done`), and `next_frame` (the first unfinished index). `barrett-faceswap jobs submit` queues a pending job and does not run it. `jobs resume ID`, `jobs run`, and `swap --job-id ID --resume` continue. A hard stop can leave the state at `running`; resume accepts `pending`, `running`, and `interrupted`. A finished id is refused. Disk resume skips processed frames whose index is below `next_frame` and reuses `raw/frame_*.png` when those files are already there. The watermark pass at the end of a disk run still visits every processed frame, including ones written before the interruption. Pipe resume is the timestamp seek described above. An exception before `done` marks the job `interrupted`. Image jobs set `next_frame` to 1.
 
 ## Face enhancer
 
@@ -72,7 +106,7 @@ Parsing (`models/bisenet_face_parsing.onnx`) uses ImageNet mean and standard dev
 
 ## UI and benchmark
 
-`barrett-faceswap ui` builds a Gradio Blocks app. Gradio is imported only inside `build_demo` / `launch_ui` and is the `[ui]` extra. The language dropdown calls `t()` and rewrites every caption, including the Preview and Run buttons. Preview on a video extracts the first frame and runs the still pipeline. Run writes the output path. The encoder dropdown is sent only when the target is a video and the click is Run. The compliance checkbox cannot turn a config that is already on back off. The shipped checkbox follows the config, which is false.
+`barrett-faceswap ui` builds a Gradio Blocks app. Gradio is imported only inside `build_demo` / `launch_ui` and is the `[ui]` extra. The language dropdown calls `t()` and rewrites every caption, including the Preview and Run buttons and the Phase 3 controls (swapper, pixel boost, many-faces, reference, face map, blend, color, video mode). Preview on a video extracts the first frame and runs the still pipeline. Run writes the output path. The encoder and video-mode dropdowns are sent only when the target is a video and the click is Run. The compliance checkbox cannot turn a config that is already on back off. The shipped checkbox follows the config, which is false.
 
 `barrett-faceswap benchmark` times the processor chain. `--dry-run` does not load ONNX. Frames-per-second is printed. VRAM is read from `nvidia-smi` when that command works, and reported as unavailable otherwise.
 
@@ -84,13 +118,13 @@ Parsing (`models/bisenet_face_parsing.onnx`) uses ImageNet mean and standard dev
 
 **Alignment and paste-back.** `align.py` holds the five-point ArcFace template and an FFHQ 512 template. Size 112 is the recognizer crop. Size 128 adds the 8 pixel horizontal shift the inswapper export expects. The enhancer scales the FFHQ template by `size / 512`. `blend.py` inverse-warps the crop and composites with a mask.
 
-**Model registry.** `model_registry.py` records detector, recognizer, swapper, GFPGAN, CodeFormer, occluder, and parser: filename, license key, `commercial_use`, alignment name, and input size. sha256 pins live in the config and default to null because this repo does not redistribute the files. `ensure_present()` defaults to the three swap roles, so enhancer and mask files stay optional. `inspect-models` prints the merged row.
+**Model registry.** `model_registry.py` records the detector, recognizer, inswapper, the optional HyperSwap / SimSwap / Ghost / crossface roles, GFPGAN, CodeFormer, occluder, and parser: filename, license key, `commercial_use`, alignment name, and input size. sha256 pins live in the config and default to null because this repo does not redistribute the files. `ensure_present()` defaults to the three swap roles, so enhancer, mask, and extra swapper files stay optional. `inspect-models` prints one row per role.
 
 **Config.** `config.py` is a pydantic model. The CLI and the UI load that same model from YAML. Relative paths resolve from the working directory.
 
 **i18n.** `i18n/locales/en.yaml` and `zh_CN.yaml` are the only user-facing catalogs. `t(key)` is used for CLI help, logs, errors, compliance text, and every Gradio caption. Language order is `--lang`, then `BARRETT_FACESWAP_LANG`, then `ui.language`, then `en`. Quote YAML keys that PyYAML 1.1 would read as booleans (`yes`, `no`).
 
-**Compliance.** See [COMPLIANCE.md](COMPLIANCE.md). The master switch defaults to off. The policy object still runs, including around a video.
+**Compliance.** See [COMPLIANCE.md](COMPLIANCE.md). The master switch defaults to off. The policy object still runs, including around a video, a resumed job, and pipe mode.
 
 ## How this tree differs
 
@@ -104,4 +138,4 @@ Parsing (`models/bisenet_face_parsing.onnx`) uses ImageNet mean and standard dev
 
 ## Still deferred
 
-Realtime webcam capture, CUDA graphs, a TensorRT engine cache, pixel boost, extra swappers (hyperswap, SimSwap, ghost), multi-face mapping, Poisson blending, job resume, a diskless video pipe, automatic weight download, and a bundled font that can draw the Chinese watermark on pixels. OpenCV's Hershey font cannot draw `人工智能生成`. The visible bar uses the existing Latin label path. The container comment and the sidecar carry the Unicode string.
+Realtime webcam capture, CUDA graphs, a TensorRT engine cache, swappers beyond the set in this phase (blendswap, uniface, hififace, and others), automatic weight download, frame-exact pipe resume, and a bundled font that can draw the Chinese watermark on pixels. OpenCV's Hershey font cannot draw `人工智能生成`. The visible bar uses the existing Latin label path. The container comment and the sidecar carry the Unicode string. Pipe resume seeks by timestamp. A disk resume re-watermarks frames that were already written.

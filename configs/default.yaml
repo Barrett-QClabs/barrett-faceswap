@@ -35,6 +35,40 @@ models:
   parser:
     path: models/bisenet_face_parsing.onnx
     sha256: null
+  # Optional swapper backends. A run only opens the model selected by swap.model.
+  hyperswap_1a:
+    path: models/hyperswap_1a_256.onnx
+    sha256: null
+  hyperswap_1b:
+    path: models/hyperswap_1b_256.onnx
+    sha256: null
+  hyperswap_1c:
+    path: models/hyperswap_1c_256.onnx
+    sha256: null
+  simswap_256:
+    path: models/simswap_256.onnx
+    sha256: null
+  simswap_512:
+    path: models/simswap_unofficial_512.onnx
+    sha256: null
+  ghost_1:
+    path: models/ghost_1_256.onnx
+    sha256: null
+  ghost_2:
+    path: models/ghost_2_256.onnx
+    sha256: null
+  ghost_3:
+    path: models/ghost_3_256.onnx
+    sha256: null
+  crossface_hyperswap:
+    path: models/crossface_hyperswap.onnx
+    sha256: null
+  crossface_simswap:
+    path: models/crossface_simswap.onnx
+    sha256: null
+  crossface_ghost:
+    path: models/crossface_ghost.onnx
+    sha256: null
 
 enhancer:
   # gfpgan_1.4 | codeformer. The file is not required until face_enhancer runs.
@@ -65,6 +99,8 @@ masks:
 video:
   # libx264 is the CPU default. h264_nvenc needs an NVIDIA driver.
   encoder: libx264
+  # disk writes frames. pipe decodes and encodes without a PNG per frame.
+  mode: disk
   threads: 4
   # While compliance is on, the content filter sees every Nth frame plus the last.
   filter_every_n_frames: 30
@@ -82,10 +118,27 @@ detect:
   nms_threshold: 0.4
 
 swap:
+  # inswapper_128 | hyperswap_1a_256 | hyperswap_1b_256 | hyperswap_1c_256
+  # | simswap_256 | simswap_unofficial_512 | ghost_1_256 | ghost_2_256 | ghost_3_256
+  model: inswapper_128
   resolution: 128
+  # 0 keeps the native size (inswapper also honors resolution).
+  pixel_boost: 0
+  # index | many | reference | map
+  selector: index
+  similarity: 0.45
+  track: true
+  track_iou: 0.3
 
 blend:
   mask_blur: 15
+  # alpha | poisson
+  mode: alpha
+  # none | mean_std | lab | histogram
+  color: mean_std
+
+jobs:
+  root: jobs
 
 # face_enhancer is registered. It is not in the default chain, so a swap does not
 # require GFPGAN or CodeFormer weights. Add it when you want restoration.

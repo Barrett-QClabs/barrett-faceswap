@@ -65,6 +65,17 @@ class SwapRequest(BaseModel):
     enhancer_model: str | None = None
     enhancer_blend: float | None = None
     enhancer_weight: float | None = None
+    swapper_model: str | None = None
+    pixel_boost: int | None = None
+    many_faces: bool = False
+    selector: str | None = None
+    reference_path: Path | None = None
+    face_map: Path | None = None
+    blend_mode: str | None = None
+    color_transfer: str | None = None
+    video_mode: str | None = None
+    job_id: str | None = None
+    resume: bool = False
 
 
 @dataclass

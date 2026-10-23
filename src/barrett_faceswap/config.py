@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from barrett_faceswap.errors import ConfigError
 from barrett_faceswap.i18n import t
@@ -78,6 +78,17 @@ class ModelsConfig(_Model):
     codeformer: ModelFile = Field(default_factory=lambda: _optional_model("models/codeformer.onnx"))
     occluder: ModelFile = Field(default_factory=lambda: _optional_model("models/occlusion_xseg.onnx"))
     parser: ModelFile = Field(default_factory=lambda: _optional_model("models/bisenet_face_parsing.onnx"))
+    hyperswap_1a: ModelFile = Field(default_factory=lambda: _optional_model("models/hyperswap_1a_256.onnx"))
+    hyperswap_1b: ModelFile = Field(default_factory=lambda: _optional_model("models/hyperswap_1b_256.onnx"))
+    hyperswap_1c: ModelFile = Field(default_factory=lambda: _optional_model("models/hyperswap_1c_256.onnx"))
+    simswap_256: ModelFile = Field(default_factory=lambda: _optional_model("models/simswap_256.onnx"))
+    simswap_512: ModelFile = Field(default_factory=lambda: _optional_model("models/simswap_unofficial_512.onnx"))
+    ghost_1: ModelFile = Field(default_factory=lambda: _optional_model("models/ghost_1_256.onnx"))
+    ghost_2: ModelFile = Field(default_factory=lambda: _optional_model("models/ghost_2_256.onnx"))
+    ghost_3: ModelFile = Field(default_factory=lambda: _optional_model("models/ghost_3_256.onnx"))
+    crossface_hyperswap: ModelFile = Field(default_factory=lambda: _optional_model("models/crossface_hyperswap.onnx"))
+    crossface_simswap: ModelFile = Field(default_factory=lambda: _optional_model("models/crossface_simswap.onnx"))
+    crossface_ghost: ModelFile = Field(default_factory=lambda: _optional_model("models/crossface_ghost.onnx"))
 
 
 class ExecutionConfig(_Model):
@@ -115,11 +126,93 @@ class DetectConfig(_Model):
 
 
 class SwapConfig(_Model):
+    """``model`` selects the registry swapper. ``pixel_boost`` 0 keeps ``resolution`` for inswapper."""
+
+    model: str = "inswapper_128"
     resolution: int = 128
+    pixel_boost: int = 0
+    selector: str = "index"
+    reference: Path | None = None
+    face_map: Path | None = None
+    similarity: float = 0.45
+    track: bool = True
+    track_iou: float = 0.3
+
+    @field_validator("model")
+    @classmethod
+    def _model_name(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import SWAPPER_NAMES
+
+        if value not in SWAPPER_NAMES:
+            raise ValueError(t("config.swapper_model", model=value, allowed=", ".join(SWAPPER_NAMES)))
+        return value
+
+    @field_validator("selector")
+    @classmethod
+    def _selector(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import SELECTORS
+
+        if value not in SELECTORS:
+            raise ValueError(t("config.selector", selector=value, allowed=", ".join(SELECTORS)))
+        return value
+
+    @field_validator("pixel_boost")
+    @classmethod
+    def _boost(cls, value: int) -> int:
+        if int(value) < 0:
+            raise ValueError(t("swap.boost", size=value, model="-", allowed="0"))
+        return int(value)
+
+    @field_validator("similarity", "track_iou")
+    @classmethod
+    def _ratio(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
+
+    @field_validator("reference", "face_map", mode="before")
+    @classmethod
+    def _optional_path(cls, value: object) -> Path | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if text in {"", "none", "null"}:
+            return None
+        return resolve_config_path(text)
+
+    @model_validator(mode="after")
+    def _boost_matches_model(self) -> "SwapConfig":
+        from barrett_faceswap.swap_catalog import SWAPPERS
+
+        spec = SWAPPERS[self.model]
+        if self.pixel_boost and self.pixel_boost not in spec.boost_sizes:
+            allowed = ", ".join(str(size) for size in spec.boost_sizes)
+            raise ValueError(t("swap.boost", size=self.pixel_boost, model=self.model, allowed=allowed))
+        return self
 
 
 class BlendConfig(_Model):
     mask_blur: int = 15
+    mode: str = "alpha"
+    color: str = "mean_std"
+
+    @field_validator("mode")
+    @classmethod
+    def _mode(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import BLEND_MODES
+
+        if value not in BLEND_MODES:
+            raise ValueError(t("config.blend_mode", mode=value, allowed=", ".join(BLEND_MODES)))
+        return value
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import COLOR_TRANSFERS
+
+        if value not in COLOR_TRANSFERS:
+            raise ValueError(t("config.color", mode=value, allowed=", ".join(COLOR_TRANSFERS)))
+        return value
 
 
 class EnhancerConfig(_Model):
@@ -172,13 +265,23 @@ class MasksConfig(_Model):
 
 
 class VideoConfig(_Model):
-    """Disk frame pipeline. ``libx264`` is the portable default."""
+    """Disk frame pipeline by default. ``mode: pipe`` keeps frames off disk."""
 
     encoder: str = "libx264"
+    mode: str = "disk"
     threads: int = 4
     filter_every_n_frames: int = 30
     keep_audio: bool = True
     crf: int = 18
+
+    @field_validator("mode")
+    @classmethod
+    def _mode(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import VIDEO_MODES
+
+        if value not in VIDEO_MODES:
+            raise ValueError(t("config.video_mode", mode=value, allowed=", ".join(VIDEO_MODES)))
+        return value
 
     @field_validator("encoder")
     @classmethod
@@ -265,6 +368,17 @@ class ComplianceConfig(_Model):
     audit: AuditConfig = Field(default_factory=AuditConfig)
 
 
+class JobsConfig(_Model):
+    """Directory that stores job specs and in-progress frames."""
+
+    root: Path = Field(default_factory=lambda: resolve_config_path("jobs"))
+
+    @field_validator("root", mode="before")
+    @classmethod
+    def _root(cls, value: object) -> Path:
+        return resolve_config_path(value)
+
+
 class AppConfig(_Model):
     """Full project config. Constructed by the CLI and by library callers."""
 
@@ -277,6 +391,7 @@ class AppConfig(_Model):
     enhancer: EnhancerConfig = Field(default_factory=EnhancerConfig)
     masks: MasksConfig = Field(default_factory=MasksConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
+    jobs: JobsConfig = Field(default_factory=JobsConfig)
     processors: list[str] = Field(default_factory=lambda: ["face_swapper"])
     compliance: ComplianceConfig = Field(default_factory=ComplianceConfig)
 
@@ -303,8 +418,10 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
 
     enhancer = config.enhancer
     video = config.video
+    swap = config.swap
+    blend = config.blend
     model = getattr(request, "enhancer_model", None)
-    blend = getattr(request, "enhancer_blend", None)
+    enhancer_blend = getattr(request, "enhancer_blend", None)
     weight = getattr(request, "enhancer_weight", None)
     encoder = getattr(request, "video_encoder", None)
     threads = getattr(request, "video_threads", None)
@@ -312,8 +429,8 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
     keep_audio = getattr(request, "keep_audio", None)
     if model is not None:
         enhancer = enhancer.model_copy(update={"model": model})
-    if blend is not None:
-        enhancer = enhancer.model_copy(update={"blend": blend})
+    if enhancer_blend is not None:
+        enhancer = enhancer.model_copy(update={"blend": enhancer_blend})
     if weight is not None:
         enhancer = enhancer.model_copy(update={"weight": weight})
     if encoder is not None:
@@ -324,7 +441,30 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
         video = video.model_copy(update={"filter_every_n_frames": every})
     if keep_audio is not None:
         video = video.model_copy(update={"keep_audio": keep_audio})
-    return config.model_copy(update={"enhancer": enhancer, "video": video})
+    video_mode = getattr(request, "video_mode", None)
+    if video_mode:
+        video = video.model_copy(update={"mode": video_mode})
+    swap_model = getattr(request, "swapper_model", None)
+    if swap_model:
+        swap = swap.model_copy(update={"model": swap_model})
+    pixel_boost = getattr(request, "pixel_boost", None)
+    if pixel_boost:
+        swap = swap.model_copy(update={"pixel_boost": int(pixel_boost)})
+    if getattr(request, "face_map", None):
+        swap = swap.model_copy(update={"selector": "map", "face_map": request.face_map})
+    elif getattr(request, "many_faces", False):
+        swap = swap.model_copy(update={"selector": "many"})
+    elif getattr(request, "reference_path", None):
+        swap = swap.model_copy(update={"selector": "reference", "reference": request.reference_path})
+    elif getattr(request, "selector", None):
+        swap = swap.model_copy(update={"selector": request.selector})
+    blend_mode = getattr(request, "blend_mode", None)
+    if blend_mode:
+        blend = blend.model_copy(update={"mode": blend_mode})
+    color = getattr(request, "color_transfer", None)
+    if color:
+        blend = blend.model_copy(update={"color": color})
+    return config.model_copy(update={"enhancer": enhancer, "video": video, "swap": swap, "blend": blend})
 
 
 def load_config(path: str | Path) -> AppConfig:
