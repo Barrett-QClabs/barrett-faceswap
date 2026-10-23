@@ -1,0 +1,10 @@
+# Example manifest for the commercial training scaffold.
+# Paths are names only. This file does not download images or weights.
+name: example-commercial
+resolution: 256
+license: commercial-ok
+samples:
+  - identity: person-a
+    source: datasets/person-a/source.png
+    target: datasets/person-a/target.png
+    license: commercial-ok

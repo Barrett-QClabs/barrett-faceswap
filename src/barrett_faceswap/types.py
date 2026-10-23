@@ -32,6 +32,8 @@ class ProcessContext:
     notes: list[str] = field(default_factory=list)
     # Video runs turn this off so a long clip does not append one note per frame.
     log_every_frame: bool = True
+    # When set, the swapper uses these faces instead of running the detector.
+    known_faces: list | None = None
 
 
 class SwapRequest(BaseModel):
@@ -76,6 +78,9 @@ class SwapRequest(BaseModel):
     video_mode: str | None = None
     job_id: str | None = None
     resume: bool = False
+    commercial: bool = False
+    live_session: bool = False
+    live_frames: int = 0
 
 
 @dataclass

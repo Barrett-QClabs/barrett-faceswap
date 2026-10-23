@@ -32,7 +32,7 @@ class VideoMarkResult:
     detail: str
 
 
-def apply_visible_watermark(image_bgr: np.ndarray, text: str) -> np.ndarray:
+def apply_visible_watermark(image_bgr: np.ndarray, text: str, font_path: Path | None = None) -> np.ndarray:
     """Draw a translucent bottom bar and the label. The input array is not mutated."""
 
     if image_bgr.ndim != 3 or image_bgr.shape[2] != 3:
@@ -43,12 +43,63 @@ def apply_visible_watermark(image_bgr: np.ndarray, text: str) -> np.ndarray:
     overlay = canvas.copy()
     cv2.rectangle(overlay, (0, height - bar_height), (width, height), (16, 16, 16), thickness=-1)
     cv2.addWeighted(overlay, 0.72, canvas, 0.28, 0, dst=canvas)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    scale = max(0.5, min(1.2, width / 900))
-    thickness = 1 if width < 400 else 2
-    origin_y = height - max(8, bar_height // 3)
-    cv2.putText(canvas, text, (12, origin_y), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
+    _draw_label(canvas, text or "", bar_height, font_path)
     return canvas
+
+
+def _draw_label(canvas: np.ndarray, text: str, bar_height: int, font_path: Path | None) -> None:
+    from barrett_faceswap.glyphs import GLYPHS, blit, covers
+
+    height, width = canvas.shape[:2]
+    if text and not covers(text):
+        if font_path is not None and Path(font_path).is_file() and _draw_truetype(canvas, text, font_path, bar_height):
+            return
+        logger_note = t("watermark.font_missing", path=font_path or "-")
+        import logging
+
+        logging.getLogger(__name__).info(logger_note)
+        text = "".join(char for char in text if char in GLYPHS or ord(char) < 128)
+    origin_y = height - bar_height + max(4, (bar_height - 12) // 2)
+    cursor = 12
+    limit = max(24, width // 2 - 8)
+    scale = 1 if cursor + len(text) * 13 <= limit else 1
+    for char in text:
+        if cursor >= limit:
+            break
+        glyph = GLYPHS.get(char)
+        if glyph is not None:
+            blit(canvas, glyph, cursor, origin_y, scale, (255, 255, 255))
+            cursor += (glyph.shape[1] + 2) * scale
+            continue
+        if ord(char) >= 128:
+            continue
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        thickness = 1
+        cv_scale = 0.45
+        cv2.putText(canvas, char, (cursor, origin_y + 12), font, cv_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        (tw, _th), _baseline = cv2.getTextSize(char, font, cv_scale, thickness)
+        cursor += max(tw, 4) + 1
+
+
+def _draw_truetype(canvas: np.ndarray, text: str, font_path: Path, bar_height: int) -> bool:
+    """Draw ``text`` with a caller-supplied font. False when the font cannot be read."""
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return False
+    try:
+        font = ImageFont.truetype(str(font_path), size=max(14, bar_height // 2))
+    except OSError:
+        return False
+    height, width = canvas.shape[:2]
+    rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+    image = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(image)
+    draw.text((12, height - bar_height + 4), text, fill=(255, 255, 255), font=font)
+    canvas[:] = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+    del width
+    return True
 
 
 def save_image(
@@ -57,10 +108,11 @@ def save_image(
     *,
     watermark: bool,
     text: str,
+    font_path: Path | None = None,
 ) -> None:
     """Write ``image_bgr``. When ``watermark`` is set, embed a visible label and metadata."""
 
-    marked = apply_visible_watermark(image_bgr, text) if watermark else image_bgr
+    marked = apply_visible_watermark(image_bgr, text, font_path=font_path) if watermark else image_bgr
     path.parent.mkdir(parents=True, exist_ok=True)
     rgb = cv2.cvtColor(marked, cv2.COLOR_BGR2RGB)
     image = Image.fromarray(rgb)

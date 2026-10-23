@@ -55,6 +55,18 @@ UI_KEYS = (
     "ui.preview_video",
     "ui.gradio_missing",
     "ui.control_mismatch",
+    "ui.commercial",
+    "ui.live_tab",
+    "ui.live_intro",
+    "ui.live_source",
+    "ui.live_camera",
+    "ui.live_preview",
+    "ui.live_start",
+    "ui.live_stop",
+    "ui.live_status",
+    "ui.live_ready",
+    "ui.live_stopped",
+    "ui.live_idle",
 )
 
 

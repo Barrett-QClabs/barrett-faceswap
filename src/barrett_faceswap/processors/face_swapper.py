@@ -63,7 +63,7 @@ class FaceSwapper:
         if self.store is None:
             self.pre_check(ctx)
         assert self.store is not None
-        faces = self._detect(frame)
+        faces = list(ctx.known_faces) if ctx.known_faces is not None else self._detect(frame)
         ordered = sorted(faces, key=lambda face: _area(face), reverse=True)
         slots = self._identities(ctx)
         pairs = self._pairs(frame, ordered, slots, ctx)
@@ -84,6 +84,22 @@ class FaceSwapper:
                 )
             )
         return result
+
+    def prepare_source(self, ctx: ProcessContext) -> None:
+        """Embed the source once. Later frames reuse the cached slots."""
+
+        if ctx.dry_run or self._slots is not None:
+            return
+        if self.store is None:
+            self.pre_check(ctx)
+        self._identities(ctx)
+
+    def detect_faces(self, frame: np.ndarray):
+        """Run the detector. The live loop calls this on a stride."""
+
+        if self.store is None:
+            return []
+        return self._detect(frame)
 
     def post_process(self) -> None:
         return None

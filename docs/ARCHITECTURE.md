@@ -2,7 +2,7 @@
 
 # Architecture
 
-`FaceSwapPipeline.run` is the public call. Phase 3 adds selectable swapper graphs, pixel boost, multi-face selection, Poisson blending, a job queue that can resume, and an optional diskless video pipe. A video target is handed to `VideoPipeline`. Both paths call `CompliancePolicy` before and after the processors, including a resumed job and pipe mode. Processors return frames. They do not write the output file, so a watermark cannot be skipped by a processor that saves early.
+`FaceSwapPipeline.run` is the public call for a file. Phase 4 adds a realtime webcam loop, TensorRT and CUDA-graph options that stay idle on CPU, an fp16 sibling lookup, a commercial-use gate, and a training scaffold that does not train. Phase 3's selectable swappers, pixel boost, multi-face selection, Poisson blending, resumable jobs, and optional diskless pipe stay in place. A video target is handed to `VideoPipeline`. File and live paths call `CompliancePolicy` before and after the processors, including a resumed job and pipe mode. Processors return frames. They do not write the output file, so a watermark cannot be skipped by a processor that saves early.
 
 `compliance.enabled` stays `false` in `configs/default.yaml`. The policy object still runs. With that default it logs that enforcement is off and writes an unmarked file.
 
@@ -79,7 +79,7 @@ Image and latent inputs are bound by rank (4-D image, 2-D latent), not by a hard
 
 ## Jobs
 
-`jobs/<id>/job.json` stores the request, the state (`pending`, `running`, `interrupted`, `done`), and `next_frame` (the first unfinished index). `barrett-faceswap jobs submit` queues a pending job and does not run it. `jobs resume ID`, `jobs run`, and `swap --job-id ID --resume` continue. A hard stop can leave the state at `running`; resume accepts `pending`, `running`, and `interrupted`. A finished id is refused. Disk resume skips processed frames whose index is below `next_frame` and reuses `raw/frame_*.png` when those files are already there. The watermark pass at the end of a disk run still visits every processed frame, including ones written before the interruption. Pipe resume is the timestamp seek described above. An exception before `done` marks the job `interrupted`. Image jobs set `next_frame` to 1.
+`jobs/<id>/job.json` stores the request, the state (`pending`, `running`, `interrupted`, `done`), and `next_frame` (the first unfinished index). `barrett-faceswap jobs submit` queues a pending job and does not run it. `jobs resume ID`, `jobs run`, and `swap --job-id ID --resume` continue. A hard stop can leave the state at `running`; resume accepts `pending`, `running`, and `interrupted`. A finished id is refused. Disk resume skips processed frames whose index is below `next_frame` and reuses `raw/frame_*.png` when those files are already there. The watermark pass visits every processed frame and skips a frame that already has a sibling `.wm` stamp, so a resume does not draw the bar twice. A frame that was written and not yet stamped is marked once. Pipe resume is the timestamp seek described above. An exception before `done` marks the job `interrupted`. Image jobs set `next_frame` to 1.
 
 ## Face enhancer
 
@@ -106,15 +106,35 @@ Parsing (`models/bisenet_face_parsing.onnx`) uses ImageNet mean and standard dev
 
 ## UI and benchmark
 
-`barrett-faceswap ui` builds a Gradio Blocks app. Gradio is imported only inside `build_demo` / `launch_ui` and is the `[ui]` extra. The language dropdown calls `t()` and rewrites every caption, including the Preview and Run buttons and the Phase 3 controls (swapper, pixel boost, many-faces, reference, face map, blend, color, video mode). Preview on a video extracts the first frame and runs the still pipeline. Run writes the output path. The encoder and video-mode dropdowns are sent only when the target is a video and the click is Run. The compliance checkbox cannot turn a config that is already on back off. The shipped checkbox follows the config, which is false.
+`barrett-faceswap ui` builds a Gradio Blocks app. Gradio is imported only inside `build_demo` / `launch_ui` and is the `[ui]` extra. The language dropdown calls `t()` and rewrites every caption, including the Preview and Run buttons, the Phase 3 controls, the commercial checkbox, and the webcam tab. Preview on a video extracts the first frame and runs the still pipeline. Run writes the output path. The encoder and video-mode dropdowns are sent only when the target is a video and the click is Run. The compliance checkbox cannot turn a config that is already on back off. The shipped checkbox follows the config, which is false. The webcam tab shares `LiveSession` with the CLI. Start arms the session, the first camera frame runs consent, and Stop writes one audit line when enforcement is on. The three threads live in `barrett-faceswap live`, not in the browser callback.
 
-`barrett-faceswap benchmark` times the processor chain. `--dry-run` does not load ONNX. Frames-per-second is printed. VRAM is read from `nvidia-smi` when that command works, and reported as unavailable otherwise.
+`barrett-faceswap benchmark` times the processor chain and prints per-stage milliseconds plus `realtime_fps`. `--live` times a synthetic webcam session (capture, detect, swap, output) and does not open a camera. `--dry-run` does not load ONNX. VRAM is read from `nvidia-smi` when that command works, and reported as unavailable otherwise.
+
+## Live
+
+`barrett-faceswap live` runs capture, process, and output on three threads. Each hop is a `LatestQueue`. `put_latest` drops the oldest frame when the queue is full (`live.queue_size`, default 1). Detection runs every `live.detect_every` frames (default 3). Between detections `DetectionCache` steps the box and the landmarks by the last matched velocity. `prepare_source` embeds the source once. A preview window opens when `DISPLAY` is set. `--no-preview` skips it. `--virtual-camera /dev/video2` writes raw BGR to a v4l2loopback device through ffmpeg. A missing device is logged and the preview continues.
+
+Compliance wraps this path. `before_process` screens the source and the first camera frame. Each output frame is watermarked in memory when enforcement is on. `complete_output` appends one audit line and does not tag a container file.
+
+## Execution
+
+`execution.precision` is `fp32` (the default) or `fp16`. fp16 looks beside the configured file for `{stem}_fp16.onnx` and falls back to the fp32 path when that sibling is absent. `execution.cuda_graph` sets `enable_cuda_graph` on the CUDA provider and feeds the swapper through IO binding only when the live session reports `CUDAExecutionProvider`. Otherwise `session.run` is used. TensorRT options (engine cache, timing cache, fp16, builder optimization level 0–5) are attached only when `TensorrtExecutionProvider` is installed. CPU CI skips both and does not create the cache directories.
+
+## Commercial route
+
+`--commercial` sets `execution.commercial`. `guard_commercial` refuses any role that run would open when the registry row is missing or `commercial_use` is false. Every built-in row is false, so the flag rejects the default graphs, including the occluder and parser while those masks stay enabled. No YAML key flips a built-in row to true. A model you train is a new registry row you add after legal review.
+
+`src/barrett_faceswap/train/` checks a local manifest whose license string is exactly `commercial-ok`, prints the training steps, states the ONNX contract (NCHW RGB in [-1, 1], a 512-d latent, ArcFace template scaled by size/112), and can score global SSIM plus ArcFace cosine. It does not download data, does not open a training loop, and does not copy GHOST or AEI-Net source. Those projects are the Apache-2.0 route this scaffold points at. The code here is original. `scripts/train_swapper.py --check`, `scripts/export_onnx.py --check`, and `scripts/eval_swapper.py --self-test` are the entry points. Without `--check`, the training and export scripts exit 2 and do not write weights.
+
+## Docs site
+
+`mkdocs.yml` builds a Material site from `docs/en` and `docs/zh-CN` with `mkdocs-static-i18n` (`docs_structure: folder`). `scripts/build_cli_reference.py` writes the CLI page in both languages from `build_parser()`. CI runs that script with `--check` and `mkdocs build --strict`. Nothing is deployed. The narrative files in `docs/*.md` stay next to the site and are excluded from the build.
 
 ## What was adopted
 
 **Processor protocol.** `Processor` has `pre_check`, `process_frame`, and `post_process`. `processors/registry.py` maps a name to a factory that receives the pydantic config and the provider list. `face_swapper` and `face_enhancer` are registered. This is the same kind of seam FaceFusion uses. The methods and the registry are local code.
 
-**Session cache.** `ModelStore.session` keys a session by resolved path, sha256, the requested provider tuple, and the device id. Creation is locked. A repeated call does not rebuild the session. `prefer_cuda` moves `cuda` to the front when it is in the request and leaves `cpu` last. If the installed ONNX Runtime has no CUDA provider, that name is skipped and CPU remains. Naming `tensorrt` is allowed and logged as deferred: there is no engine cache or builder setup. An RTX 5090 (Blackwell) needs an `onnxruntime-gpu` build linked against CUDA 12.8 or newer. CI runs the CPU wheel.
+**Session cache.** `ModelStore.session` keys a session by resolved path, sha256, the requested provider tuple, and the device id. Creation is locked. A repeated call does not rebuild the session. `prefer_cuda` moves `cuda` to the front when it is in the request and leaves `cpu` last. If the installed ONNX Runtime has no CUDA provider, that name is skipped and CPU remains. Naming `tensorrt` attaches the engine cache, the timing cache, fp16, and the builder optimization level when that provider is installed, and is skipped on a CPU wheel. An RTX 5090 (Blackwell) needs an `onnxruntime-gpu` build linked against CUDA 12.8 or newer. CI runs the CPU wheel.
 
 **Alignment and paste-back.** `align.py` holds the five-point ArcFace template and an FFHQ 512 template. Size 112 is the recognizer crop. Size 128 adds the 8 pixel horizontal shift the inswapper export expects. The enhancer scales the FFHQ template by `size / 512`. `blend.py` inverse-warps the crop and composites with a mask.
 
@@ -138,4 +158,4 @@ Parsing (`models/bisenet_face_parsing.onnx`) uses ImageNet mean and standard dev
 
 ## Still deferred
 
-Realtime webcam capture, CUDA graphs, a TensorRT engine cache, swappers beyond the set in this phase (blendswap, uniface, hififace, and others), automatic weight download, frame-exact pipe resume, and a bundled font that can draw the Chinese watermark on pixels. OpenCV's Hershey font cannot draw `人工智能生成`. The visible bar uses the existing Latin label path. The container comment and the sidecar carry the Unicode string. Pipe resume seeks by timestamp. A disk resume re-watermarks frames that were already written.
+Swappers beyond this set (blendswap, uniface, hififace, and others), automatic weight download, and frame-exact pipe resume. Pipe resume still seeks by timestamp. The Chinese watermark covers `人工智能生成` with original bitmaps; any other character needs `compliance.watermark.font_path`. The training scaffold does not train or export a weight. TensorRT and CUDA graph capture run only when those providers are installed. `compliance.enabled` stays false until an official launch.

@@ -137,3 +137,11 @@ barrett-faceswap inspect-models
 ```
 
 把打印出的 sha256 抄进 `configs/default.yaml` 的 `models.<role>.sha256`。下一次加载会拒绝一个不同的文件。锁定值为空时仍会计算哈希并在日志里给出摘要，但不会因此失败。
+
+## fp16 旁路文件
+
+`execution.precision: fp16` 会在配置文件旁边查找同名旁路。`models/inswapper_128.onnx` 在 `models/inswapper_128_fp16.onnx` 存在时选用它，否则仍用 fp32 文件。每个角色都使用同样的 `*_fp16` 后缀。本文不获取这两种文件。默认精度是 `fp32`。
+
+## 商业权重
+
+上面每个文件名在注册表里都是 `commercial_use: false`。`barrett-faceswap swap --commercial` 会拒绝它们。`scripts/train_swapper.py` 不会下载你自己训练的权重。法律复核之后，新增一行注册表并把 `commercial_use` 设为 true。门禁只读这个标记，不会给本表中的行开例外。参见 [docs/COMPLIANCE.zh-CN.md](../docs/COMPLIANCE.zh-CN.md)。

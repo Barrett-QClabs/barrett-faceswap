@@ -12,7 +12,7 @@ import yaml
 from pydantic import ValidationError
 
 from barrett_faceswap import __version__
-from barrett_faceswap.benchmark import run_benchmark
+from barrett_faceswap.benchmark import run_benchmark, run_live_benchmark
 from barrett_faceswap.config import ENHANCER_MODELS, VIDEO_ENCODERS, apply_request_overrides, load_config
 from barrett_faceswap.swap_catalog import (
     BLEND_MODES,
@@ -112,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_phase3_flags(swap)
     swap.add_argument("--job-id", default=None, help=t("cli.job_id"))
     swap.add_argument("--resume", action="store_true", help=t("cli.resume"))
+    swap.add_argument("--commercial", action="store_true", help=t("cli.commercial"))
 
     jobs = sub.add_parser("jobs", help=t("cli.jobs_help"))
     jobs.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
@@ -139,6 +140,25 @@ def build_parser() -> argparse.ArgumentParser:
     run_next.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
     run_next.add_argument("--lang", default=None, help=t("cli.lang"))
 
+    live = sub.add_parser("live", help=t("cli.live_help"))
+    live.add_argument("--source", required=True, type=Path, help=t("cli.source"))
+    live.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    live.add_argument("--lang", default=None, help=t("cli.lang"))
+    live.add_argument("--camera", type=int, default=None, help=t("cli.camera"))
+    live.add_argument("--frames", type=int, default=0, help=t("cli.live_frames"))
+    live.add_argument("--no-preview", action="store_true", help=t("cli.no_preview"))
+    live.add_argument("--virtual-camera", default=None, help=t("cli.virtual_camera"))
+    live.add_argument("--dry-run", action="store_true", help=t("cli.dry_run"))
+    live.add_argument("--enable-compliance", action="store_true", help=t("cli.enable_compliance"))
+    live.add_argument("--consent-file", type=Path, default=None, help=t("cli.consent_file"))
+    live.add_argument("--acknowledge-authorized-use", action="store_true", help=t("cli.acknowledge"))
+    live.add_argument("--consent-subject", default=None, help=t("cli.consent_subject"))
+    live.add_argument("--consent-statement", default=None, help=t("cli.consent_statement"))
+    live.add_argument("--no-watermark", action="store_true", help=t("cli.no_watermark"))
+    live.add_argument("--commercial", action="store_true", help=t("cli.commercial"))
+    live.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
+    _add_phase3_flags(live)
+
     inspect = sub.add_parser("inspect-models", help=t("cli.inspect_help"))
     inspect.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
     inspect.add_argument("--lang", default=None, help=t("cli.lang"))
@@ -161,6 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--height", type=int, default=256, help=t("cli.benchmark_height"))
     bench.add_argument("--dry-run", action="store_true", help=t("cli.dry_run"))
     bench.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
+    bench.add_argument("--live", action="store_true", help=t("cli.benchmark_live"))
     return parser
 
 
@@ -177,9 +198,12 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         return 0
     if namespace.command == "jobs":
         return _dispatch_jobs(namespace)
+    if namespace.command == "live":
+        return _dispatch_live(namespace)
     if namespace.command == "benchmark":
         config = load_config(namespace.config)
-        report = run_benchmark(
+        runner = run_live_benchmark if namespace.live else run_benchmark
+        report = runner(
             config,
             frames=namespace.frames,
             width=namespace.width,
@@ -235,6 +259,7 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         video_mode=namespace.video_mode,
         job_id=namespace.job_id,
         resume=namespace.resume,
+        commercial=bool(getattr(namespace, "commercial", False)),
     )
     config = apply_request_overrides(config, request)
     result = FaceSwapPipeline(config).run(request)
@@ -320,6 +345,51 @@ def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None
         job_id=job_id,
         resume=resume,
     )
+
+
+def _dispatch_live(namespace: argparse.Namespace) -> int:
+    from barrett_faceswap.live import LivePipeline, LoopbackWriter, iter_camera
+
+    config = load_config(namespace.config)
+    if namespace.commercial:
+        config = config.model_copy(update={"execution": config.execution.model_copy(update={"commercial": True})})
+    camera = config.live.camera if namespace.camera is None else namespace.camera
+    output = Path("outputs") / "live-session.txt"
+    request = SwapRequest(
+        source_path=namespace.source,
+        target_path=Path(f"camera-{camera}"),
+        output_path=output,
+        dry_run=namespace.dry_run,
+        enable_compliance=namespace.enable_compliance,
+        consent_file=namespace.consent_file,
+        acknowledge_authorized_use=namespace.acknowledge_authorized_use,
+        consent_subject=namespace.consent_subject,
+        consent_statement=namespace.consent_statement,
+        no_watermark=namespace.no_watermark,
+        execution_providers=namespace.execution_provider,
+        swapper_model=namespace.swapper_model,
+        pixel_boost=namespace.pixel_boost,
+        many_faces=namespace.many_faces,
+        reference_path=namespace.reference,
+        face_map=namespace.face_map,
+        blend_mode=namespace.blend_mode,
+        color_transfer=namespace.color_transfer,
+        commercial=namespace.commercial,
+        live_session=True,
+        live_frames=namespace.frames,
+    )
+    config = apply_request_overrides(config, request)
+    writer = LoopbackWriter(namespace.virtual_camera) if namespace.virtual_camera else None
+    result, _stats = LivePipeline(config).run(
+        request,
+        iter_camera(camera, namespace.frames),
+        writer=writer,
+        preview=not namespace.no_preview,
+    )
+    for note in result.notes:
+        print(note, file=sys.stderr)
+    print(t("cli.wrote", path=result.output_path))
+    return 0
 
 
 def _execute(config, request: SwapRequest) -> int:

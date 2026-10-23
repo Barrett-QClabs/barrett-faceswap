@@ -45,7 +45,7 @@
 
 PNG 还会写入 `tEXt` 块（`barrett.faceswap.ai_generated=true` 和 Description）。JPEG 写入 EXIF ImageDescription。文件旁边会有一个 `.meta.json` 旁路文件。
 
-视频运行在强制和水印都打开时给每一帧输出打水印，然后调用 `apply_video_metadata` 写容器注释和旁路文件。磁盘模式、管道模式和续跑的任务都走同一组 `before_process` / `complete_output` / `abort` 钩子。管道模式在水印之前抽检一组估计样本（时长乘以帧率，再加上最后一帧解码结果）。多人脸选择留在处理器内部，仍然只返回一帧，因此不能绕过水印。过滤检查用的是抽检（`video.filter_every_n_frames`，外加最后一帧），不是每一帧。写元数据的那次 ffmpeg 调用失败时，运行仍然成功：像素上已经有标记，旁路文件也会写上。如果完全没有 ffmpeg，抽帧会在编码之前失败；静态图像运行在没有 ffmpeg 时仍会写旁路文件。可见色带使用拉丁文目录字符串。OpenCV 自带的字体写不出 `人工智能生成`。容器注释和旁路文件保存的是 Unicode 文案。
+视频运行在强制和水印都打开时给每一帧输出打水印，然后调用 `apply_video_metadata` 写容器注释和旁路文件。磁盘模式、管道模式和续跑的任务都走同一组 `before_process` / `complete_output` / `abort` 钩子。管道模式在水印之前抽检一组估计样本（时长乘以帧率，再加上最后一帧解码结果）。多人脸选择留在处理器内部，仍然只返回一帧，因此不能绕过水印。过滤检查用的是抽检（`video.filter_every_n_frames`，外加最后一帧），不是每一帧。写元数据的那次 ffmpeg 调用失败时，运行仍然成功：像素上已经有标记，旁路文件也会写上。如果完全没有 ffmpeg，抽帧会在编码之前失败；静态图像运行在没有 ffmpeg 时仍会写旁路文件。可见色带用 OpenCV 的 Hershey 字体画 `AI-generated`。`人工智能生成` 用 `glyphs.py` 里原创的 12×12 位图画出来，只覆盖这六个字。仓库不捆绑第三方字体。文案里还有其他字符时，把 `compliance.watermark.font_path` 设为你有权使用的 TTF 或 OTF。文件缺失时会记一条日志，并画出已知字形。磁盘续跑在打过水印的帧旁边写 `frame.png.wm`，已有该标记的路径会被跳过，因此色带不会画两次。实时会话在内存里给帧加水印，并记录 `live.session_marked`，不给容器打标签。
 
 在强制打开时，`--no-watermark` 是跳过标识的显式、会被记录的方式。配置里把 `watermark.enabled` 设为 false 却不带这个参数，运行会被拒绝，这样只改 YAML 不能悄悄去掉标识。
 

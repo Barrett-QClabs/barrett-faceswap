@@ -124,6 +124,7 @@ class CompliancePolicy:
             request.output_path,
             watermark=context.watermark_enabled,
             text=context.watermark_text,
+            font_path=self.config.compliance.watermark.font_path,
         )
         self._write(context, "completed", reason=None)
         return SwapResult(
@@ -153,7 +154,11 @@ class CompliancePolicy:
 
         if not context.enabled or not context.watermark_enabled:
             return frame
-        return apply_visible_watermark(frame, context.watermark_text or t("watermark.label"))
+        return apply_visible_watermark(
+            frame,
+            context.watermark_text or t("watermark.label"),
+            font_path=self.config.compliance.watermark.font_path,
+        )
 
     def complete_output(self, context: ComplianceContext, request: SwapRequest) -> SwapResult:
         """Audit a file the caller already wrote. Used by the video encoder."""
@@ -165,9 +170,11 @@ class CompliancePolicy:
                 compliance_enabled=False,
                 notes=list(context.notes),
             )
-        if context.watermark_enabled:
+        if context.watermark_enabled and not request.live_session:
             marked = apply_video_metadata(request.output_path, context.watermark_text or t("watermark.label"))
             context.notes.append(marked.detail)
+        elif context.watermark_enabled and request.live_session:
+            context.notes.append(t("live.session_marked"))
         self._write(context, "completed", reason=None)
         return SwapResult(
             output_path=request.output_path,
@@ -229,6 +236,12 @@ class CompliancePolicy:
         target_samples: Sequence[np.ndarray] | None,
     ) -> None:
         self._reject_frame(read_image(request.source_path), context, role="source")
+        if request.live_session:
+            if not target_samples:
+                raise ComplianceError(t("compliance.live_samples_missing"))
+            for index, frame in enumerate(target_samples):
+                self._reject_frame(frame, context, role=f"live[{index}]")
+            return
         if is_video(request.target_path):
             if not target_samples:
                 raise ComplianceError(t("compliance.video_samples_missing"))

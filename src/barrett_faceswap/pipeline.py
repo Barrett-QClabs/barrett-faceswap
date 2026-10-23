@@ -25,6 +25,9 @@ class FaceSwapPipeline:
 
     def run(self, request: SwapRequest) -> SwapResult:
         self.config = apply_request_overrides(self.config, request)
+        from barrett_faceswap.commercial import guard_commercial
+
+        guard_commercial(self.config, request.processors)
         store = JobStore(self.config.jobs.root)
         job = open_for_run(store, request)
         try:

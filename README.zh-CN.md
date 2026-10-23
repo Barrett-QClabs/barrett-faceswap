@@ -32,13 +32,16 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - 蒙版按像素取最小值合并：内缩方框、xseg 风格的遮挡 ONNX、BiSeNet 人脸解析区域。蒙版文件缺失时仍使用椭圆或全 1 占位
 - `face_enhancer`：GFPGAN 1.4 或 CodeFormer ONNX，带混合系数。它已注册，但默认不在处理器列表里，因此换脸不强制要求这些文件
 - 视频：ffprobe、抽帧、线程池走同一套处理器、`libx264` 或 `h264_nvenc`，再把原音轨混回去。可以裁剪时间段
-- ONNX Runtime 会话按模型哈希、提供者列表和设备缓存。请求里包含 CUDA 时优先 CUDA。可以写出 TensorRT，引擎缓存以后再做
+- ONNX Runtime 会话按模型哈希、提供者列表、设备、精度和 CUDA 图标记缓存。请求里包含 CUDA 时优先 CUDA。安装了 TensorRT 提供者时会挂上引擎缓存、计时缓存、fp16 和构建优化级别。`execution.precision: fp16` 选用同目录的 `*_fp16.onnx`，文件不存在时退回 fp32。CUDA 图捕获和 IO binding 只在会话带有 CUDA 提供者时启用
 - 模型注册表包含许可、商业标记、对齐名称、输入尺寸，以及加载时可选的 sha256 校验
 - CLI、视频流水线和界面共用的 Pydantic 配置
 - 中英文目录（`--lang`、`ui.language`、`BARRETT_FACESWAP_LANG`）。Gradio 的语言下拉会切换全部标签
-- 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志。视频只在开始时走一次前置检查，按间隔抽样过滤，强制打开时给每一帧加水印，并写一行审计
+- 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志。视频只在开始时走一次前置检查，按间隔抽样过滤，强制打开时给每一帧加水印，并写一行审计。实时会话使用同一组钩子：第一帧做同意检查，每一帧输出加水印，每个会话一行审计
+- 实时摄像头：`barrett-faceswap live` 用三条线程做采集、检测、替换和输出。有界队列丢掉过期帧。检测隔几帧做一次，其余帧由缓存插值。源脸向量只算一次。输出可以打开预览，在 Linux 上也可以写到 v4l2loopback。Gradio 页面有一个摄像头页，使用同一个会话对象
+- `--commercial` 拒绝注册表里 `commercial_use` 为 false 的每一行。内置行保持 false。`scripts/train_swapper.py` 只检查本地的 `commercial-ok` 清单并打印计划。它不训练，也不下载
+- `docs/en` 与 `docs/zh-CN` 下的双语文档站（MkDocs Material）。CI 会构建，不会部署
 
-以后再做、不承诺日期：摄像头循环、CUDA 图、TensorRT 引擎缓存、这组之外的换脸器，以及自动下载权重。
+以后再做：这组之外的换脸器、自动下载权重，以及精确到帧的管道续跑。`compliance.enabled` 在正式发布前保持 false。
 
 ## 安装
 
@@ -59,7 +62,7 @@ pip uninstall -y onnxruntime
 pip install onnxruntime-gpu
 ```
 
-不要两个同时留着。RTX 5090 是 Blackwell（`sm_120`），需要链接 CUDA 12.8 或更新版本的 `onnxruntime-gpu`。CI 走 CPU 轮子。TensorRT 引擎缓存仍留到以后。
+不要两个同时留着。RTX 5090 是 Blackwell（`sm_120`），需要链接 CUDA 12.8 或更新版本的 `onnxruntime-gpu`。CI 走 CPU 轮子。没有安装对应提供者时，TensorRT 和 CUDA 图选项会被跳过。
 
 Gradio 界面是可选项：
 
@@ -114,7 +117,7 @@ Gradio：
 barrett-faceswap ui
 ```
 
-页面上有源、目标、输出、处理器、执行提供者、增强器、换脸模型、像素提升、多人脸、参考脸、脸映射、融合、颜色迁移、视频模式、视频编码器和预览。语言下拉（`zh-CN` / `en`）会按目录重写全部标签，包括按钮。视频预览只处理第一帧。目标是视频并且点击运行时，才会采用编码器和视频模式下拉框的值。静态图像的运行会忽略它们。除非勾选合规或配置里已经打开，否则合规保持关闭。
+页面上有源、目标、输出、处理器、执行提供者、增强器、换脸模型、像素提升、多人脸、参考脸、脸映射、融合、颜色迁移、视频模式、视频编码器、商业门禁、预览，以及摄像头页。语言下拉（`zh-CN` / `en`）会按目录重写全部标签，包括按钮和摄像头页。视频预览只处理第一帧。目标是视频并且点击运行时，才会采用编码器和视频模式下拉框的值。静态图像的运行会忽略它们。除非勾选合规或配置里已经打开，否则合规保持关闭。摄像头页在浏览器允许摄像头之前不会打开设备。开始只是待命。第一帧做同意检查。合规打开时，停止会写审计行。
 
 ```bash
 barrett-faceswap swap \
@@ -150,9 +153,49 @@ barrett-faceswap jobs resume clip-a
 
 ```bash
 barrett-faceswap benchmark --dry-run --frames 32
+barrett-faceswap benchmark --live --dry-run --frames 8
 ```
 
-这一行会给出每秒帧数。PATH 里没有 `nvidia-smi` 时，`vram_mb` 是 `unavailable`。只有配置的权重都在时才去掉 `--dry-run`；没有人脸的合成帧仍然会让检测失败。
+这一行会给出每秒帧数、`realtime_fps` 和各阶段毫秒数。PATH 里没有 `nvidia-smi` 时，`vram_mb` 是 `unavailable`。只有配置的权重都在时才去掉 `--dry-run`；没有人脸的合成帧仍然会让检测失败。`--live` 使用合成帧，不会打开摄像头。
+
+不需要显示器、也不需要权重的实时试跑：
+
+```bash
+barrett-faceswap live \
+  --source examples/synthetic/source.png \
+  --frames 8 \
+  --no-preview \
+  --dry-run
+```
+
+`--virtual-camera /dev/video2` 在该 v4l2loopback 设备存在时写出原始帧。设备缺失时记一条日志，会话继续。`swap` 或 `live` 上的 `--commercial` 会拒绝内置权重：
+
+```bash
+barrett-faceswap swap \
+  --source examples/synthetic/source.png \
+  --target examples/synthetic/target.png \
+  --output outputs/dry-run.png \
+  --dry-run \
+  --commercial
+```
+
+这条命令会以错误退出。默认配置里 `execution.commercial` 为 false。
+
+训练脚手架（不下载，也不进入训练循环）：
+
+```bash
+python scripts/train_swapper.py --dataset configs/dataset.example.yaml --check
+python scripts/export_onnx.py --check
+python scripts/eval_swapper.py --self-test
+```
+
+文档站，不会部署：
+
+```bash
+pip install -e ".[docs]"
+python scripts/build_cli_reference.py --check
+mkdocs build --strict
+```
 
 接近生产的命令：
 
@@ -176,7 +219,10 @@ configs/default.yaml          由 pydantic 加载的默认配置
 docs/ARCHITECTURE.zh-CN.md    设计和与参考项目的差别
 docs/COMPLIANCE.zh-CN.md      同意、水印、过滤、审计、使用边界
 docs/RESEARCH.zh-CN.md        对 FaceFusion、Deep-Live-Cam、roop、InsightFace、SimSwap 的简短记录
+docs/en/ docs/zh-CN/          MkDocs Material 站点，两种语言
 scripts/download_models.zh-CN.md
+scripts/train_swapper.py      清单检查和训练计划；不训练
+mkdocs.yml                    文档构建，CI 检查，不部署
 src/barrett_faceswap/         见英文 README 的结构树
 ```
 
