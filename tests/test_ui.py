@@ -100,6 +100,9 @@ def test_quality_presets_do_not_collapse_fast_into_balanced() -> None:
     assert "font-weight: 700" in APP_CSS
     assert "button.secondary" in APP_CSS
     assert "label.float" in APP_CSS
+    assert "block-info" in APP_CSS
+    assert "min_value" in APP_CSS
+    assert "ul.options" in APP_CSS
     assert 'input[type="radio"]' in APP_CSS
     assert "sticky" in APP_CSS
 

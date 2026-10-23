@@ -40,10 +40,9 @@ from barrett_faceswap.vision import is_video, read_image, write_image
 _BG = "#0B0D10"
 _CARD = "#14181F"
 _LINE = "#1E2430"
-_TEXT = "#E8ECF1"
+_TEXT = "#FFFFFF"
 _INK = "#0B0D10"
 _PAPER = "#FFFFFF"
-_MUTED = "#9AA3B2"
 # Darker than #2563EB so white labels stay solid (about 8.7:1) instead of looking washed out.
 _CTA = "#1E40AF"
 _CTA_HOVER = "#1D4ED8"
@@ -65,6 +64,55 @@ APP_CSS = f"""
   font-size: 17px !important;
   line-height: 1.5 !important;
   color: {_TEXT} !important;
+}}
+.gradio-container [data-testid="block-info"],
+.gradio-container [data-testid="block-label"] {{
+  color: {_TEXT} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  background: transparent !important;
+}}
+.gradio-container .min_value,
+.gradio-container .max_value {{
+  color: {_TEXT} !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container .secondary-wrap input,
+.gradio-container .secondary-wrap input:disabled {{
+  color: {_TEXT} !important;
+  -webkit-text-fill-color: {_TEXT} !important;
+  opacity: 1 !important;
+  font-size: 17px !important;
+  font-weight: 650 !important;
+  background: transparent !important;
+}}
+.gradio-container .tab-like-container {{
+  height: auto !important;
+  min-height: 40px !important;
+}}
+.gradio-container .tab-like-container input[type="number"] {{
+  min-height: 40px !important;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container ul.options,
+.gradio-container ul.options li,
+ul.options,
+ul.options li {{
+  background: {_BG} !important;
+  color: {_TEXT} !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+}}
+.gradio-container ul.options li:hover,
+.gradio-container ul.options li.active,
+.gradio-container ul.options li.selected,
+ul.options li:hover,
+ul.options li.active,
+ul.options li.selected {{
+  background: {_CTA} !important;
+  color: {_PAPER} !important;
 }}
 .gradio-container .tab-container button {{
   font-size: 17px !important;
@@ -119,11 +167,16 @@ footer {{ display: none !important; }}
   font-size: 18px !important;
   font-weight: 700 !important;
 }}
-.gradio-container label.float {{
-  background: {_PAPER} !important;
-  color: {_INK} !important;
-  font-size: 16px !important;
+.gradio-container label.float,
+.gradio-container label.float * {{
+  background: transparent !important;
+  color: {_TEXT} !important;
+  -webkit-text-fill-color: {_TEXT} !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  font-size: 18px !important;
   font-weight: 700 !important;
+  opacity: 1 !important;
 }}
 .gradio-container button.boundedheight,
 .gradio-container button.boundedheight * {{
@@ -134,6 +187,7 @@ footer {{ display: none !important; }}
 .gradio-container label:has(input[type="radio"]) {{
   background: {_PAPER} !important;
   color: {_INK} !important;
+  -webkit-text-fill-color: {_INK} !important;
   border: 1px solid {_INK} !important;
   font-size: 16px !important;
   font-weight: 700 !important;
@@ -141,23 +195,31 @@ footer {{ display: none !important; }}
 }}
 .gradio-container label:has(input[type="radio"]) * {{
   color: {_INK} !important;
+  -webkit-text-fill-color: {_INK} !important;
   font-size: 16px !important;
   font-weight: 700 !important;
 }}
 .gradio-container label:has(input[type="radio"]):has(input:checked) {{
   background: {_CTA} !important;
   color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
   border-color: {_CTA} !important;
 }}
 .gradio-container label:has(input[type="radio"]):has(input:checked) * {{
   color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
 }}
 .gradio-container label:has(input[type="checkbox"]) {{
   background: transparent !important;
   color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
   border-color: transparent !important;
   font-size: 16px !important;
   font-weight: 650 !important;
+}}
+.gradio-container label:has(input[type="checkbox"]) * {{
+  color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
 }}
 .gradio-container textarea,
 .gradio-container input[type="text"],
@@ -165,7 +227,10 @@ footer {{ display: none !important; }}
 .gradio-container select {{
   background: {_BG} !important;
   color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
   font-size: 17px !important;
+  font-weight: 650 !important;
+  opacity: 1 !important;
 }}
 .bf-actions button:disabled {{ opacity: 0.4; }}
 @media (max-width: 959px) {{
@@ -391,13 +456,17 @@ def _dark_theme(gr):
             block_title_text_color_dark=_TEXT,
             body_text_color=_TEXT,
             body_text_color_dark=_TEXT,
-            body_text_color_subdued=_MUTED,
-            body_text_color_subdued_dark=_MUTED,
+            body_text_color_subdued=_TEXT,
+            body_text_color_subdued_dark=_TEXT,
+            input_placeholder_color=_TEXT,
+            input_placeholder_color_dark=_TEXT,
+            block_title_background_fill="transparent",
+            block_title_background_fill_dark="transparent",
             body_text_size="17px",
             body_text_weight="600",
             block_label_text_size="16px",
             block_label_text_weight="700",
-            block_title_text_size="17px",
+            block_title_text_size="18px",
             block_title_text_weight="700",
             section_header_text_size="17px",
             section_header_text_weight="700",
