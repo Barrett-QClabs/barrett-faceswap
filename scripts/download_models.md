@@ -7,10 +7,11 @@ Do not commit the files. Do not add a CI step that downloads them. From the repo
 ```bash
 barrett-faceswap download-models
 barrett-faceswap download-models --with-gfpgan
+barrett-faceswap download-models --with-masks
 barrett-faceswap doctor
 ```
 
-`download-models` fetches `buffalo_l.zip` and `inswapper_128.onnx`, checks sha256, resumes a partial file when the server answers HTTP 206, and tries the next mirror after three failures. Each attempt bounds the TCP connect at 15 seconds and the read at 30 seconds, so a hung mirror fails over instead of waiting on the socket. `--from-dir PATH` copies files by basename (including inside subdirectories) and checks sha256 before any download. A hash mismatch stops the command. A missing file is still downloaded. A `buffalo_l.zip` in that directory is extracted the same way as a downloaded archive. `--force` downloads again. `--with-gfpgan` is optional. `doctor` prints execution providers, whether CUDA/cuDNN preload ran, the sha256 of the local files, and a warning when both `onnxruntime` and `onnxruntime-gpu` are installed. CI does not run either command.
+`download-models` fetches `buffalo_l.zip` and `inswapper_128.onnx`, checks sha256, resumes a partial file when the server answers HTTP 206, and tries the next mirror after three failures. Each attempt bounds the TCP connect at 15 seconds and the read at 30 seconds, so a hung mirror fails over instead of waiting on the socket. `--from-dir PATH` copies files by basename (including inside subdirectories) and checks sha256 before any download. A hash mismatch stops the command. A missing file is still downloaded. A `buffalo_l.zip` in that directory is extracted the same way as a downloaded archive. `--force` downloads again. `--with-gfpgan` and `--with-masks` are optional. `--with-masks` fetches `xseg_1.onnx` and `bisenet_resnet_34.onnx`. `--from-dir` also accepts those upstream names and the stored names `occlusion_xseg.onnx` and `bisenet_face_parsing.onnx`. The mask files' licenses are unverified and likely non-commercial. `doctor` prints execution providers, whether CUDA/cuDNN preload ran, the sha256 of the local files, and a warning when both `onnxruntime` and `onnxruntime-gpu` are installed. CI does not run either command.
 
 Pins checked by the command:
 
@@ -20,6 +21,8 @@ Pins checked by the command:
 | `w600k_r50.onnx` | `4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43` |
 | `inswapper_128.onnx` | `e4a3f08c753cb72d04e10aa0f7dbe3deebbf39567d4ead6dce08e98aa49e16af` |
 | `gfpgan_1.4.onnx` | `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385` |
+| `xseg_1.onnx` (stored as `occlusion_xseg.onnx`) | `c4d1498b8a03b5fe2a3a5d2ef2a0402ab03bd51edaf5b2d8d5fb764702a97dd3` |
+| `bisenet_resnet_34.onnx` (stored as `bisenet_face_parsing.onnx`) | `4a0b8c958a3c938913bd06a8365dbb3c8761afba6ecbf0d14b3b1f77eb230c96` |
 
 The buffalo archive itself is not pinned. The command hashes the two ONNX members after extraction, so a valid re-pack is accepted. You can still copy files by hand and pin them with `barrett-faceswap inspect-models`.
 
@@ -153,7 +156,14 @@ The weights are S-Lab License 1.0 (non-commercial research). Export to `models/c
 
 ## Occlusion (xseg-style)
 
-Place an operator-supplied file at `models/occlusion_xseg.onnx`. There is no blessed URL. The expected graph takes 0..1 RGB (or one gray channel) at 256 and returns one channel where higher means the pixel stays visible. A max above 1.5 is read as 0..255. Set `masks.occlusion_invert: true` when the graph predicts the occluder instead of the face. The xseg idea is associated with DeepFaceLab (<https://github.com/iperov/DeepFaceLab>). That code is GPL-3.0 and must not be copied into this tree. `commercial_use` is false.
+`download-models --with-masks` writes facefusion-assets `xseg_1.onnx` from models-3.1.0 to `models/occlusion_xseg.onnx`. The only accepted sha256 is `c4d1498b8a03b5fe2a3a5d2ef2a0402ab03bd51edaf5b2d8d5fb764702a97dd3`.
+
+```text
+https://github.com/facefusion/facefusion-assets/releases/download/models-3.1.0/xseg_1.onnx
+https://huggingface.co/facefusion/models-3.1.0/resolve/main/xseg_1.onnx
+```
+
+The license of that file is unverified and likely non-commercial. This repository does not grant rights to it. The graph takes 0..1 RGB. The published file is channels-last, `[N, 256, 256, 3]`. A channels-first graph, or one gray channel, is also accepted. It returns one channel where higher means the pixel stays visible. A max above 1.5 is read as 0..255. Set `masks.occlusion_invert: true` when the graph predicts the occluder instead of the face. Asymmetric ConvTranspose padding is rewritten in memory at load so the CUDA provider does not drop those nodes to the CPU. The xseg idea is associated with DeepFaceLab (<https://github.com/iperov/DeepFaceLab>). That code is GPL-3.0 and must not be copied into this tree. `commercial_use` is false.
 
 ## Face parsing (BiSeNet)
 
@@ -161,7 +171,14 @@ Training code often cited for this export:
 
 <https://github.com/zllrunning/face-parsing.PyTorch>
 
-That repository's code is MIT. Weights such as `79999_iter.pth` are commonly trained on CelebAMask-HQ, which is non-commercial research. Confirm the file you actually place at `models/bisenet_face_parsing.onnx`. Input is ImageNet-normalized RGB (mean 0.485, 0.456, 0.406; std 0.229, 0.224, 0.225). Output is either per-class scores or an integer label map. Class indexes are the 19 CelebAMask-HQ labels listed in `src/barrett_faceswap/parsing.py` (`background` is 0, `hat` is 18). `commercial_use` is false.
+That repository's code is MIT. `--with-masks` also writes facefusion-assets `bisenet_resnet_34.onnx` from models-3.0.0 to `models/bisenet_face_parsing.onnx`. The only accepted sha256 is `4a0b8c958a3c938913bd06a8365dbb3c8761afba6ecbf0d14b3b1f77eb230c96`.
+
+```text
+https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/bisenet_resnet_34.onnx
+https://huggingface.co/facefusion/models-3.0.0/resolve/main/bisenet_resnet_34.onnx
+```
+
+The license of that file is unverified and likely non-commercial. Weights such as `79999_iter.pth` are commonly trained on CelebAMask-HQ, which is non-commercial research. Input is ImageNet-normalized RGB (mean 0.485, 0.456, 0.406; std 0.229, 0.224, 0.225). Output is either per-class scores or an integer label map. Class indexes are the 19 CelebAMask-HQ labels listed in `src/barrett_faceswap/parsing.py` (`background` is 0, `hat` is 18). Eye and brow classes are also used as the swap eye mask. `commercial_use` is false.
 
 ## RetinaFace
 

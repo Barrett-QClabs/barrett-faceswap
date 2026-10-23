@@ -13,7 +13,7 @@ from barrett_faceswap.blend import apply_color, paste_back, paste_poisson
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.detect import FaceDetector, select_face
 from barrett_faceswap.errors import NoFaceError
-from barrett_faceswap.eyes import restore_eyes
+from barrett_faceswap.eyes import eye_openness, restore_eyes
 from barrett_faceswap.facesel import FaceMapEntry, FaceTracker, assign_slots, load_face_map
 from barrett_faceswap.i18n import t
 from barrett_faceswap.masking import MaskStack
@@ -125,7 +125,8 @@ class FaceSwapper:
         return self._detect(frame)
 
     def post_process(self) -> None:
-        return None
+        if self.masks is not None:
+            self.masks.reset()
 
     def find_faces(self, image: np.ndarray) -> tuple[list[Face], str]:
         """Video entry. Retries a miss, and does not raise when the frame is empty."""
@@ -272,7 +273,6 @@ class FaceSwapper:
         return embed_arcface(self.store, frame, face.landmarks)
 
     def _swap_one(self, frame: np.ndarray, face: Face, slot: _Slot, ctx: ProcessContext) -> np.ndarray:
-        del ctx
         side = output_size(
             self._spec,
             pixel_boost=self.config.swap.pixel_boost,
@@ -296,11 +296,22 @@ class FaceSwapper:
             self.masks = MaskStack(self.config, self.store)
             self.masks.load()
         started = time.perf_counter()
-        mask = self.masks.compose(crop, side, self.config.blend.mask_blur, landmarks=template)
+        mask = self.masks.compose(
+            crop,
+            side,
+            self.config.blend.mask_blur,
+            landmarks=template,
+            frame_points=points[:5],
+            matrix=matrix,
+            sequential=ctx.reuse_masks,
+            face_width=max(float(face.bbox[2]) - float(face.bbox[0]), 1.0),
+        )
         self.stage_seconds["mask"] += time.perf_counter() - started
         started = time.perf_counter()
         colored = apply_color(self.config.blend.color, swapped, crop, mask)
         eye_points = map_points(points, matrix) if points.shape[0] >= 106 else template
+        openness = eye_openness(eye_points)
+        ctx.eye_openness = openness
         colored = restore_eyes(
             self.config.blend.eye_mode,
             colored,
@@ -308,6 +319,8 @@ class FaceSwapper:
             eye_points,
             self.config.blend.mask_blur,
             self.config.blend.eye_sharpen,
+            mask=getattr(self.masks, "eye_mask", None),
+            openness=openness,
         )
         self.stage_seconds["color"] += time.perf_counter() - started
         started = time.perf_counter()

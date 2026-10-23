@@ -39,7 +39,7 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志。视频只在开始时走一次前置检查，按间隔抽样过滤，强制打开时给每一帧加水印，并写一行审计。实时会话使用同一组钩子：第一帧做同意检查，每一帧输出加水印，每个会话一行审计
 - 实时摄像头：`barrett-faceswap live` 用三条线程做采集、检测、替换和输出。有界队列丢掉过期帧。检测隔几帧做一次，其余帧由缓存插值。源脸向量只算一次。输出可以打开预览，在 Linux 上也可以写到 v4l2loopback。Gradio 页面有一个摄像头页，使用同一个会话对象
 - `--commercial` 拒绝注册表里 `commercial_use` 为 false 的每一行。内置行保持 false。`scripts/train_swapper.py` 只检查本地的 `commercial-ok` 清单并打印计划。它不训练，也不下载
-- `barrett-faceswap download-models` 下载 `buffalo_l` 和 `inswapper_128`，校验 sha256，支持断点续传，并在镜像之间重试。每个镜像的连接最多等 15 秒。`--from-dir` 会在下载前复制匹配的 ONNX 文件。`--with-gfpgan` 是可选项。CI 不会运行它。`barrett-faceswap doctor` 打印提供者、CUDA/cuDNN 预加载状态和本地模型哈希，并在同时安装两个 ONNX Runtime 轮子时发出警告
+- `barrett-faceswap download-models` 下载 `buffalo_l` 和 `inswapper_128`，校验 sha256，支持断点续传，并在镜像之间重试。每个镜像的连接最多等 15 秒。`--from-dir` 会在下载前复制匹配的 ONNX 文件。`--with-gfpgan` 和 `--with-masks` 是可选项。蒙版文件是 facefusion-assets 的 `xseg_1.onnx` 和 `bisenet_resnet_34.onnx`，许可未经核实，很可能不能用于商业用途。CI 不会运行它。`barrett-faceswap doctor` 打印提供者、CUDA/cuDNN 预加载状态和本地模型哈希，并在同时安装两个 ONNX Runtime 轮子时发出警告
 - 视频不会因为某一帧没有脸而中止。它会降低阈值、旋转并放大后重试，然后在 `video.max_face_gap`（默认 10）以内用相邻帧补上关键点。`--eye-mode blend`（默认）尽量保留目标眼睛。`--with-enhancer` 加上 GFPGAN 或 CodeFormer，眼部混合更强。`--pixel-boost 256` 或 `512` 会把 inswapper 切块，静态图和视频都一样
 - `docs/en` 与 `docs/zh-CN` 下的双语文档站（MkDocs Material）。CI 会构建，不会部署
 
@@ -140,7 +140,7 @@ barrett-faceswap swap \
   --dry-run
 ```
 
-`--swapper-model` 选择图。权重不会被下载，见 `scripts/download_models.zh-CN.md`。不传 `--pixel-boost`（或传 0）表示用模型的原生尺寸（inswapper 仍遵守 `swap.resolution`）。在 `inswapper_128` 上使用 `--pixel-boost 256` 或 `512` 会按更大的裁剪对齐，再跑 128 像素的切块，视频同样生效。`--eye-mode blend`（默认）在羽化蒙版下把目标眼睛混回去。`swap` 保留换过的眼睛。`target` 保留原来的眼睛。`--with-enhancer` 会追加 `face_enhancer`。脸部混合默认是 `0.6`。`enhancer.eye_blend` 默认是 `0.35`，低于脸部混合，因此修复时仍保留目标眼睛。`enhancer.temporal`（默认 `0.4`）在人脸几乎不动时混入上一帧的增强裁剪。某一帧没有检测到脸不会中止视频。静态图像仍然会失败。脸映射是 JSON 列表，每项为 `{source, target_index?, reference?}`，优先于 `--many-faces` 和 `--reference`。ONNX 会话只在加载时计算一次哈希；之后的帧复用会话，不再重读文件。
+`--swapper-model` 选择图。权重不会被下载，见 `scripts/download_models.zh-CN.md`。不传 `--pixel-boost`（或传 0）表示用模型的原生尺寸（inswapper 仍遵守 `swap.resolution`）。在 `inswapper_128` 上使用 `--pixel-boost 256` 或 `512` 会按更大的裁剪对齐，再跑 128 像素的切块，视频同样生效。`--with-enhancer` 会追加 `face_enhancer`。脸部混合默认是 `0.6`。`enhancer.eye_blend` 默认是 `0.35`，眼睛张开时还会再降低，避免修复重画眼睑。`enhancer.temporal`（默认 `0.4`）在人脸几乎不动时混入上一帧的增强裁剪。`--eye-mode blend`（默认）会保留张开的目标眼睛的大部分（大约 0.91）。`swap` 保留 inswapper 的眼睛，看起来常常更窄。`target` 保留原来的眼睛。五点关键点按张开处理。106 点会衡量每一簇眼睛有多张开。加载了解析模型时，用眼和眉的类别代替椭圆。某一帧没有检测到脸不会中止视频。静态图像仍然会失败。脸映射是 JSON 列表，每项为 `{source, target_index?, reference?}`，优先于 `--many-faces` 和 `--reference`。ONNX 会话只在加载时计算一次哈希；之后的帧复用会话，不再重读文件。
 
 ```bash
 barrett-faceswap jobs submit \
@@ -166,7 +166,7 @@ barrett-faceswap benchmark \
   --frames 32
 ```
 
-这一行会给出每秒帧数、`realtime_fps` 和各阶段毫秒数。PATH 里没有 `nvidia-smi` 时，`vram_mb` 是 `unavailable`。只有配置的权重都在时才去掉 `--dry-run`。不传 `--source` 和 `--target` 时，会用一张绘制的人脸及其关键点，替换仍然会跑。两张静态图一起传入时，检测跑在真实人脸上。`--live` 不会打开摄像头。
+这一行会给出每秒帧数、`realtime_fps` 和各阶段毫秒数。PATH 里没有 `nvidia-smi` 时，`vram_mb` 是 `unavailable`。只有配置的权重都在时才去掉 `--dry-run`。不传 `--source` 和 `--target` 时，会用一张绘制的人脸及其关键点，替换仍然会跑。两张静态图一起传入时，检测跑在真实人脸上。报告里的尺寸是这张目标图的真实尺寸，不是 `--width` 和 `--height`。`--live` 不会打开摄像头。
 
 不需要显示器、也不需要权重的实时试跑：
 

@@ -349,7 +349,7 @@ options:
                    ui.language.
 
 usage: barrett-faceswap download-models [-h] [--config CONFIG] [--lang LANG] [--with-gfpgan]
-                                        [--force] [--from-dir FROM_DIR]
+                                        [--with-masks] [--force] [--from-dir FROM_DIR]
 
 options:
   -h, --help           show this help message and exit
@@ -358,6 +358,8 @@ options:
   --lang LANG          Interface language: en or zh-CN. Overrides BARRETT_FACESWAP_LANG and
                        ui.language.
   --with-gfpgan        Also download the optional GFPGAN 1.4 ONNX.
+  --with-masks         Also download xseg_1.onnx and bisenet_resnet_34.onnx into the mask paths.
+                       Their licenses are unverified and likely non-commercial.
   --force              Download again even when the local file already matches.
   --from-dir FROM_DIR  Copy matching ONNX files from this directory before downloading. SHA-256 is
                        still checked.

@@ -43,6 +43,8 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.enhancer.eye_blend == 0.35
     assert config.enhancer.temporal == 0.4
     assert config.enhancer.temporal_motion == 0.04
+    assert config.masks.stride == 2
+    assert config.masks.stride_motion == 0.04
     assert config.video.max_face_gap == 10
     assert config.video.smooth == "one_euro"
     assert config.compliance.enabled is False

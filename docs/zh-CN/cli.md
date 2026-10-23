@@ -305,13 +305,14 @@ options:
   --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
 usage: barrett-faceswap download-models [-h] [--config CONFIG] [--lang LANG] [--with-gfpgan]
-                                        [--force] [--from-dir FROM_DIR]
+                                        [--with-masks] [--force] [--from-dir FROM_DIR]
 
 options:
   -h, --help           show this help message and exit
   --config CONFIG      YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --lang LANG          界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
   --with-gfpgan        同时下载可选的 GFPGAN 1.4 ONNX。
+  --with-masks         同时把 xseg_1.onnx 和 bisenet_resnet_34.onnx 下载到蒙版路径。这两份文件的许可未经核实，很可能不能用于商业用途。
   --force              即使本地文件已经匹配，也重新下载。
   --from-dir FROM_DIR  下载前先从这个目录复制匹配的 ONNX 文件。仍会校验 SHA-256。
 ```

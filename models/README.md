@@ -10,8 +10,8 @@ Expected files, after you follow `scripts/download_models.md`:
 - `inswapper_128.onnx` — InsightFace identity swapper
 - `gfpgan_1.4.onnx` — optional GFPGAN 1.4 restorer
 - `codeformer.onnx` — optional CodeFormer restorer
-- `occlusion_xseg.onnx` — optional occlusion mask
-- `bisenet_face_parsing.onnx` — optional face-parsing mask
+- `occlusion_xseg.onnx` — optional occlusion mask (`download-models --with-masks` stores `xseg_1.onnx` here; license unverified, likely non-commercial)
+- `bisenet_face_parsing.onnx` — optional face-parsing mask (`bisenet_resnet_34.onnx`; license unverified, likely non-commercial)
 - `hyperswap_1a_256.onnx`, `hyperswap_1b_256.onnx`, `hyperswap_1c_256.onnx`
 - `simswap_256.onnx`, `simswap_unofficial_512.onnx`
 - `ghost_1_256.onnx`, `ghost_2_256.onnx`, `ghost_3_256.onnx`

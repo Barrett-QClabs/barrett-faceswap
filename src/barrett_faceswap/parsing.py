@@ -31,6 +31,14 @@ PARSING_REGIONS: dict[str, int] = {
     "hat": 18,
 }
 
+# Eyes and brows. Used as a paste mask when a parser file is loaded.
+EYE_PARSE_REGIONS: tuple[str, ...] = (
+    "left_eyebrow",
+    "right_eyebrow",
+    "left_eye",
+    "right_eye",
+)
+
 # Facial surface used when the operator does not override masks.regions.
 # Hair, cloth, hat, neck, and ears stay out so the paste does not cover them.
 DEFAULT_PARSE_REGIONS: tuple[str, ...] = (

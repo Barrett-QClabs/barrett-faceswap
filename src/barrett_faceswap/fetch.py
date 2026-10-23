@@ -26,11 +26,27 @@ from barrett_faceswap.models import file_sha256
 logger = logging.getLogger(__name__)
 
 # Published hashes. A file that does not match is rejected.
+# xseg_1.onnx and bisenet_resnet_34.onnx are the facefusion-assets names.
+# They are stored under this repo's mask filenames. The license of those
+# files is unverified and likely non-commercial.
+XSEG_SHA256 = "c4d1498b8a03b5fe2a3a5d2ef2a0402ab03bd51edaf5b2d8d5fb764702a97dd3"
+PARSER_SHA256 = "4a0b8c958a3c938913bd06a8365dbb3c8761afba6ecbf0d14b3b1f77eb230c96"
+
 KNOWN_SHA256 = {
     "det_10g.onnx": "5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91",
     "w600k_r50.onnx": "4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43",
     "inswapper_128.onnx": "e4a3f08c753cb72d04e10aa0f7dbe3deebbf39567d4ead6dce08e98aa49e16af",
     "gfpgan_1.4.onnx": "accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385",
+    "occlusion_xseg.onnx": XSEG_SHA256,
+    "xseg_1.onnx": XSEG_SHA256,
+    "bisenet_face_parsing.onnx": PARSER_SHA256,
+    "bisenet_resnet_34.onnx": PARSER_SHA256,
+}
+
+# Basename in a --from-dir tree -> the name this repo stores.
+_IMPORT_ALIASES = {
+    "xseg_1.onnx": "occlusion_xseg.onnx",
+    "bisenet_resnet_34.onnx": "bisenet_face_parsing.onnx",
 }
 
 BUFFALO_URLS = (
@@ -46,6 +62,14 @@ GFPGAN_URLS = (
     "https://github.com/facefusion/facefusion-assets/releases/download/models/gfpgan_1.4.onnx",
     "https://huggingface.co/facefusion/models-3.0.0/resolve/main/gfpgan_1.4.onnx",
 )
+XSEG_URLS = (
+    "https://github.com/facefusion/facefusion-assets/releases/download/models-3.1.0/xseg_1.onnx",
+    "https://huggingface.co/facefusion/models-3.1.0/resolve/main/xseg_1.onnx",
+)
+PARSER_URLS = (
+    "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/bisenet_resnet_34.onnx",
+    "https://huggingface.co/facefusion/models-3.0.0/resolve/main/bisenet_resnet_34.onnx",
+)
 
 Opener = Callable[[str, dict[str, str]], object]
 _ATTEMPTS = 3
@@ -57,13 +81,14 @@ def download_models(
     config: AppConfig,
     *,
     with_gfpgan: bool = False,
+    with_masks: bool = False,
     force: bool = False,
     opener: Opener | None = None,
     pins: dict[str, str] | None = None,
     attempts: int = _ATTEMPTS,
     from_dir: Path | None = None,
 ) -> list[str]:
-    """Fetch buffalo_l and inswapper. GFPGAN ONNX is optional.
+    """Fetch buffalo_l and inswapper. GFPGAN and the mask graphs are optional.
 
     ``pins`` overrides :data:`KNOWN_SHA256` in tests. ``opener(url, headers)``
     replaces ``urllib`` so tests never touch the network.
@@ -74,7 +99,16 @@ def download_models(
         expected.update(pins)
     notes: list[str] = []
     if from_dir is not None:
-        notes.extend(_import_from_dir(Path(from_dir), config, expected, with_gfpgan=with_gfpgan, force=force))
+        notes.extend(
+            _import_from_dir(
+                Path(from_dir),
+                config,
+                expected,
+                with_gfpgan=with_gfpgan,
+                with_masks=with_masks,
+                force=force,
+            )
+        )
     detector = config.models.detector.path
     recognizer = config.models.recognizer.path
     members = {
@@ -114,6 +148,29 @@ def download_models(
                 opener=opener,
                 attempts=attempts,
                 name="gfpgan_1.4.onnx",
+            )
+        )
+    if with_masks:
+        notes.extend(
+            _download_file(
+                XSEG_URLS,
+                config.models.occluder.path,
+                expected["occlusion_xseg.onnx"],
+                force=force,
+                opener=opener,
+                attempts=attempts,
+                name="xseg_1.onnx",
+            )
+        )
+        notes.extend(
+            _download_file(
+                PARSER_URLS,
+                config.models.parser.path,
+                expected["bisenet_face_parsing.onnx"],
+                force=force,
+                opener=opener,
+                attempts=attempts,
+                name="bisenet_resnet_34.onnx",
             )
         )
     return notes
@@ -274,6 +331,7 @@ def _import_from_dir(
     expected: dict[str, str],
     *,
     with_gfpgan: bool,
+    with_masks: bool,
     force: bool,
 ) -> list[str]:
     """Copy matching files by basename. A bad hash fails before any download."""
@@ -287,10 +345,20 @@ def _import_from_dir(
     }
     if with_gfpgan:
         wanted["gfpgan_1.4.onnx"] = (config.models.gfpgan.path, expected["gfpgan_1.4.onnx"])
+    if with_masks:
+        wanted["occlusion_xseg.onnx"] = (config.models.occluder.path, expected["occlusion_xseg.onnx"])
+        wanted["bisenet_face_parsing.onnx"] = (config.models.parser.path, expected["bisenet_face_parsing.onnx"])
     found: dict[str, Path] = {}
     for path in directory.rglob("*"):
-        if path.is_file() and path.name in wanted and path.name not in found:
-            found[path.name] = path
+        if not path.is_file():
+            continue
+        canonical = _IMPORT_ALIASES.get(path.name, path.name)
+        if canonical not in wanted:
+            continue
+        current = found.get(canonical)
+        # Prefer the stored basename over an upstream alias when both are present.
+        if current is None or path.name == canonical:
+            found[canonical] = path
     notes: list[str] = []
     for name, (dest, digest) in wanted.items():
         source = found.get(name)

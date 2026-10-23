@@ -32,6 +32,33 @@ def session_hw(session, fallback: tuple[int, int]) -> tuple[int, int]:
     return fallback
 
 
+def tensor_layout(shape: list) -> str:
+    """``nhwc`` when the last axis is 1 or 3 channels and axis 1 is not.
+
+    facefusion ``xseg_1.onnx`` is ``[N, 256, 256, 3]``. A channels-first graph
+    keeps the channel count on axis 1, including a dynamic spatial size.
+    """
+
+    if len(shape) == 4 and shape[-1] in (1, 3) and shape[1] not in (1, 3):
+        return "nhwc"
+    return "nchw"
+
+
+def session_image_layout(session, fallback: tuple[int, int]) -> tuple[str, int, int, int]:
+    """Layout, height, width, and channels for the first image input."""
+
+    inputs = session.get_inputs()
+    shape = list(inputs[0].shape) if inputs else []
+    layout = tensor_layout(shape)
+    if layout == "nhwc":
+        height = static_dim(shape[1]) or fallback[0]
+        width = static_dim(shape[2]) or fallback[1]
+        channels = int(shape[-1])
+        return layout, int(height), int(width), channels
+    height, width = session_hw(session, fallback)
+    return layout, height, width, session_channels(session, 3)
+
+
 def session_channels(session, fallback: int = 3) -> int:
     """Channel count of the first 4-D input."""
 

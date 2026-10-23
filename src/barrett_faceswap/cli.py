@@ -194,6 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
     download.add_argument("--lang", default=None, help=t("cli.lang"))
     download.add_argument("--with-gfpgan", action="store_true", help=t("cli.download_with_gfpgan"))
+    download.add_argument("--with-masks", action="store_true", help=t("cli.download_with_masks"))
     download.add_argument("--force", action="store_true", help=t("cli.download_force"))
     download.add_argument("--from-dir", type=Path, default=None, help=t("cli.download_from_dir"))
     return parser
@@ -214,6 +215,7 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         for line in download_models(
             config,
             with_gfpgan=namespace.with_gfpgan,
+            with_masks=namespace.with_masks,
             force=namespace.force,
             from_dir=namespace.from_dir,
         ):

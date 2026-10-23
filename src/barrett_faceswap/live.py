@@ -144,6 +144,7 @@ class LiveSession:
             notes=notes,
             log_every_frame=False,
             source_face=self._hint_source,
+            reuse_masks=True,
         )
         for processor in self._processors:
             processor.pre_check(self._shared)

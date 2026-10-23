@@ -19,7 +19,7 @@ from barrett_faceswap.blend import paste_back
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.detect import FaceDetector
 from barrett_faceswap.enhance import blend_images, run_enhancer
-from barrett_faceswap.eyes import eye_mask
+from barrett_faceswap.eyes import eye_mask, eye_openness
 from barrett_faceswap.errors import NoFaceError, ProcessorError
 from barrett_faceswap.i18n import t
 from barrett_faceswap.masks import region_mask
@@ -91,12 +91,15 @@ class FaceEnhancer:
             crop, matrix = align_face(output, face.landmarks[:5], side, template=ffhq_template(side))
             restored = run_enhancer(self.enhancer_session, crop, weight=self.config.enhancer.weight)
             eyes = eye_mask(side, ffhq_template(side), self.config.blend.mask_blur)
+            openness = ctx.eye_openness if ctx.eye_openness is not None else eye_openness(face.landmarks)
+            # Open eyes keep more of the target crop. eye_blend 1 still means full restoration.
+            eye_amount = float(self.config.enhancer.eye_blend) * (1.0 - 0.7 * float(openness))
             blended = blend_images(
                 restored,
                 crop,
                 self.config.enhancer.blend,
                 eye_mask=eyes,
-                eye_amount=self.config.enhancer.eye_blend,
+                eye_amount=eye_amount,
             )
             blended = self._stabilize(index, face, blended)
             carried.append((blended, np.asarray(face.landmarks[:5], dtype=np.float32).copy()))
