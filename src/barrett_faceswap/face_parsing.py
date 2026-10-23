@@ -71,6 +71,16 @@ def mask_from_labels(labels: np.ndarray, regions: list[str], blur: int) -> np.nd
     return _blur(mask, blur)
 
 
+def enhancer_skin_mask(labels: np.ndarray, blur: int) -> np.ndarray:
+    """Skin class only. Eye and brow pixels stay at 0 so the plain swap shows through."""
+
+    skin = mask_from_labels(labels, ["skin"], blur)
+    eyes = mask_from_labels(labels, list(EYE_PARSE_REGIONS), 0)
+    if eyes.shape != skin.shape:
+        eyes = cv2.resize(eyes, (skin.shape[1], skin.shape[0]), interpolation=cv2.INTER_LINEAR)
+    return np.clip(skin * (1.0 - eyes), 0.0, 1.0).astype(np.float32)
+
+
 def eye_mask_from_labels(labels: np.ndarray, blur: int) -> np.ndarray | None:
     """Eye and brow classes, or ``None`` when the parser did not mark them."""
 

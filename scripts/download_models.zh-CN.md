@@ -37,19 +37,26 @@ buffalo 压缩包本身不锁定哈希。命令在解压后核对两个 ONNX 成
 | codeformer | `models/codeformer.onnx` | `ffhq_512` | 512 |
 | 遮挡 | `models/occlusion_xseg.onnx` | `xseg` | 256 |
 | 解析 | `models/bisenet_face_parsing.onnx` | `bisenet_19` | 512 |
-| hyperswap_1a | `models/hyperswap_1a_256.onnx` | `arcface_256` | 256 |
-| hyperswap_1b | `models/hyperswap_1b_256.onnx` | `arcface_256` | 256 |
-| hyperswap_1c | `models/hyperswap_1c_256.onnx` | `arcface_256` | 256 |
-| simswap_256 | `models/simswap_256.onnx` | `arcface_256` | 256 |
-| simswap_512 | `models/simswap_unofficial_512.onnx` | `arcface_512` | 512 |
-| ghost_1 | `models/ghost_1_256.onnx` | `arcface_256` | 256 |
-| ghost_2 | `models/ghost_2_256.onnx` | `arcface_256` | 256 |
-| ghost_3 | `models/ghost_3_256.onnx` | `arcface_256` | 256 |
-| crossface_hyperswap | `models/crossface_hyperswap.onnx` | `embedding_512` | 512 维 |
+| hyperswap_1a | `models/hyperswap_1a_256.onnx` | `arcface_128` | 256 |
+| hyperswap_1b | `models/hyperswap_1b_256.onnx` | `arcface_128` | 256 |
+| hyperswap_1c | `models/hyperswap_1c_256.onnx` | `arcface_128` | 256 |
+| simswap_256 | `models/simswap_256.onnx` | `arcface_112_v1` | 256 |
+| simswap_512 | `models/simswap_unofficial_512.onnx` | `arcface_112_v1` | 512 |
+| blendswap_256 | `models/blendswap_256.onnx` | `ffhq_256` | 256 |
+| ghost_1 | `models/ghost_1_256.onnx` | `arcface_112_v1` | 256 |
+| ghost_2 | `models/ghost_2_256.onnx` | `arcface_112_v1` | 256 |
+| ghost_3 | `models/ghost_3_256.onnx` | `arcface_112_v1` | 256 |
 | crossface_simswap | `models/crossface_simswap.onnx` | `embedding_512` | 512 维 |
 | crossface_ghost | `models/crossface_ghost.onnx` | `embedding_512` | 512 维 |
+| gpen_bfr_512 | `models/gpen_bfr_512.onnx` | `ffhq_512` | 512 |
+| gpen_bfr_1024 | `models/gpen_bfr_1024.onnx` | `ffhq_1024` | 1024 |
+| gpen_bfr_2048 | `models/gpen_bfr_2048.onnx` | `ffhq_2048` | 2048 |
+| restoreformer_plus_plus | `models/restoreformer_plus_plus.onnx` | `ffhq_512` | 512 |
+| xseg_2 | `models/xseg_2.onnx` | `xseg` | 256 |
+| xseg_3 | `models/xseg_3.onnx` | `xseg` | 256 |
+| sam2_refine | `models/sam2_refine.onnx` | `mask_refine` | 256 |
 
-增强、蒙版、额外换脸器和 crossface 文件都是可选的。默认的 inswapper 换脸不需要它们。`face_enhancer` 需要你选中的那一个增强文件。遮挡文件缺失时保持全 1 蒙版。解析文件缺失时，换脸裁剪使用带羽化的关键点凸包；没有关键点时使用椭圆。选中另一个换脸器时会打开那个文件和它的 crossface 图。本文档里的文件都不会被 CI 下载。
+增强、蒙版、额外换脸器和 crossface 文件都是可选的。默认的 inswapper 换脸不需要它们。`face_enhancer` 需要你选中的那一个增强文件。遮挡文件缺失时保持全 1 蒙版。解析文件缺失时，换脸裁剪使用带羽化的关键点凸包；没有关键点时使用椭圆。选中 SimSwap 或 Ghost 时还会打开对应的 crossface 图。HyperSwap 和 BlendSwap 不会。本文档里的文件都不会被 CI 下载。`download-models --swapper`、`--enhancer` 和 `--occluder` 用来下载额外的行。`sam2_refine` 不会被下载。
 
 ## InsightFace buffalo_l
 
@@ -82,16 +89,14 @@ buffalo 压缩包本身不锁定哈希。命令在解压后核对两个 ONNX 成
 
 <https://github.com/facefusion/facefusion-assets>
 
-FaceFusion 本身是 OpenRAIL-AS。不要把那个项目的源码复制进本仓库。把 ONNX 放到 `models/hyperswap_1a_256.onnx`、`models/hyperswap_1b_256.onnx` 和 `models/hyperswap_1c_256.onnx`。再放一个操作者自行提供的转换器 `models/crossface_hyperswap.onnx`。
+FaceFusion 本身是 OpenRAIL-AS。不要把那个项目的源码复制进本仓库。`download-models --swapper hyperswap_1a_256`（以及 `hyperswap_1b_256`、`hyperswap_1c_256`）会把对应 ONNX 下载到 `models/`。
 
 这里实现的约定是本仓库自己的：
 
 - 换脸图像：NCHW RGB float32，`(pixel / 255 - 0.5) / 0.5`。不做像素提升时空间尺寸是 256。
-- 换脸隐向量：float32 `[1, 512]`。
+- 换脸隐向量：float32 `[1, 512]`，即 L2 归一化后的 ArcFace 向量。没有 crossface 转换器。
 - 输入按秩绑定（4 维图像、2 维隐向量）。名称从会话读取。
-- Crossface：输入一个 512 维向量，输出一个 512 维向量，再做 L2 归一化。本仓库不附带这张图。
-- 裁剪模板：ArcFace 112 按 `size / 112` 缩放，没有 8 像素平移。
-- 输出里若有值低于 `-0.01`，按 [-1, 1] 解码；最大值高于 `1.5` 时按 0..255；其余按 0..1。
+- 裁剪模板：`arcface_128`（inswapper 的五点布局缩放到裁剪尺寸）。输出用均值 0.5、标准差 0.5 反归一化。
 - `commercial_use` 为 false。注册表不授予商业许可。
 
 ## SimSwap
@@ -100,7 +105,7 @@ FaceFusion 本身是 OpenRAIL-AS。不要把那个项目的源码复制进本仓
 
 <https://github.com/neuralchen/SimSwap>
 
-不要复制 SimSwap 的源码。请自行导出或取得 `models/simswap_256.onnx`；如果要用更大的非官方图，再放 `models/simswap_unofficial_512.onnx`。共用的转换器是 `models/crossface_simswap.onnx`。约定与上面的 HyperSwap 相同，原生尺寸是 256 和 512。像素提升必须是该原生尺寸的整数倍（768 对 256 有效，对 512 无效）。上游许可是非商业的，因此 `commercial_use` 为 false。
+不要复制 SimSwap 的源码。`download-models --swapper simswap_256` 会下载 `models/simswap_256.onnx` 和 `models/crossface_simswap.onnx`。`--swapper simswap_unofficial_512` 会下载 512 的图和同一个转换器。两者都使用 ArcFace 112 v1 模板。256 的图使用 ImageNet 均值和标准差。512 的图使用均值 0、标准差 1。转换器的输出会再做 L2 归一化。像素提升必须是该原生尺寸的整数倍。`commercial_use` 为 false。
 
 ## GHOST
 
@@ -108,7 +113,19 @@ FaceFusion 本身是 OpenRAIL-AS。不要把那个项目的源码复制进本仓
 
 <https://github.com/ai-forever/ghost>
 
-公开的训练代码是 Apache-2.0。流通中的 ONNX 包并没有被本注册表标成可商业使用，所以 `commercial_use` 保持 false。请放置 `models/ghost_1_256.onnx`、`models/ghost_2_256.onnx`、`models/ghost_3_256.onnx`，以及 `models/crossface_ghost.onnx`。图像、隐向量、模板和输出约定与 HyperSwap 一节相同。原生尺寸是 256。不要把 GHOST 的源码复制进本仓库。
+公开的训练代码是 Apache-2.0。流通中的 ONNX 包并没有被本注册表标成可商业使用，所以 `commercial_use` 保持 false。`download-models --swapper ghost_1_256`（以及 `ghost_2_256`、`ghost_3_256`）会下载那张图和 `models/crossface_ghost.onnx`。模板是 ArcFace 112 v1。均值和标准差是 0.5，输出会反归一化。转换器的向量不会再做一次 L2 归一化。不要把 GHOST 的源码复制进本仓库。
+
+## BlendSwap 256
+
+`download-models --swapper blendswap_256` 会把 facefusion-assets 的 `blendswap_256.onnx`（sha256 `20ac5e3c002288e7abd4ea6b1af74103892a6628382d1fa905d13c0270c2667b`）下载到 `models/blendswap_256.onnx`。目标裁剪是 256 的 FFHQ，均值 0、标准差 1。源不是向量，而是 112 的 ArcFace 112 v2 裁剪，同样在 0..1。上游许可是非商业的。`commercial_use` 为 false。
+
+## 更多增强器
+
+`--enhancer codeformer` 会下载 `codeformer.onnx`（sha256 `21710e7ab61c82683576c428e9c1b6fe1ed419586b7b39e394c3449c294b550f`）。`--enhancer gpen_bfr_512`、`gpen_bfr_1024` 和 `gpen_bfr_2048` 会下载对应的 GPEN ONNX。`--enhancer restoreformer_plus_plus` 会下载那个文件。它们都按 FFHQ 对齐。GPEN 的 512、1024、2048 分别使用这些边长。CodeFormer 的保真默认是 0.7。存在 `models/bisenet_face_parsing.onnx` 时，增强器只把修复结果混合到皮肤类别上，眼睛和眉毛保留未增强的换脸结果。许可是非商业的。`commercial_use` 为 false。本仓库不复制这些项目。
+
+## 遮挡模型
+
+`--occluder xseg_1` 会把 `xseg_1.onnx` 下载到 `models/occlusion_xseg.onnx`。`--occluder xseg_2` 和 `--occluder xseg_3` 会下载 `models/xseg_2.onnx` 和 `models/xseg_3.onnx`。`--occluder sam2_refine` 不会下载 SAM 2 权重。请自行放置 `models/sam2_refine.onnx`。那张图接收 0..1 的 RGB 裁剪和粗糙的 xseg 蒙版，并返回一张蒙版。粗糙的 xseg 文件仍会下载。它们的许可未经核实，或属于非商业。`commercial_use` 为 false。
 
 ## GFPGAN 1.4
 
@@ -152,7 +169,7 @@ GFPGAN 的代码和公开的 v1.4 权重是 Apache-2.0。网络里包含 NVIDIA 
 
 <https://github.com/sczhou/CodeFormer>
 
-权重是 S-Lab License 1.0（非商业研究）。请导出到 `models/codeformer.onnx`，约定同样是 512 的 NCHW RGB [-1, 1]。如果图有第二个非图像输入，本流水线会把 `--enhancer-weight`（默认 0.5）送进去。
+权重是 S-Lab License 1.0（非商业研究）。请导出到 `models/codeformer.onnx`，约定同样是 512 的 NCHW RGB [-1, 1]。如果图有第二个非图像输入，本流水线会把 `--enhancer-weight`（默认 0.7）送进去。
 
 ## 遮挡（xseg 风格）
 
@@ -193,7 +210,7 @@ InsightFace 声明预训练模型仅供非商业研究。2025-11-24 的更新要
 - inswapper 系列：`contact@insightface.ai`
 - `buffalo_l` 这类开放识别包：`recognition-oss-pack@insightface.ai`
 
-在依赖某个文件之前，请到 <https://github.com/deepinsight/insightface#license> 核对当前文本。商业使用需要他们的授权。SimSwap 的检查点是 CC BY-NC 4.0。HyperSwap 包由操作者自行提供，这里没有做商业许可。即使 GHOST 的训练代码是 Apache-2.0，这里也不把 GHOST 的 ONNX 包标成可商业使用。Crossface 转换器由操作者自行提供。GFPGAN、CodeFormer、遮挡文件和解析文件的条款见上面各节。它们都不在本仓库的 MIT 许可之内。CI 不会下载这些文件。
+在依赖某个文件之前，请到 <https://github.com/deepinsight/insightface#license> 核对当前文本。商业使用需要他们的授权。SimSwap 的检查点是 CC BY-NC 4.0。HyperSwap、BlendSwap、GPEN 和 RestoreFormer++ 的包在这里没有做商业许可。即使 GHOST 的训练代码是 Apache-2.0，这里也不把 GHOST 的 ONNX 包标成可商业使用。SimSwap 和 Ghost 的 crossface 转换器会随那些图一起下载，这里也不标成可商业使用。GFPGAN、CodeFormer、遮挡文件和解析文件的条款见上面各节。它们都不在本仓库的 MIT 许可之内。CI 不会下载这些文件。
 
 ## 锁定哈希
 

@@ -31,10 +31,25 @@ class SwapperSpec:
     commercial_use: bool
     download_url: str
     alignment: str
+    mean: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    std: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    output_denorm: bool = False
+    source_size: int = 0
+    embedding_norm: str = "l2"
 
 
 def _boosts(native: int) -> tuple[int, ...]:
     return tuple(size for size in (128, 256, 512, 768, 1024) if size >= native and size % native == 0)
+
+
+def _stats(normalize: str) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if normalize == "minus_one_one":
+        return (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+    if normalize == "imagenet":
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+    if normalize == "zero_one":
+        return (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)
+    raise ValueError(normalize)
 
 
 def _spec(
@@ -50,7 +65,11 @@ def _spec(
     license_key: str,
     download_url: str,
     alignment: str,
+    output_denorm: bool = False,
+    source_size: int = 0,
+    embedding_norm: str = "l2",
 ) -> SwapperSpec:
+    mean, std = _stats(normalize)
     return SwapperSpec(
         name=name,
         role=role,
@@ -65,6 +84,11 @@ def _spec(
         commercial_use=False,
         download_url=download_url,
         alignment=alignment,
+        mean=mean,
+        std=std,
+        output_denorm=output_denorm,
+        source_size=source_size,
+        embedding_norm=embedding_norm,
     )
 
 
@@ -92,106 +116,131 @@ SWAPPERS: dict[str, SwapperSpec] = {
         role="hyperswap_1a",
         filename="hyperswap_1a_256.onnx",
         native_size=256,
-        template="arcface",
+        template="arcface_128",
         normalize="minus_one_one",
-        embedding="crossface",
-        crossface_role="crossface_hyperswap",
+        embedding="arcface",
+        crossface_role=None,
         license_key="models.license.hyperswap",
         download_url=_HYPER,
-        alignment="arcface_256",
+        alignment="arcface_128",
+        output_denorm=True,
     ),
     "hyperswap_1b_256": _spec(
         "hyperswap_1b_256",
         role="hyperswap_1b",
         filename="hyperswap_1b_256.onnx",
         native_size=256,
-        template="arcface",
+        template="arcface_128",
         normalize="minus_one_one",
-        embedding="crossface",
-        crossface_role="crossface_hyperswap",
+        embedding="arcface",
+        crossface_role=None,
         license_key="models.license.hyperswap",
         download_url=_HYPER,
-        alignment="arcface_256",
+        alignment="arcface_128",
+        output_denorm=True,
     ),
     "hyperswap_1c_256": _spec(
         "hyperswap_1c_256",
         role="hyperswap_1c",
         filename="hyperswap_1c_256.onnx",
         native_size=256,
-        template="arcface",
+        template="arcface_128",
         normalize="minus_one_one",
-        embedding="crossface",
-        crossface_role="crossface_hyperswap",
+        embedding="arcface",
+        crossface_role=None,
         license_key="models.license.hyperswap",
         download_url=_HYPER,
-        alignment="arcface_256",
+        alignment="arcface_128",
+        output_denorm=True,
     ),
     "simswap_256": _spec(
         "simswap_256",
         role="simswap_256",
         filename="simswap_256.onnx",
         native_size=256,
-        template="arcface",
-        normalize="minus_one_one",
+        template="arcface_v1",
+        normalize="imagenet",
         embedding="crossface",
         crossface_role="crossface_simswap",
         license_key="models.license.simswap",
         download_url=_SIM,
-        alignment="arcface_256",
+        alignment="arcface_112_v1",
     ),
     "simswap_unofficial_512": _spec(
         "simswap_unofficial_512",
         role="simswap_512",
         filename="simswap_unofficial_512.onnx",
         native_size=512,
-        template="arcface",
-        normalize="minus_one_one",
+        template="arcface_v1",
+        normalize="zero_one",
         embedding="crossface",
         crossface_role="crossface_simswap",
         license_key="models.license.simswap",
         download_url=_SIM,
-        alignment="arcface_512",
+        alignment="arcface_112_v1",
+    ),
+    "blendswap_256": _spec(
+        "blendswap_256",
+        role="blendswap_256",
+        filename="blendswap_256.onnx",
+        native_size=256,
+        template="ffhq",
+        normalize="zero_one",
+        embedding="source_image",
+        crossface_role=None,
+        license_key="models.license.blendswap",
+        download_url=_HYPER,
+        alignment="ffhq_256",
+        source_size=112,
     ),
     "ghost_1_256": _spec(
         "ghost_1_256",
         role="ghost_1",
         filename="ghost_1_256.onnx",
         native_size=256,
-        template="arcface",
+        template="arcface_v1",
         normalize="minus_one_one",
         embedding="crossface",
         crossface_role="crossface_ghost",
         license_key="models.license.ghost",
         download_url=_GHOST,
-        alignment="arcface_256",
+        alignment="arcface_112_v1",
+        output_denorm=True,
+        embedding_norm="raw",
     ),
     "ghost_2_256": _spec(
         "ghost_2_256",
         role="ghost_2",
         filename="ghost_2_256.onnx",
         native_size=256,
-        template="arcface",
+        template="arcface_v1",
         normalize="minus_one_one",
         embedding="crossface",
         crossface_role="crossface_ghost",
         license_key="models.license.ghost",
         download_url=_GHOST,
-        alignment="arcface_256",
+        alignment="arcface_112_v1",
+        output_denorm=True,
+        embedding_norm="raw",
     ),
     "ghost_3_256": _spec(
         "ghost_3_256",
         role="ghost_3",
         filename="ghost_3_256.onnx",
         native_size=256,
-        template="arcface",
+        template="arcface_v1",
         normalize="minus_one_one",
         embedding="crossface",
         crossface_role="crossface_ghost",
         license_key="models.license.ghost",
         download_url=_GHOST,
-        alignment="arcface_256",
+        alignment="arcface_112_v1",
+        output_denorm=True,
+        embedding_norm="raw",
     ),
 }
+
+OCCLUDER_MODELS = ("xseg_1", "xseg_2", "xseg_3", "sam2_refine")
 
 SWAPPER_NAMES: tuple[str, ...] = tuple(SWAPPERS)
 

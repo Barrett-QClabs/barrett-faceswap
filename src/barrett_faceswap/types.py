@@ -90,6 +90,7 @@ class SwapRequest(BaseModel):
     job_id: str | None = None
     resume: bool = False
     commercial: bool = False
+    occluder_model: str | None = None
     live_session: bool = False
     live_frames: int = 0
 

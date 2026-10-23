@@ -23,16 +23,18 @@ Use a face only when that person has authorized the specific use. Do not create 
 
 ## Features
 
-- SCRFD-style ONNX detection (`det_10g`), ArcFace embedding (`w600k_r50`), and selectable swappers: `inswapper_128` (default), `hyperswap_1a/1b/1c_256`, `simswap_256`, `simswap_unofficial_512`, and `ghost_1/2/3_256`. Each registry row has a license key and `commercial_use: false`. HyperSwap, SimSwap, and Ghost use an operator-supplied crossface ONNX to map ArcFace into that graph's latent
+- SCRFD-style ONNX detection (`det_10g`), ArcFace embedding (`w600k_r50`), and selectable swappers via `--face-swapper-model`: `inswapper_128` (default), `hyperswap_1a/1b/1c_256`, `simswap_256`, `simswap_unofficial_512`, `blendswap_256`, and `ghost_1/2/3_256`. Each graph uses its own template, mean, and standard deviation. SimSwap and Ghost still need a crossface ONNX. HyperSwap uses the normalized ArcFace vector directly. BlendSwap takes a 112 px source crop. Every registry row stays `commercial_use: false`. The project is for non-commercial use. Weights stay user-downloaded
 - Pixel boost: a larger aligned crop is split into native-size tiles, inferred, and stitched (128 / 256 / 512 / 768 / 1024 when that size divides cleanly for the chosen model)
 - Face selection: one face by index, every face (`--many-faces`), a reference face by ArcFace cosine similarity, or a JSON source-to-target map. Video keeps that choice with a small IoU tracker
 - Paste-back is alpha by default. `--blend-mode poisson` uses `cv2.seamlessClone`. Color transfer defaults to `lab` (mean and standard deviation in Lab). `mean_std`, `histogram`, and `none` remain available. `--color-transfer none` turns the match off
 - Jobs persist a spec and the next unfinished frame under `jobs/<id>/` so an interrupted video can resume
 - Video defaults to disk frames. `--video-mode pipe` decodes and encodes through ffmpeg pipes and does not write a PNG per frame
-- Masks merged with a per-pixel minimum: inset box, xseg-style occlusion ONNX, and BiSeNet face-parsing regions. A missing occlusion file stays an all-ones mask. A missing parser uses a feathered landmark convex hull on the swap crop, and an ellipse when no landmarks are passed
-- `face_enhancer`: GFPGAN 1.4 or CodeFormer ONNX, with a blend amount. It is registered and left out of the default processor list so a swap does not require those files
+- Masks merged with a per-pixel minimum: inset box, xseg occlusion (`--occluder-model xseg_1`, `xseg_2`, `xseg_3`, or `sam2_refine`), and BiSeNet face-parsing regions. Video and live recompute the ONNX masks every `masks.stride` frames (default 3) and warp the previous mask while the face barely moves. A missing occlusion file stays an all-ones mask. A missing parser uses a feathered landmark convex hull on the swap crop, and an ellipse when no landmarks are passed. `sam2_refine` is an operator-supplied ONNX and is not downloaded
+- `face_enhancer` via `--face-enhancer-model`: GFPGAN 1.4 (default), CodeFormer (fidelity default 0.7), GPEN BFR 512/1024/2048, or RestoreFormer++. When a parser file is present, the restoration is blended only on the skin class. Eyes and brows stay on the plain swap. It is left out of the default processor list
+- `barrett-faceswap compare` writes a labeled contact sheet and a timing table for a grid of swapper and enhancer pairs. `--dry-run` does not load weights
+- Live landmark smoothing uses the same One-Euro filter as video, and it runs before alignment. Video already smooths inside the face stream before the swapper aligns
 - Video: ffprobe, frame extraction, a thread pool through the same processors, `libx264` or `h264_nvenc`, then the original audio muxed back. Optional trim
-- ONNX Runtime sessions cached by model hash, provider list, device, precision, and the CUDA-graph flag. CUDA is preferred when you ask for it. TensorRT engine and timing caches, fp16, and the builder optimization level are attached when that provider is installed. `execution.precision: fp16` selects a sibling `*_fp16.onnx` and falls back to fp32 when the file is absent. A CUDA session reuses IO binding. CUDA graph capture is requested only when `execution.cuda_graph` is on
+- ONNX Runtime sessions cached by model hash, provider list, device, precision, and the CUDA-graph flag. CUDA is preferred when both CUDA and TensorRT are listed. `--execution-provider tensorrt` alone builds an fp16 engine cache under `.cache/tensorrt/engines`, with a separate prefix for inswapper (`swapper`) and xseg (`occluder`). `execution.precision: fp16` selects a sibling `*_fp16.onnx` and falls back to fp32 when the file is absent. A CUDA session reuses IO binding. CUDA graph capture is requested only when `execution.cuda_graph` is on
 - Model registry with license, commercial-use flag, alignment name, input size, and an optional sha256 pin checked on load
 - Pydantic config shared by the CLI, the video pipeline, and the UI
 - English and Chinese catalogs (`--lang`, `ui.language`, `BARRETT_FACESWAP_LANG`). The Gradio dropdown switches every label
@@ -43,7 +45,7 @@ Use a face only when that person has authorized the specific use. Do not create 
 - Video does not stop on a frame with no face. It retries a lower threshold, rotations, and an upscale, then fills landmarks from neighbors inside `video.max_face_gap` (default 10). `--eye-mode blend` (the default) keeps most of the target eyes. `--with-enhancer` adds GFPGAN or CodeFormer with a stronger eye blend. `--pixel-boost 256` or `512` tiles inswapper for a still or a video
 - Bilingual docs site under `docs/en` and `docs/zh-CN` (MkDocs Material). CI builds it and does not deploy
 
-Still later: more swappers beyond this set, and frame-exact pipe resume. `compliance.enabled` stays false until an official launch.
+Still later: uniface, hififace, and frame-exact pipe resume. `compliance.enabled` stays false until an official launch.
 
 ## Install
 

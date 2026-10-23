@@ -27,6 +27,7 @@ from barrett_faceswap.face_cache import DetectionCache
 from barrett_faceswap.i18n import t
 from barrett_faceswap.processors import create_processor
 from barrett_faceswap.queues import LatestQueue
+from barrett_faceswap.recover import LandmarkSmoother
 from barrett_faceswap.types import ProcessContext, SwapRequest, SwapResult
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ class LiveSession:
         self._hint_target = hint_target
         self._shared: ProcessContext | None = None
         self._cache = DetectionCache(config.live.detect_every, iou_threshold=config.swap.track_iou)
+        self._smoother = LandmarkSmoother(str(config.video.smooth))
         self._screen_every = max(1, int(config.video.filter_every_n_frames))
         self._started = False
 
@@ -182,6 +184,7 @@ class LiveSession:
             else:
                 faces = self._cache.observe(None)
             self.stats.stage_s["detect"] += time.perf_counter() - detect_started
+            faces = self._smoother.apply(faces)
             self._shared.known_faces = faces
             output = frame
             for processor in self._processors or []:

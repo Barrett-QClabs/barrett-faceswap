@@ -165,42 +165,55 @@ class GraphSwapper:
     def project(self, arcface: np.ndarray) -> np.ndarray:
         """Return the latent the swap graph consumes."""
 
+        if self.spec.embedding == "source_image":
+            return np.asarray(arcface, dtype=np.float32)
         if self.spec.embedding != "crossface" or not self.spec.crossface_role:
             vector = np.asarray(arcface, dtype=np.float32).reshape(-1)
             norm = float(np.linalg.norm(vector)) + 1e-8
             return (vector / norm).astype(np.float32)
         session = self.store.session(self.spec.crossface_role)
-        return _run_vector(session, arcface)
+        return _run_vector(session, arcface, normalize=self.spec.embedding_norm != "raw")
 
     def forward(self, target_crop_bgr: np.ndarray, latent: np.ndarray) -> np.ndarray:
         session = self.store.session(self.spec.role)
-        if self._names is None:
-            self._names = _bind_swap_inputs(session)
-        image_name, latent_name = self._names
-        blob = _normalize_blob(target_crop_bgr, self.spec.normalize)
-        vector = np.asarray(latent, dtype=np.float32).reshape(1, -1)
+        blob = _normalize_blob(target_crop_bgr, self.spec.normalize, self.spec)
         from barrett_faceswap.binding import run_feeds
 
+        if self.spec.embedding == "source_image":
+            feeds = _bind_source_target(session, np.asarray(latent, dtype=np.float32), blob)
+        else:
+            if self._names is None:
+                self._names = _bind_swap_inputs(session)
+            image_name, latent_name = self._names
+            vector = np.asarray(latent, dtype=np.float32).reshape(1, -1)
+            feeds = {latent_name: vector, image_name: blob}
         prediction = run_feeds(
             session,
-            {latent_name: vector, image_name: blob},
+            feeds,
             cuda_graph=bool(self.store.config.execution.cuda_graph),
         )[0]
         array = np.asarray(prediction, dtype=np.float32)
         if array.ndim != 4:
             raise SwapError(t("swap.output_rank", rank=array.ndim))
+        if self.spec.output_denorm:
+            array = _denorm_nchw(array, self.spec.mean, self.spec.std)
         return _bgr_from_nchw(array)
 
 
-def _normalize_blob(crop_bgr: np.ndarray, mode: str) -> np.ndarray:
-    rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
+def _normalize_blob(crop_bgr: np.ndarray, mode: str, spec=None) -> np.ndarray:
+    from barrett_faceswap.preprocess import normalize_crop
+
+    if spec is not None:
+        return normalize_crop(crop_bgr, spec)
     if mode == "minus_one_one":
-        rgb = (rgb / 255.0 - 0.5) / 0.5
+        mean, std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
     elif mode == "zero_one":
-        rgb = rgb / 255.0
+        mean, std = (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)
+    elif mode == "imagenet":
+        mean, std = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
     else:
         raise SwapError(t("swap.normalize", mode=mode))
-    return np.transpose(rgb, (2, 0, 1))[None, ...].astype(np.float32)
+    return normalize_crop(crop_bgr, _Norm(mean, std))
 
 
 def _bgr_from_nchw(array: np.ndarray) -> np.ndarray:
@@ -211,7 +224,38 @@ def _bgr_from_nchw(array: np.ndarray) -> np.ndarray:
     return nchw_to_bgr(array)
 
 
-def _run_vector(session, vector: np.ndarray) -> np.ndarray:
+class _Norm:
+    def __init__(self, mean, std) -> None:
+        self.mean = mean
+        self.std = std
+
+
+def _denorm_nchw(array: np.ndarray, mean, std) -> np.ndarray:
+    scale = np.asarray(std, dtype=np.float32).reshape(1, 3, 1, 1)
+    shift = np.asarray(mean, dtype=np.float32).reshape(1, 3, 1, 1)
+    return array * scale + shift
+
+
+def _bind_source_target(session, source: np.ndarray, target: np.ndarray) -> dict[str, np.ndarray]:
+    """Bind BlendSwap's two image inputs. Named inputs win. Otherwise the smaller crop is the source."""
+
+    named = {item.name: item for item in session.get_inputs()}
+    if "source" in named and "target" in named:
+        return {"source": source, "target": target}
+    images = [item for item in session.get_inputs() if len(list(item.shape)) == 4]
+    if len(images) != 2:
+        found = [(item.name, list(item.shape)) for item in session.get_inputs()]
+        raise SwapError(t("swap.inputs", found=found))
+
+    def _side(item) -> int:
+        shape = list(item.shape)
+        return int(shape[2]) if isinstance(shape[2], int) else 0
+
+    ordered = sorted(images, key=_side)
+    return {ordered[0].name: source, ordered[1].name: target}
+
+
+def _run_vector(session, vector: np.ndarray, *, normalize: bool = True) -> np.ndarray:
     incoming = np.asarray(vector, dtype=np.float32).reshape(-1)
     if incoming.shape[0] != 512:
         raise SwapError(t("swap.embedding_length", length=int(incoming.shape[0])))
@@ -225,5 +269,7 @@ def _run_vector(session, vector: np.ndarray) -> np.ndarray:
     converted = np.asarray(output, dtype=np.float32).reshape(-1)
     if converted.shape[0] != 512:
         raise SwapError(t("swap.embedding_length", length=int(converted.shape[0])))
+    if not normalize:
+        return converted.astype(np.float32)
     norm = float(np.linalg.norm(converted)) + 1e-8
     return (converted / norm).astype(np.float32)

@@ -288,6 +288,31 @@ def _smooth_face(stream: FaceStream, face: Face) -> Face:
     )
 
 
+class LandmarkSmoother:
+    """One-Euro or EMA on each face's landmarks before a later alignment."""
+
+    def __init__(self, mode: str = "one_euro") -> None:
+        self.mode = mode
+        self._points: list = []
+
+    def apply(self, faces: list) -> list:
+        if self.mode == "none" or not faces:
+            return list(faces)
+        while len(self._points) < len(faces):
+            self._points.append(_OneEuro() if self.mode == "one_euro" else _Ema(0.45))
+        smoothed = []
+        for index, face in enumerate(faces):
+            points = self._points[index](np.asarray(face.landmarks, dtype=np.float32).reshape(-1))
+            smoothed.append(
+                Face(
+                    bbox=np.array(face.bbox, dtype=np.float32, copy=True),
+                    score=float(face.score),
+                    landmarks=np.asarray(points, dtype=np.float32).reshape(-1, 2),
+                )
+            )
+        return smoothed
+
+
 class _OneEuro:
     """1€ filter. Per-element cutoff tracks how fast the landmark is moving."""
 

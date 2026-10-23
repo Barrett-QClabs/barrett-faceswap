@@ -20,7 +20,14 @@ from barrett_faceswap.config import AppConfig
 from barrett_faceswap.face_parsing import eye_mask_from_labels, mask_from_labels, parser_labels
 from barrett_faceswap.masks import composite_mask, occlusion_mask, parser_stub_mask
 from barrett_faceswap.models import ModelStore
-from barrett_faceswap.occlusion import run_occlusion
+from barrett_faceswap.occlusion import refine_occlusion, run_occlusion
+
+_OCCLUDER_ROLE = {
+    "xseg_1": "occluder",
+    "xseg_2": "xseg_2",
+    "xseg_3": "xseg_3",
+    "sam2_refine": "occluder",
+}
 
 
 class MaskStack:
@@ -31,6 +38,7 @@ class MaskStack:
         self.store = store
         self._occlusion = None
         self._parser = None
+        self._sam = None
         self._ready = False
         self.eye_mask: np.ndarray | None = None
         self._cached: np.ndarray | None = None
@@ -48,8 +56,11 @@ class MaskStack:
         if self.store is None:
             return
         settings = self.config.masks
-        if settings.occlusion and self.store.paths()["occluder"].is_file():
-            self._occlusion = self.store.session("occluder")
+        role = _OCCLUDER_ROLE.get(settings.occluder_model, "occluder")
+        if settings.occlusion and self.store.paths()[role].is_file():
+            self._occlusion = self.store.session(role)
+        if settings.occluder_model == "sam2_refine" and self.store.paths()["sam2_refine"].is_file():
+            self._sam = self.store.session("sam2_refine")
         if settings.parser and self.store.paths()["parser"].is_file():
             self._parser = self.store.session("parser")
 
@@ -129,7 +140,7 @@ class MaskStack:
                 parser_job = pool.submit(self._parse, crop_bgr, size, blur)
                 occlusion = occlusion_job.result()
                 region, eyes = parser_job.result()
-            return occlusion, region, eyes
+            return self._maybe_refine(crop_bgr, size, occlusion), region, eyes
         if self._occlusion is not None:
             occlusion = run_occlusion(
                 self._occlusion,
@@ -147,7 +158,12 @@ class MaskStack:
             path = None if self.store is None else str(self.store.paths()["parser"])
             region = parser_stub_mask(size, blur, path, landmarks=landmarks)
             eyes = None
-        return occlusion, region, eyes
+        return self._maybe_refine(crop_bgr, size, occlusion), region, eyes
+
+    def _maybe_refine(self, crop_bgr, size: int, occlusion: np.ndarray) -> np.ndarray:
+        if self._sam is None:
+            return occlusion
+        return refine_occlusion(self._sam, crop_bgr, occlusion, size)
 
     def _parse(self, crop_bgr, size: int, blur: int):
         labels = parser_labels(self._parser, crop_bgr, size)

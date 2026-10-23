@@ -71,6 +71,68 @@ PARSER_URLS = (
     "https://huggingface.co/facefusion/models-3.0.0/resolve/main/bisenet_resnet_34.onnx",
 )
 
+# sha256 of the facefusion-assets ONNX bytes. CI never fetches these.
+_EXTRA_SHA256 = {
+    "blendswap_256.onnx": "20ac5e3c002288e7abd4ea6b1af74103892a6628382d1fa905d13c0270c2667b",
+    "simswap_256.onnx": "5b6374b2ffab838588d4f0c32dc7ed5bb8d99237d755a663ed02ee265a1714fb",
+    "simswap_unofficial_512.onnx": "fe805d1ce7d9e66322e2a8811f593a821e7d92f9ff861dd233794bdb2bb7a586",
+    "ghost_1_256.onnx": "4eac28021ae80128e9262080cf0da850e3190e41862650c9e805f9a516b3e924",
+    "ghost_2_256.onnx": "27ae9d0b174b22c0426393e8239ca8d75e6ff47ec5dc596b002b182832a9454e",
+    "ghost_3_256.onnx": "308d87f565e881b8872a5cbe711f97faeda6643e5d2b95ef757cc92a58662abd",
+    "hyperswap_1a_256.onnx": "c0e98a8a03a238f461ed3d2570e426b49f46745ee400854a60dceeb70c246add",
+    "hyperswap_1b_256.onnx": "5124031789c42f71b9558fb71954ef7aedb6da7ed9fac79293e23c61a792a73e",
+    "hyperswap_1c_256.onnx": "5528c2d76fe9986c99d829278987ef9f3a630cb606db7628d02b57b330f406a5",
+    "crossface_simswap.onnx": "6452a261ec30cc30afdbe4a426d82c3b10a476f2df794e3494071c02574e6829",
+    "crossface_ghost.onnx": "9ec5862d9ff1f723a7380ea89baf87cddec9c56670d4db766702657939284957",
+    "codeformer.onnx": "21710e7ab61c82683576c428e9c1b6fe1ed419586b7b39e394c3449c294b550f",
+    "gpen_bfr_512.onnx": "d5f066b9068a8b74217f9712e28e875a6144629b108a6f7355acbdb3a2832c54",
+    "gpen_bfr_1024.onnx": "bcd31aa52110a2005efc96abbab4546d57e42482648f08715b552423d96b381b",
+    "gpen_bfr_2048.onnx": "66d12a637118d71b00f5a290b8dac13c81c1c0326a127a1978799c6e17bb8d1f",
+    "restoreformer_plus_plus.onnx": "164818b70d1745da4108a45c9263b05452236d14ac0ffab2202af0ac4a438195",
+    "xseg_2.onnx": "cd9a0879eaf43841d765472cf1f8c330dbf9dcb03da0eace93e95f3bcc399042",
+    "xseg_3.onnx": "48ccd7e8541e159a5a754ec9e62df2f12065f7df8f9af842c1750342c6533559",
+}
+KNOWN_SHA256.update(_EXTRA_SHA256)
+
+
+def _assets(version: str, filename: str) -> tuple[str, ...]:
+    return (
+        f"https://github.com/facefusion/facefusion-assets/releases/download/{version}/{filename}",
+        f"https://huggingface.co/facefusion/{version}/resolve/main/{filename}",
+    )
+
+
+# name -> (release, filename, config role, companion role or None)
+_SWAPPER_FILES = {
+    "inswapper_128": ("models-3.0.0", "inswapper_128.onnx", "swapper", None),
+    "hyperswap_1a_256": ("models-3.3.0", "hyperswap_1a_256.onnx", "hyperswap_1a", None),
+    "hyperswap_1b_256": ("models-3.3.0", "hyperswap_1b_256.onnx", "hyperswap_1b", None),
+    "hyperswap_1c_256": ("models-3.3.0", "hyperswap_1c_256.onnx", "hyperswap_1c", None),
+    "simswap_256": ("models-3.0.0", "simswap_256.onnx", "simswap_256", "crossface_simswap"),
+    "simswap_unofficial_512": ("models-3.0.0", "simswap_unofficial_512.onnx", "simswap_512", "crossface_simswap"),
+    "blendswap_256": ("models-3.0.0", "blendswap_256.onnx", "blendswap_256", None),
+    "ghost_1_256": ("models-3.0.0", "ghost_1_256.onnx", "ghost_1", "crossface_ghost"),
+    "ghost_2_256": ("models-3.0.0", "ghost_2_256.onnx", "ghost_2", "crossface_ghost"),
+    "ghost_3_256": ("models-3.0.0", "ghost_3_256.onnx", "ghost_3", "crossface_ghost"),
+}
+_ENHANCER_FILES = {
+    "gfpgan_1.4": ("models-3.0.0", "gfpgan_1.4.onnx", "gfpgan"),
+    "codeformer": ("models-3.0.0", "codeformer.onnx", "codeformer"),
+    "gpen_bfr_512": ("models-3.0.0", "gpen_bfr_512.onnx", "gpen_bfr_512"),
+    "gpen_bfr_1024": ("models-3.0.0", "gpen_bfr_1024.onnx", "gpen_bfr_1024"),
+    "gpen_bfr_2048": ("models-3.0.0", "gpen_bfr_2048.onnx", "gpen_bfr_2048"),
+    "restoreformer_plus_plus": ("models-3.0.0", "restoreformer_plus_plus.onnx", "restoreformer_plus_plus"),
+}
+_OCCLUDER_FILES = {
+    "xseg_1": ("models-3.1.0", "xseg_1.onnx", "occluder", "occlusion_xseg.onnx"),
+    "xseg_2": ("models-3.1.0", "xseg_2.onnx", "xseg_2", "xseg_2.onnx"),
+    "xseg_3": ("models-3.2.0", "xseg_3.onnx", "xseg_3", "xseg_3.onnx"),
+}
+_COMPANION_FILES = {
+    "crossface_simswap": ("models-3.4.0", "crossface_simswap.onnx"),
+    "crossface_ghost": ("models-3.4.0", "crossface_ghost.onnx"),
+}
+
 Opener = Callable[[str, dict[str, str]], object]
 _ATTEMPTS = 3
 CONNECT_TIMEOUT_S = 15
@@ -87,6 +149,9 @@ def download_models(
     pins: dict[str, str] | None = None,
     attempts: int = _ATTEMPTS,
     from_dir: Path | None = None,
+    swappers: list[str] | None = None,
+    enhancers: list[str] | None = None,
+    occluders: list[str] | None = None,
 ) -> list[str]:
     """Fetch buffalo_l and inswapper. GFPGAN and the mask graphs are optional.
 
@@ -104,11 +169,14 @@ def download_models(
                 Path(from_dir),
                 config,
                 expected,
-                with_gfpgan=with_gfpgan,
-                with_masks=with_masks,
-                force=force,
-            )
+            with_gfpgan=with_gfpgan,
+            with_masks=with_masks,
+            force=force,
+            swappers=swappers,
+            enhancers=enhancers,
+            occluders=occluders,
         )
+    )
     detector = config.models.detector.path
     recognizer = config.models.recognizer.path
     members = {
@@ -171,6 +239,116 @@ def download_models(
                 opener=opener,
                 attempts=attempts,
                 name="bisenet_resnet_34.onnx",
+            )
+        )
+    notes.extend(
+        _download_selected(
+            config,
+            expected,
+            swappers=list(swappers or []),
+            enhancers=list(enhancers or []),
+            occluders=list(occluders or []),
+            force=force,
+            opener=opener,
+            attempts=attempts,
+        )
+    )
+    return notes
+
+
+def _download_selected(
+    config: AppConfig,
+    expected: dict[str, str],
+    *,
+    swappers: list[str],
+    enhancers: list[str],
+    occluders: list[str],
+    force: bool,
+    opener: Opener | None,
+    attempts: int,
+) -> list[str]:
+    notes: list[str] = []
+    for name in swappers:
+        if name == "inswapper_128":
+            continue
+        version, filename, role, companion = _SWAPPER_FILES[name]
+        notes.extend(
+            _download_file(
+                _assets(version, filename),
+                getattr(config.models, role).path,
+                expected[filename],
+                force=force,
+                opener=opener,
+                attempts=attempts,
+                name=filename,
+            )
+        )
+        if companion:
+            companion_version, companion_file = _COMPANION_FILES[companion]
+            notes.extend(
+                _download_file(
+                    _assets(companion_version, companion_file),
+                    getattr(config.models, companion).path,
+                    expected[companion_file],
+                    force=force,
+                    opener=opener,
+                    attempts=attempts,
+                    name=companion_file,
+                )
+            )
+    for name in enhancers:
+        if name == "gfpgan_1.4":
+            notes.extend(
+                _download_file(
+                    GFPGAN_URLS,
+                    config.models.gfpgan.path,
+                    expected["gfpgan_1.4.onnx"],
+                    force=force,
+                    opener=opener,
+                    attempts=attempts,
+                    name="gfpgan_1.4.onnx",
+                )
+            )
+            continue
+        version, filename, role = _ENHANCER_FILES[name]
+        notes.extend(
+            _download_file(
+                _assets(version, filename),
+                getattr(config.models, role).path,
+                expected[filename],
+                force=force,
+                opener=opener,
+                attempts=attempts,
+                name=filename,
+            )
+        )
+    for name in occluders:
+        if name == "sam2_refine":
+            notes.append(t("download.sam2_local", path=config.models.sam2_refine.path))
+            name = "xseg_1"
+        if name == "xseg_1":
+            notes.extend(
+                _download_file(
+                    XSEG_URLS,
+                    config.models.occluder.path,
+                    expected["occlusion_xseg.onnx"],
+                    force=force,
+                    opener=opener,
+                    attempts=attempts,
+                    name="xseg_1.onnx",
+                )
+            )
+            continue
+        version, filename, role, stored = _OCCLUDER_FILES[name]
+        notes.extend(
+            _download_file(
+                _assets(version, filename),
+                getattr(config.models, role).path,
+                expected[stored],
+                force=force,
+                opener=opener,
+                attempts=attempts,
+                name=filename,
             )
         )
     return notes
@@ -333,6 +511,9 @@ def _import_from_dir(
     with_gfpgan: bool,
     with_masks: bool,
     force: bool,
+    swappers: list[str] | None = None,
+    enhancers: list[str] | None = None,
+    occluders: list[str] | None = None,
 ) -> list[str]:
     """Copy matching files by basename. A bad hash fails before any download."""
 
@@ -348,6 +529,24 @@ def _import_from_dir(
     if with_masks:
         wanted["occlusion_xseg.onnx"] = (config.models.occluder.path, expected["occlusion_xseg.onnx"])
         wanted["bisenet_face_parsing.onnx"] = (config.models.parser.path, expected["bisenet_face_parsing.onnx"])
+    for name in swappers or []:
+        if name == "inswapper_128":
+            continue
+        _version, filename, role, companion = _SWAPPER_FILES[name]
+        wanted[filename] = (getattr(config.models, role).path, expected[filename])
+        if companion:
+            _companion_version, companion_file = _COMPANION_FILES[companion]
+            wanted[companion_file] = (getattr(config.models, companion).path, expected[companion_file])
+    for name in enhancers or []:
+        if name == "gfpgan_1.4":
+            continue
+        _version, filename, role = _ENHANCER_FILES[name]
+        wanted[filename] = (getattr(config.models, role).path, expected[filename])
+    for name in occluders or []:
+        if name in {"sam2_refine", "xseg_1"}:
+            continue
+        _version, filename, role, stored = _OCCLUDER_FILES[name]
+        wanted[filename] = (getattr(config.models, role).path, expected[stored])
     found: dict[str, Path] = {}
     for path in directory.rglob("*"):
         if not path.is_file():

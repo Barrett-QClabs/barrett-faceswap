@@ -1,6 +1,8 @@
 # Commercial route
 
-`--commercial` sets `execution.commercial`. The gate refuses every role the run would open when that registry row has `commercial_use: false` or is missing. Every built-in model is marked false, so a commercial build cannot load inswapper, the optional swappers, GFPGAN, CodeFormer, the occluder, or the parser. There is no config key that flips those rows.
+This project is for non-commercial use. Open-source weights, including ones published for non-commercial research, may be downloaded by the operator. The registry still marks every built-in row `commercial_use: false`, and the files are not shipped in this tree.
+
+`--commercial` sets `execution.commercial`. The gate refuses every role the run would open when that registry row has `commercial_use: false` or is missing. Every built-in model is marked false, so a commercial build cannot load inswapper, the optional swappers, GFPGAN, CodeFormer, GPEN, RestoreFormer++, the occluder, or the parser. There is no config key that flips those rows.
 
 A commercially licensable swapper is something you train and register yourself. The scaffold follows the idea of an identity-conditioned generator in the Apache-2.0 GHOST / AEI-Net family. It does not copy their training source, and it does not download their weights.
 

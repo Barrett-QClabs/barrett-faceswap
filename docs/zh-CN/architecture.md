@@ -11,6 +11,6 @@
 - TensorRT 的缓存目录、fp16 和构建优化级别只在安装了该提供者时挂上。
 - RTX 50 系列使用 `[gpu]` 附加项 `onnxruntime-gpu[cuda,cudnn]`（CUDA 13 和 cuDNN 9）。如果存在 `onnxruntime.preload_dlls()` 就会调用。安装 `[cpu]` 或 `[gpu]`，不要两个都装。`barrett-faceswap doctor` 报告提供者，并在两个轮子都在时警告。CPU 轮子不会因此报错。
 
-`benchmark` 和 `benchmark --live` 打印各阶段延迟和 `realtime_fps`。`--source` 和 `--target` 会在这两张静态图上计时检测，报告使用目标图的真实尺寸。不传时，用绘制的人脸提供关键点。实时基准不会打开摄像头。缓存的 ONNX 会话每次加载只哈希一次。xseg 可以是通道在最后。不对称的 ConvTranspose 填充会在加载时改写。人脸几乎不动时，视频蒙版按 `masks.stride`（默认 2）隔帧运行。`--eye-mode blend` 对张开的目标眼睛保留得比闭上时更多。
+`benchmark` 和 `benchmark --live` 打印各阶段延迟和 `realtime_fps`。`--source` 和 `--target` 会在这两张静态图上计时检测，报告使用目标图的真实尺寸。不传时，用绘制的人脸提供关键点。实时基准不会打开摄像头。缓存的 ONNX 会话每次加载只哈希一次。xseg 可以是通道在最后。不对称的 ConvTranspose 填充会在加载时改写。人脸几乎不动时，视频蒙版按 `masks.stride`（默认 3）隔帧运行。`--face-swapper-model` 选择 inswapper、HyperSwap、SimSwap、BlendSwap 或 Ghost。`--face-enhancer-model` 选择 GFPGAN、CodeFormer、GPEN 或 RestoreFormer++。有解析文件时，增强只混合皮肤类别。`--occluder-model` 选择 xseg_1、xseg_2、xseg_3，或本地的 `sam2_refine` ONNX。`--execution-provider tensorrt` 会建立 fp16 引擎缓存。`compare` 写出一张联系表。权重由操作者下载。`commercial_use` 保持 false。`compliance.enabled` 保持 false。`--eye-mode blend` 对张开的目标眼睛保留得比闭上时更多。
 
 换脸器表、像素提升、选脸、任务和蒙版见 `docs/ARCHITECTURE.zh-CN.md`。
