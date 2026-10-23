@@ -163,7 +163,7 @@ models:
     fan: "2DFAN (2dfan4.onnx) is the 2018 FAN landmark model by Adrian Bulat, published as breadbread1984 under the MIT license and redistributed via facefusion-assets. This registry does not mark the weight as cleared for commercial use."
 detect:
   need_bgr: "The detector expects a BGR image with three channels."
-  no_face: "No face scored above the detector threshold. Use a clearer still image, or lower detect.score_threshold."
+  no_face: "No face scored above the detector threshold. Use a clearer still image, or lower Detect score threshold in Advanced (detect.score_threshold)."
   bad_index: "Face index {index} is outside 0..{last} (0 is the largest face)."
   not_scrfd: "This detector export is not a SCRFD keypoint graph (scores={scores}, boxes={boxes}, keypoints={keypoints}). Phase 1 expects buffalo_l det_10g.onnx. A RetinaFace graph needs a later adapter."
   unpaired: "Could not pair a SCRFD head of length {count}. The export layout is unexpected."
@@ -336,6 +336,8 @@ ui:
   output_group: "Output"
   eye_mode: "Eye mode"
   target_index: "Target face index"
+  detect_score: "Detect score threshold"
+  detect_score_hint: "A lower value finds more faces and also more false positives."
   progress_label: "Progress"
   progress: "{done}/{total}"
   progress_running: "Working…"

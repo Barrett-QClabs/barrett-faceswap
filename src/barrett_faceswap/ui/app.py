@@ -326,6 +326,8 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.swapper_hint", "value"),
     ControlSpec("ui.quality", "label"),
     ControlSpec("ui.advanced", "label"),
+    ControlSpec("ui.detect_score", "label"),
+    ControlSpec("ui.detect_score_hint", "value"),
     ControlSpec("ui.face_select", "label"),
     ControlSpec("ui.many_faces", "label"),
     ControlSpec("ui.reference", "label"),
@@ -669,6 +671,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
         reference: object,
         face_map: object,
         target_index: float,
+        detect_score: float,
         blend_mode: str,
         color_transfer: str,
         eye_mode: str,
@@ -754,6 +757,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     commercial=bool(commercial),
                     target_face_index=int(target_index or 0),
                     with_enhancer=bool(enhancer_on),
+                    detect_score=float(detect_score),
                 )
                 full_video = is_video(target_path) and not preview_only
                 if full_video:
@@ -804,6 +808,14 @@ def build_demo(config_path: str | Path, language: str | None = None):
                             label=t("ui.quality"),
                         )
                         with gr.Accordion(t("ui.advanced"), open=False) as advanced:
+                            detect_score = gr.Slider(
+                                0,
+                                1,
+                                value=float(initial.detect.score_threshold),
+                                step=0.01,
+                                label=t("ui.detect_score"),
+                            )
+                            detect_score_hint = gr.Markdown(t("ui.detect_score_hint"))
                             with gr.Accordion(t("ui.face_select"), open=False) as face_select:
                                 many_faces = gr.Checkbox(
                                     value=initial.swap.selector == "many",
@@ -948,6 +960,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 blend,
                 weight,
                 execution,
+                detect_score,
             )
         labeled = [
             brand,
@@ -960,6 +973,8 @@ def build_demo(config_path: str | Path, language: str | None = None):
             swapper_hint,
             quality,
             advanced,
+            detect_score,
+            detect_score_hint,
             face_select,
             many_faces,
             reference,
@@ -1025,6 +1040,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
             reference,
             face_map,
             target_index,
+            detect_score,
             blend_mode,
             color_transfer,
             eye_mode,
@@ -1109,6 +1125,7 @@ def _live_tab(
     blend,
     weight,
     execution,
+    detect_score,
 ):
     """Webcam tab. Model controls are the ones on the image/video tab."""
 
@@ -1161,6 +1178,7 @@ def _live_tab(
         enhancer_blend: float,
         enhancer_weight: float,
         providers: list[str] | None,
+        detect_score: float,
     ) -> SwapRequest:
         source_path = _as_path(source)
         if source_path is None:
@@ -1185,9 +1203,10 @@ def _live_tab(
             enhancer_weight=float(enhancer_weight),
             execution_providers=list(providers) if providers else None,
             with_enhancer=bool(enhancer_enabled),
+            detect_score=float(detect_score),
         )
 
-    def _signature(source, dry_run, compliance, swapper, boost, occluder, enhancer_enabled, model, blend_value, weight_value, providers):
+    def _signature(source, dry_run, compliance, swapper, boost, occluder, enhancer_enabled, model, blend_value, weight_value, providers, detect_score):
         return (
             str(_as_path(source)),
             bool(dry_run),
@@ -1200,6 +1219,7 @@ def _live_tab(
             round(float(blend_value), 4),
             round(float(weight_value), 4),
             tuple(providers or ()),
+            round(float(detect_score), 4),
         )
 
     shared = [
@@ -1211,6 +1231,7 @@ def _live_tab(
         blend,
         weight,
         execution,
+        detect_score,
     ]
 
     def on_start(source, dry_run: bool, compliance: bool, *model_args):

@@ -163,7 +163,7 @@ models:
     fan: "2DFAN（2dfan4.onnx）是 Adrian Bulat 2018 年的 FAN 关键点模型，以 breadbread1984 的名字按 MIT 许可发布，并经 facefusion-assets 再分发。本注册表不把这份权重标成已获商业授权。"
 detect:
   need_bgr: "检测器需要三通道 BGR 图像。"
-  no_face: "没有人脸超过检测阈值。请换一张更清晰的静态图像，或降低 detect.score_threshold。"
+  no_face: "没有人脸超过检测阈值。请换一张更清晰的静态图像，或在高级设置中降低检测阈值（detect.score_threshold）。"
   bad_index: "人脸序号 {index} 超出 0..{last}（0 表示最大的人脸）。"
   not_scrfd: "这个检测导出不是带关键点的 SCRFD 图（scores={scores}, boxes={boxes}, keypoints={keypoints}）。第一阶段期望 buffalo_l 的 det_10g.onnx。RetinaFace 需要以后的适配器。"
   unpaired: "无法配对长度为 {count} 的 SCRFD 输出头。导出布局不符合预期。"
@@ -336,6 +336,8 @@ ui:
   output_group: "输出"
   eye_mode: "眼睛模式"
   target_index: "目标人脸序号"
+  detect_score: "检测阈值"
+  detect_score_hint: "数值越低，检出的人脸越多，误检也越多。"
   progress_label: "进度"
   progress: "{done}/{total}"
   progress_running: "处理中…"

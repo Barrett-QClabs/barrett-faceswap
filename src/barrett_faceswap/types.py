@@ -94,6 +94,7 @@ class SwapRequest(BaseModel):
     resume: bool = False
     commercial: bool = False
     occluder_model: str | None = None
+    detect_score: float | None = None
     live_session: bool = False
     live_frames: int = 0
 
