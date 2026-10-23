@@ -9,6 +9,7 @@ import pytest
 from barrett_faceswap.config import load_config
 from barrett_faceswap.errors import ModelHashError
 from barrett_faceswap.model_registry import BUILTIN, describe_models
+import barrett_faceswap.models as model_api
 from barrett_faceswap.models import ModelStore, clear_session_cache, file_sha256, verify_model_hash
 from tests.conftest import REPO, write_config
 
@@ -61,6 +62,66 @@ def test_session_cache_reuses_the_same_model_provider_and_device(tmp_path: Path)
     other.device_id = 1
     other.session("detector", factory=factory)
     assert calls == [1, 1]
+
+
+def test_session_hashes_once_per_load_and_again_after_the_file_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    weight = tmp_path / "weights"
+    weight.mkdir()
+    detector = weight / "det_10g.onnx"
+    detector.write_bytes(b"detector-bytes")
+    config = load_config(write_config(tmp_path, enabled=False))
+    clear_session_cache()
+    reads: list[int] = []
+    verifies: list[str] = []
+    built: list[int] = []
+
+    real_read = model_api._file_sha256_uncached
+    real_verify = verify_model_hash
+
+    def counted_read(path: Path) -> str:
+        reads.append(1)
+        return real_read(path)
+
+    def counted_verify(path: Path, expected: str | None, role: str) -> str:
+        verifies.append(role)
+        return real_verify(path, expected, role)
+
+    monkeypatch.setattr("barrett_faceswap.models._file_sha256_uncached", counted_read)
+    monkeypatch.setattr("barrett_faceswap.models.verify_model_hash", counted_verify)
+
+    assert file_sha256(detector) == file_sha256(detector)
+    assert reads == [1]
+
+    def factory(path: Path, providers, device_id: int):
+        del path, providers, device_id
+        built.append(1)
+        return {"session": len(built)}
+
+    store = ModelStore(config, providers=["cpu"])
+    first = store.session("detector", factory=factory)
+    second = store.session("detector", factory=factory)
+    assert first is second
+    assert built == [1]
+    assert verifies == ["detector"]
+    assert reads == [1]
+
+    detector.write_bytes(b"detector-bytes-replaced-and-longer")
+    third = store.session("detector", factory=factory)
+    assert third is not first
+    assert built == [1, 1]
+    assert verifies == ["detector", "detector"]
+    assert reads == [1, 1]
+
+    pinned = config.models.detector.model_copy(update={"sha256": "ab" * 32})
+    refused = config.model_copy(
+        update={"models": config.models.model_copy(update={"detector": pinned})}
+    )
+    clear_session_cache()
+    with pytest.raises(ModelHashError):
+        ModelStore(refused, providers=["cpu"]).session("detector", factory=factory)
+    assert built == [1, 1]
 
 
 def test_inspect_lines_mention_the_license(tmp_path: Path) -> None:

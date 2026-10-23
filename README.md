@@ -112,7 +112,7 @@ barrett-faceswap swap \
   --output outputs/swap.png \
   --processors face_swapper,face_enhancer \
   --enhancer-model gfpgan_1.4 \
-  --enhancer-blend 0.8
+  --enhancer-blend 0.6
 ```
 
 `--enhancer-model codeformer` selects the other graph. `--enhancer-weight` is the CodeFormer fidelity input.
@@ -140,7 +140,7 @@ barrett-faceswap swap \
   --dry-run
 ```
 
-`--swapper-model` selects the graph. Weights are not downloaded; see `scripts/download_models.md`. `--pixel-boost 0` is omitted here and means the model's native size (inswapper still honors `swap.resolution`). `--pixel-boost 256` or `512` on `inswapper_128` aligns a larger crop and runs 128-pixel tiles, including on a video. `--eye-mode blend` (default) mixes the original target eyes back under a feathered mask. `swap` keeps the swapped eyes. `target` keeps the original eyes. `--with-enhancer` appends `face_enhancer`; the eyes use `enhancer.eye_blend` (default 1). A frame with no detection does not abort a video. A still image still fails. A face map is a JSON list of `{source, target_index?, reference?}` and wins over `--many-faces` and `--reference`.
+`--swapper-model` selects the graph. Weights are not downloaded; see `scripts/download_models.md`. `--pixel-boost 0` is omitted here and means the model's native size (inswapper still honors `swap.resolution`). `--pixel-boost 256` or `512` on `inswapper_128` aligns a larger crop and runs 128-pixel tiles, including on a video. `--eye-mode blend` (default) mixes the original target eyes back under a feathered mask. `swap` keeps the swapped eyes. `target` keeps the original eyes. `--with-enhancer` appends `face_enhancer`. The face blend defaults to `0.6`. `enhancer.eye_blend` defaults to `0.35`, below that face blend, so the target eyes stay in the restoration. `enhancer.temporal` (default `0.4`) mixes the previous enhanced crop when the face barely moves. A frame with no detection does not abort a video. A still image still fails. A face map is a JSON list of `{source, target_index?, reference?}` and wins over `--many-faces` and `--reference`. A loaded ONNX session is hashed once; later frames reuse it and do not re-read the file.
 
 ```bash
 barrett-faceswap jobs submit \
@@ -160,9 +160,13 @@ Benchmark, without weights:
 ```bash
 barrett-faceswap benchmark --dry-run --frames 32
 barrett-faceswap benchmark --live --dry-run --frames 8
+barrett-faceswap benchmark \
+  --source path/to/authorized-source.png \
+  --target path/to/authorized-target.png \
+  --frames 32
 ```
 
-The line reports frames per second, `realtime_fps`, and per-stage milliseconds. `vram_mb` is `unavailable` when `nvidia-smi` is not on PATH. Omit `--dry-run` only when the configured weights are present; a synthetic frame with no face still fails the detector. `--live` uses synthetic frames and does not open a webcam.
+The line reports frames per second, `realtime_fps`, and per-stage milliseconds. `vram_mb` is `unavailable` when `nvidia-smi` is not on PATH. Omit `--dry-run` only when the configured weights are present. Without `--source` and `--target`, a drawn face and its landmarks are used so the swap still runs. Pass both stills to time detection on a real face. `--live` does not open a webcam.
 
 Realtime, without a display and without weights:
 

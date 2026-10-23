@@ -315,7 +315,8 @@ options:
   --share          Ask Gradio for a temporary public share link.
 
 usage: barrett-faceswap benchmark [-h] [--config CONFIG] [--lang LANG] [--frames FRAMES]
-                                  [--width WIDTH] [--height HEIGHT] [--dry-run]
+                                  [--width WIDTH] [--height HEIGHT] [--source SOURCE]
+                                  [--target TARGET] [--dry-run]
                                   [--execution-provider EXECUTION_PROVIDER] [--live]
 
 options:
@@ -324,14 +325,19 @@ options:
                         directory.
   --lang LANG           Interface language: en or zh-CN. Overrides BARRETT_FACESWAP_LANG and
                         ui.language.
-  --frames FRAMES       How many synthetic frames to time.
-  --width WIDTH         Synthetic frame width.
-  --height HEIGHT       Synthetic frame height.
+  --frames FRAMES       How many frames to time.
+  --width WIDTH         Frame width. A still passed with --source and --target is resized to this.
+  --height HEIGHT       Frame height. A still passed with --source and --target is resized to
+                        this.
+  --source SOURCE       Still image used as the source identity. Together with --target, the
+                        benchmark detects that face instead of using the drawn fallback.
+  --target TARGET       Still image repeated for --frames. Pass it with --source so detection runs
+                        on a real face.
   --dry-run             Skip ONNX inference. Useful when weights are not downloaded yet.
   --execution-provider EXECUTION_PROVIDER
                         Execution provider to prefer. Repeat the flag to set the order. CUDA is
                         preferred when listed.
-  --live                Time a synthetic live session and print per-stage latency.
+  --live                Time a live session and print per-stage latency. Does not open a webcam.
 
 usage: barrett-faceswap doctor [-h] [--config CONFIG] [--lang LANG]
 

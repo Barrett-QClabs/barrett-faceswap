@@ -91,21 +91,32 @@ def run_benchmark(
     height: int,
     dry_run: bool,
     providers: list[str] | None = None,
+    source_path: Path | None = None,
+    target_path: Path | None = None,
 ) -> BenchmarkReport:
-    """Process ``frames`` synthetic images through the configured processors."""
+    """Process ``frames`` images through the configured processors.
+
+    ``--source`` and ``--target`` time detection on those stills. Without them
+    a drawn face is used, and its landmarks are supplied so a solid frame does
+    not abort the run before the swap.
+    """
 
     if frames < 1:
         raise ConfigError(t("benchmark.frames"))
     if width < 16 or height < 16:
         raise ConfigError(t("benchmark.size"))
     selected = list(providers or config.execution.providers)
-    source = np.zeros((height, width, 3), dtype=np.uint8)
-    source[:, :] = (40, 90, 180)
-    frame = np.zeros((height, width, 3), dtype=np.uint8)
-    frame[:, :] = (16, 16, 16)
+    source, frame, hint_source, hint_target = _benchmark_pair(width, height, source_path, target_path)
     names = list(config.processors)
     processors = [create_processor(name, config, selected) for name in names]
-    context = ProcessContext(source_bgr=source, dry_run=dry_run, notes=[], log_every_frame=False)
+    context = ProcessContext(
+        source_bgr=source,
+        dry_run=dry_run,
+        notes=[],
+        log_every_frame=False,
+        known_faces=None if hint_target is None else [hint_target],
+        source_face=hint_source,
+    )
     prepare_started = time.perf_counter()
     for processor in processors:
         processor.pre_check(context)
@@ -161,8 +172,10 @@ def run_live_benchmark(
     height: int,
     dry_run: bool,
     providers: list[str] | None = None,
+    source_path: Path | None = None,
+    target_path: Path | None = None,
 ) -> BenchmarkReport:
-    """Time a synthetic live session and report capture, detect, swap, and output."""
+    """Time a live session and report capture, detect, swap, and output."""
 
     from barrett_faceswap.live import LivePipeline
     from barrett_faceswap.types import SwapRequest
@@ -170,8 +183,8 @@ def run_live_benchmark(
     if frames < 1:
         raise ConfigError(t("benchmark.frames"))
     selected = list(providers or config.execution.providers)
-    source = _solid(width, height, (40, 90, 180))
-    sequence = [_solid(width, height, (16, 16, 16)) for _ in range(frames)]
+    source, frame, hint_source, hint_target = _benchmark_pair(width, height, source_path, target_path)
+    sequence = [frame.copy() for _ in range(frames)]
     import tempfile
 
     directory = Path(tempfile.mkdtemp(prefix="barrett-bench-"))
@@ -190,7 +203,13 @@ def run_live_benchmark(
         update={"live": config.live.model_copy(update={"queue_size": max(frames, 1), "preview": False})}
     )
     started = time.perf_counter()
-    _result, stats = LivePipeline(paced).run(request, sequence, preview=False)
+    _result, stats = LivePipeline(paced).run(
+        request,
+        sequence,
+        preview=False,
+        hint_source=hint_source,
+        hint_target=hint_target,
+    )
     elapsed = max(time.perf_counter() - started, 1e-9)
     order = ("capture", "detect", "swap", "output")
     stages = tuple((name, float(stats.stage_s.get(name, 0.0))) for name in order)
@@ -207,6 +226,54 @@ def run_live_benchmark(
         stages=stages,
         realtime_fps=produced / elapsed,
     )
+
+
+def _benchmark_pair(
+    width: int,
+    height: int,
+    source_path: Path | None,
+    target_path: Path | None,
+) -> tuple[np.ndarray, np.ndarray, object, object]:
+    if (source_path is None) ^ (target_path is None):
+        raise ConfigError(t("benchmark.source_target"))
+    if source_path is not None and target_path is not None:
+        from barrett_faceswap.vision import read_image
+
+        source = cv2.resize(read_image(source_path), (width, height), interpolation=cv2.INTER_AREA)
+        frame = cv2.resize(read_image(target_path), (width, height), interpolation=cv2.INTER_AREA)
+        return source, frame, None, None
+    source, source_face = synthetic_face(width, height, (70, 110, 180))
+    frame, target_face = synthetic_face(width, height, (40, 70, 140))
+    return source, frame, source_face, target_face
+
+
+def synthetic_face(width: int, height: int, color: tuple[int, int, int]):
+    """A drawn face and the five landmarks that describe it.
+
+    The detector will not score this drawing. Callers that need a swap anyway
+    pass the landmarks in as a known face.
+    """
+
+    from barrett_faceswap.types import Face
+
+    image = np.zeros((height, width, 3), dtype=np.uint8)
+    image[:, :] = (24, 24, 24)
+    cx = width / 2.0
+    cy = height / 2.0
+    axis_x = max(8.0, width * 0.22)
+    axis_y = max(10.0, height * 0.30)
+    cv2.ellipse(image, (int(cx), int(cy)), (int(axis_x), int(axis_y)), 0, 0, 360, color, thickness=-1)
+    left = (cx - axis_x * 0.38, cy - axis_y * 0.12)
+    right = (cx + axis_x * 0.38, cy - axis_y * 0.12)
+    nose = (cx, cy + axis_y * 0.08)
+    mouth_left = (cx - axis_x * 0.22, cy + axis_y * 0.38)
+    mouth_right = (cx + axis_x * 0.22, cy + axis_y * 0.38)
+    radius = max(2, int(round(axis_x * 0.10)))
+    for center in (left, right):
+        cv2.circle(image, (int(center[0]), int(center[1])), radius, (16, 16, 16), thickness=-1)
+    landmarks = np.array([left, right, nose, mouth_left, mouth_right], dtype=np.float32)
+    bbox = np.array([cx - axis_x, cy - axis_y, cx + axis_x, cy + axis_y], dtype=np.float32)
+    return image, Face(bbox=bbox, score=0.99, landmarks=landmarks)
 
 
 def _solid(width: int, height: int, color: tuple[int, int, int]) -> np.ndarray:

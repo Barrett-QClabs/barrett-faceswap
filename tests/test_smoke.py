@@ -39,7 +39,10 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.blend.color == "lab"
     assert config.blend.eye_mode == "blend"
     assert config.blend.eye_sharpen == 0.6
-    assert config.enhancer.eye_blend == 1.0
+    assert config.enhancer.blend == 0.6
+    assert config.enhancer.eye_blend == 0.35
+    assert config.enhancer.temporal == 0.4
+    assert config.enhancer.temporal_motion == 0.04
     assert config.video.max_face_gap == 10
     assert config.video.smooth == "one_euro"
     assert config.compliance.enabled is False

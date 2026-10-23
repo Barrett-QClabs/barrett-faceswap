@@ -69,7 +69,7 @@ ffprobe
 
 `pixel_boost` 先按提升后的边长对齐裁剪，再切成连续的原生尺寸方块，用同一个隐向量逐块推理，然后拼回去。允许的边长是 128、256、512、768、1024，且边长不小于原生尺寸并能整除。`0` 表示原生尺寸。inswapper 在 boost 为 `0` 时仍遵守 `swap.resolution`，因此测试可以把模拟图指到一个不是整块倍数的尺寸。边长不能整除原生尺寸时，只做一次推理。视频使用同一个换脸器，因此 `--pixel-boost 256` 或 `512` 在视频里同样切块。`256` 是四块 128 像素。
 
-`--eye-mode` 是 `swap`、`blend`（默认）或 `target`。`blend` 在羽化的眼部蒙版里把大约 65% 的原始目标裁剪混回去。五点关键点变成两个椭圆。106 点集合使用上半脸左右两簇的凸包。`blend.eye_sharpen`（默认 0.6）只在这个区域内做反锐化。`--with-enhancer` 在列表里还没有 `face_enhancer` 时把它追加进去。`enhancer.eye_blend`（默认 1）加强眼部修复，`enhancer.blend` 覆盖脸的其余部分。
+`--eye-mode` 是 `swap`、`blend`（默认）或 `target`。`blend` 在羽化的眼部蒙版里把大约 65% 的原始目标裁剪混回去。五点关键点变成两个椭圆。106 点集合使用上半脸左右两簇的凸包。`blend.eye_sharpen`（默认 0.6）只在这个区域内做反锐化。`--with-enhancer` 在列表里还没有 `face_enhancer` 时把它追加进去。`enhancer.eye_blend`（默认 0.35）在眼部保留更多目标裁剪。`enhancer.blend`（默认 0.6）覆盖脸的其余部分。
 
 ## 选脸
 
@@ -87,9 +87,9 @@ ffprobe
 
 ## 人脸增强
 
-`face_enhancer` 已注册，但不在默认处理器列表里，因此换脸不强制要求这些权重。用 `--processors face_swapper,face_enhancer`、`--with-enhancer` 或界面上的复选框打开它。`--enhancer-model` 是 `gfpgan_1.4`（默认）或 `codeformer`。`--enhancer-blend` 把修复结果和原始裁剪混合（`1` 保留修复结果，默认 `0.8`）。`--enhancer-weight` 是 CodeFormer 的保真系数（默认 `0.5`）。GFPGAN 图没有旁路输入，因此那里用不到这个系数。
+`face_enhancer` 已注册，但不在默认处理器列表里，因此换脸不强制要求这些权重。用 `--processors face_swapper,face_enhancer`、`--with-enhancer` 或界面上的复选框打开它。`--enhancer-model` 是 `gfpgan_1.4`（默认）或 `codeformer`。`--enhancer-blend` 把修复结果和原始裁剪混合（`1` 保留修复结果，默认 `0.6`）。`--enhancer-weight` 是 CodeFormer 的保真系数（默认 `0.5`）。GFPGAN 图没有旁路输入，因此那里用不到这个系数。
 
-裁剪按 FFHQ 五点模板对齐，模板按 `size / 512` 缩放，再用椭圆区域蒙版贴回。混合在脸上使用 `enhancer.blend`，在同一模板生成的眼部蒙版里使用 `enhancer.eye_blend`。没有检测到脸时，帧保持原样，并记一条笔记。调用方已经提供 `known_faces` 时，增强器使用这些脸。
+裁剪按 FFHQ 五点模板对齐，模板按 `size / 512` 缩放，再用椭圆区域蒙版贴回。混合在脸上使用 `enhancer.blend`，在同一模板生成的眼部蒙版里使用 `enhancer.eye_blend`（默认 `0.35`）。更低的眼部系数会留下目标眼睛，包括眼睑，而不是让修复结果替换它们。`enhancer.temporal`（默认 `0.4`）在五点平均位移除以脸宽不超过 `enhancer.temporal_motion`（默认 `0.04`）时，把这一帧的混合裁剪和上一帧的增强裁剪再混一次。`temporal: 0` 关闭这次混合。位移更大时丢掉上一帧裁剪，一次运行结束时 `post_process` 也会清掉它。没有检测到脸时，帧保持原样，并记一条笔记。调用方已经提供 `known_faces` 时，增强器使用这些脸。
 
 ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本：
 
@@ -112,7 +112,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 `barrett-faceswap ui` 构建一个 Gradio Blocks 应用。Gradio 只在 `build_demo` / `launch_ui` 里导入，属于 `[ui]` 额外依赖。语言下拉框调用 `t()`，并重写每一条标题，包括预览和运行按钮、第三阶段控件、商业门禁复选框和摄像头页。对视频点预览时抽出第一帧，再走静态图像流水线。运行会写到输出路径。只有目标是视频并且点击的是运行时，才会送出编码器和视频模式下拉框的值。合规复选框不能把已经打开的配置关掉。随仓库提供的复选框跟随配置，配置是关闭的。摄像头页和命令行共用 `LiveSession`。开始只是待命，第一帧摄像头画面做同意检查，停止时若强制打开会写一行审计。三条线程在 `barrett-faceswap live` 里，不在浏览器回调里。
 
-`barrett-faceswap benchmark` 为处理器链计时，并打印各阶段毫秒数和 `realtime_fps`。`--live` 给一次合成的摄像头会话计时（采集、检测、替换、输出），不会打开摄像头。`--dry-run` 不加载 ONNX。`nvidia-smi` 可用时读取显存，否则报告不可用。
+`barrett-faceswap benchmark` 为处理器链计时，并打印各阶段毫秒数和 `realtime_fps`。`--source` 和 `--target` 一起传入时会把这两张静态图缩放到计时尺寸并跑检测。不传时，用一张绘制的人脸提供关键点，即使检测器不会给这张图打分，替换仍然会计时。`--live` 给一次会话计时（采集、检测、替换、输出），不会打开摄像头。`--dry-run` 不加载 ONNX。`nvidia-smi` 可用时读取显存，否则报告不可用。
 
 ## 实时
 
@@ -138,7 +138,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 **处理器协议。** `Processor` 有 `pre_check`、`process_frame` 和 `post_process`。`processors/registry.py` 把名称映射到工厂，工厂接收 pydantic 配置和提供者列表。`face_swapper` 和 `face_enhancer` 已注册。这是 FaceFusion 那类接缝。方法和注册表是本地代码。
 
-**会话缓存。** `ModelStore.session` 用解析后的路径、sha256、请求的提供者元组以及设备号作为键。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。写出 `tensorrt` 时，如果该提供者已安装，会挂上引擎缓存、计时缓存、fp16 和构建优化级别；CPU 轮子上则跳过。驱动 580 上的 RTX 5090（Blackwell，`sm_120`）使用 `onnxruntime-gpu[cuda,cudnn]`（CUDA 13 和 cuDNN 9）。创建提供者时，如果存在 `onnxruntime.preload_dlls()` 就会调用，并把 NVIDIA pip 包里的 `lib` 目录加到前面。找不到库也不会抛错。CI 安装 `[cpu]` 附加项。`barrett-faceswap doctor` 打印提供者、预加载状态和模型哈希，并在同时安装了 `onnxruntime` 和 `onnxruntime-gpu` 时警告。
+**会话缓存。** `ModelStore.session` 用解析后的路径、大小、mtime、请求的提供者元组、设备号、CUDA 图开关和精度作为键。命中缓存时直接返回会话，不再计算文件哈希。哈希只在会话第一次打开时计算。`file_sha256` 也按路径、大小和 mtime 缓存，因此之后的 doctor 或 inspect 不会重读一个没有变化的权重。文件被替换后大小或 mtime 会变，这时会重新哈希并加载。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。写出 `tensorrt` 时，如果该提供者已安装，会挂上引擎缓存、计时缓存、fp16 和构建优化级别；CPU 轮子上则跳过。驱动 580 上的 RTX 5090（Blackwell，`sm_120`）使用 `onnxruntime-gpu[cuda,cudnn]`（CUDA 13 和 cuDNN 9）。创建提供者时，如果存在 `onnxruntime.preload_dlls()` 就会调用，并把 NVIDIA pip 包里的 `lib` 目录加到前面。找不到库也不会抛错。CI 安装 `[cpu]` 附加项。`barrett-faceswap doctor` 打印提供者、预加载状态和模型哈希，并在同时安装了 `onnxruntime` 和 `onnxruntime-gpu` 时警告。
 
 **对齐和贴回。** `align.py` 放着 ArcFace 五点模板和 FFHQ 512 模板。112 是识别裁剪。128 在此基础上向右平移 8 像素，这是 inswapper 导出所期望的。增强器按 `size / 512` 缩放 FFHQ 模板。`blend.py` 把裁剪逆变换到它的包围盒上，再按蒙版合成。
 

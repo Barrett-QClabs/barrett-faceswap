@@ -1,8 +1,9 @@
 """Locate ONNX files, hash-check them, and cache sessions.
 
-The cache key is ``(path, sha256, requested providers, device id)``. CUDA is
-preferred when it appears in the request; TensorRT is accepted but not tuned.
-Weights are never downloaded here.
+A session is opened once per file identity (path, size, mtime), providers,
+and device. Later calls return that session and do not hash the file again.
+CUDA is preferred when it appears in the request; TensorRT is accepted but
+not tuned. Weights are never downloaded here.
 """
 
 from __future__ import annotations
@@ -28,13 +29,37 @@ CORE_ROLES = ("detector", "recognizer", "swapper")
 
 
 def clear_session_cache() -> None:
-    """Drop cached sessions. Tests use this to isolate provider keys."""
+    """Drop cached sessions and hash results. Tests use this to isolate keys."""
 
     with _CACHE_LOCK:
         _SESSION_CACHE.clear()
+        _HASH_CACHE.clear()
+
+
+_HASH_CACHE: dict[tuple[str, int, int], str] = {}
 
 
 def file_sha256(path: Path) -> str:
+    """SHA-256 of ``path``, reused while the size and mtime stay the same.
+
+    ``session()`` used to hash the whole weight on every frame. A 500 MB
+    inswapper file dominated the swap. The stat key makes a repeat lookup
+    skip the read. A replaced file has a new mtime and is hashed again.
+    """
+
+    stat = path.stat()
+    key = (str(path.resolve()), int(stat.st_size), int(stat.st_mtime_ns))
+    with _CACHE_LOCK:
+        cached = _HASH_CACHE.get(key)
+    if cached is not None:
+        return cached
+    value = _file_sha256_uncached(path)
+    with _CACHE_LOCK:
+        _HASH_CACHE[key] = value
+    return value
+
+
+def _file_sha256_uncached(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -99,9 +124,22 @@ class ModelStore:
         if not path.is_file():
             self.ensure_present((role,))
         record = registry_record(self.config, role)
-        digest = verify_model_hash(path, record.sha256, role)
         graph = bool(self.config.execution.cuda_graph)
-        key = (str(path.resolve()), digest, tuple(self.providers), self.device_id, graph, self.config.execution.precision)
+        stat = path.stat()
+        key = (
+            str(path.resolve()),
+            int(stat.st_size),
+            int(stat.st_mtime_ns),
+            tuple(self.providers),
+            self.device_id,
+            graph,
+            self.config.execution.precision,
+        )
+        with _CACHE_LOCK:
+            cached = _SESSION_CACHE.get(key)
+            if cached is not None:
+                return cached
+        verify_model_hash(path, record.sha256, role)
         with _CACHE_LOCK:
             cached = _SESSION_CACHE.get(key)
             if cached is not None:

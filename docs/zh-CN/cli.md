@@ -279,20 +279,23 @@ options:
   --share          向 Gradio 申请一个临时的公开链接。
 
 usage: barrett-faceswap benchmark [-h] [--config CONFIG] [--lang LANG] [--frames FRAMES]
-                                  [--width WIDTH] [--height HEIGHT] [--dry-run]
+                                  [--width WIDTH] [--height HEIGHT] [--source SOURCE]
+                                  [--target TARGET] [--dry-run]
                                   [--execution-provider EXECUTION_PROVIDER] [--live]
 
 options:
   -h, --help            show this help message and exit
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
-  --frames FRAMES       用于计时的合成帧数量。
-  --width WIDTH         合成帧宽度。
-  --height HEIGHT       合成帧高度。
+  --frames FRAMES       用于计时的帧数。
+  --width WIDTH         帧宽度。与 --source 和 --target 一起传入的静态图会缩放到这个宽度。
+  --height HEIGHT       帧高度。与 --source 和 --target 一起传入的静态图会缩放到这个高度。
+  --source SOURCE       作为源身份的静态图像。与 --target 一起使用时，基准测试会检测这张脸，而不是使用绘制的后备人脸。
+  --target TARGET       按 --frames 重复的静态图像。需要和 --source 一起传入，检测才会跑在真实人脸上。
   --dry-run             跳过 ONNX 推理。权重还没下载时可以用它走通命令。
   --execution-provider EXECUTION_PROVIDER
                         优先使用的执行提供者。可重复该参数以指定顺序。列表中包含 CUDA 时会优先 CUDA。
-  --live                为一次合成的实时会话计时，并打印各阶段延迟。
+  --live                为一次实时会话计时，并打印各阶段延迟。不会打开摄像头。
 
 usage: barrett-faceswap doctor [-h] [--config CONFIG] [--lang LANG]
 

@@ -269,9 +269,13 @@ class EnhancerConfig(_Model):
     """GFPGAN 1.4 by default. CodeFormer is selected with ``model: codeformer``."""
 
     model: str = "gfpgan_1.4"
-    blend: float = 0.8
+    blend: float = 0.6
     weight: float = 0.5
-    eye_blend: float = 1.0
+    # Lower than ``blend`` so GFPGAN does not replace the target eyes.
+    eye_blend: float = 0.35
+    # Mix of the previous enhanced crop when the face barely moves. 0 disables it.
+    temporal: float = 0.4
+    temporal_motion: float = 0.04
 
     @field_validator("model")
     @classmethod
@@ -280,7 +284,7 @@ class EnhancerConfig(_Model):
             raise ValueError(t("config.enhancer_model", allowed=", ".join(ENHANCER_MODELS)))
         return value
 
-    @field_validator("blend", "weight", "eye_blend")
+    @field_validator("blend", "weight", "eye_blend", "temporal", "temporal_motion")
     @classmethod
     def _unit(cls, value: float) -> float:
         if not 0.0 <= float(value) <= 1.0:
