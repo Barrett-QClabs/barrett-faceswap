@@ -81,7 +81,7 @@ def test_source_and_target_scores_are_logged_separately() -> None:
     swapper._slots = [_Slot(latent=np.zeros(512, dtype=np.float32), match=np.zeros(512), source_score=0.111)]
     face = Face(
         bbox=np.array([0, 0, 10, 10], dtype=np.float32),
-        score=0.222,
+        score=0.722,
         landmarks=np.zeros((5, 2), dtype=np.float32),
     )
     ctx = ProcessContext(
@@ -94,8 +94,8 @@ def test_source_and_target_scores_are_logged_separately() -> None:
     swapper.process_frame(np.zeros((8, 8, 3), dtype=np.uint8), ctx)
     assert ctx.notes
     assert "0.111" in ctx.notes[0]
-    assert "0.222" in ctx.notes[0]
-    assert ctx.notes[0].index("0.111") < ctx.notes[0].index("0.222")
+    assert "0.722" in ctx.notes[0]
+    assert ctx.notes[0].index("0.111") < ctx.notes[0].index("0.722")
 
 
 def test_landmark_hull_is_feathered_and_not_the_ellipse() -> None:

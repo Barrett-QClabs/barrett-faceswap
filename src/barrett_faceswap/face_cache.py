@@ -38,7 +38,11 @@ class DetectionCache:
         return self.index % self.every == 0 or not self._tracks
 
     def observe(self, detected: list[Face] | None) -> list[Face]:
-        """Record ``detected``, or advance the cache when it is ``None``."""
+        """Record ``detected``, or advance the cache when it is ``None``.
+
+        An empty list clears the tracks. The next skipped frame then has
+        nothing to step, so a lost face does not keep drifting.
+        """
 
         self.index += 1
         if detected is not None:

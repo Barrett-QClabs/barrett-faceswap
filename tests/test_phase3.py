@@ -208,6 +208,13 @@ def test_tracker_and_assignment() -> None:
     right[1] = 1
     chosen = assign_slots([left, right], [left], 0.45, one_to_one=True)
     assert chosen == [0, None]
+    short = FaceTracker(iou_threshold=0.3, max_missed=1)
+    held = short.update([np.array([0, 0, 10, 10], dtype=np.float32)])
+    assert held[0].missed == 0
+    short.update([])
+    assert short.tracks and short.tracks[0].missed == 1
+    short.update([])
+    assert short.tracks == []
 
 
 def test_color_transfer_and_poisson_shape() -> None:

@@ -12,7 +12,7 @@ barrett-faceswap live \
 
 `--virtual-camera /dev/video2` writes raw BGR through ffmpeg to a v4l2loopback device. A missing device is logged once. The preview continues.
 
-`live.queue_size` (default 1) bounds each queue. A full queue drops the oldest frame. `live.detect_every` (default 3) runs detection on that stride. Other frames move the last box and landmarks by the last velocity. The source embedding is prepared once.
+`live.queue_size` (default 1) bounds each queue. A full queue drops the oldest frame. `live.detect_every` (default 3) runs detection on that stride. Other frames move the last box and landmarks by the last velocity. A detection with no face clears that cache and leaves the frame unchanged. The source embedding is prepared once.
 
 The Gradio webcam tab is a streaming callback over the same `LiveSession`. Press Start, then allow the camera. The first frame runs the consent check when compliance is on. Stop writes one audit line. The threads themselves are the CLI command.
 
