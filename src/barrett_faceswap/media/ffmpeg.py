@@ -275,7 +275,7 @@ def build_decode_pipe_command(
 ) -> list[str]:
     """ffmpeg argv that writes raw BGR frames to stdout."""
 
-    command = [_ffmpeg_bin(), "-hide_banner", "-loglevel", "error"]
+    command = [_ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-thread_queue_size", "32"]
     start = seek
     if trim_start is not None and seek:
         start = float(trim_start) + float(seek)

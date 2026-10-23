@@ -13,8 +13,9 @@ from pydantic import BaseModel, ConfigDict
 class Face:
     """A face in the coordinate frame of the image passed to the detector.
 
-    ``bbox`` is ``x1, y1, x2, y2``. ``landmarks`` holds five points in ArcFace
-    order: left eye, right eye, nose, left mouth corner, right mouth corner.
+    ``bbox`` is ``x1, y1, x2, y2``. ``landmarks`` holds at least five points.
+    The first five stay in ArcFace order: left eye, right eye, nose, left
+    mouth corner, right mouth corner. A 106-point set may follow them.
     """
 
     bbox: np.ndarray
@@ -34,6 +35,8 @@ class ProcessContext:
     log_every_frame: bool = True
     # When set, the swapper uses these faces instead of running the detector.
     known_faces: list | None = None
+    # Video sets this so a frame with no face is returned unchanged.
+    allow_missing_face: bool = False
 
 
 class SwapRequest(BaseModel):
@@ -76,6 +79,8 @@ class SwapRequest(BaseModel):
     blend_mode: str | None = None
     color_transfer: str | None = None
     video_mode: str | None = None
+    eye_mode: str | None = None
+    with_enhancer: bool = False
     job_id: str | None = None
     resume: bool = False
     commercial: bool = False

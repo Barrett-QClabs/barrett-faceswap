@@ -46,8 +46,8 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
                              [--pixel-boost PIXEL_BOOST] [--many-faces] [--reference REFERENCE]
                              [--face-map FACE_MAP] [--blend-mode {alpha,poisson}]
                              [--color-transfer {none,mean_std,lab,histogram}]
-                             [--video-mode {disk,pipe}] [--job-id JOB_ID] [--resume]
-                             [--commercial]
+                             [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
+                             [--with-enhancer] [--job-id JOB_ID] [--resume] [--commercial]
 
 options:
   -h, --help            show this help message and exit
@@ -110,6 +110,9 @@ options:
                         色彩匹配：none、mean_std、lab 或 histogram。
   --video-mode {disk,pipe}
                         视频路径：disk（默认）或 pipe。
+  --eye-mode {swap,blend,target}
+                        眼部处理：swap、blend（默认，尽量保留目标眼睛）或 target。
+  --with-enhancer       同时运行 face_enhancer。眼部使用 enhancer.eye_blend。
   --job-id JOB_ID       任务编号。字母、数字、下划线和连字符。
   --resume              从上次完成的帧继续任务。
   --commercial          拒绝注册表里 commercial_use 为 false 的模型。
@@ -137,7 +140,8 @@ usage: barrett-faceswap jobs submit [-h] --source SOURCE --target TARGET --outpu
                                     [--reference REFERENCE] [--face-map FACE_MAP]
                                     [--blend-mode {alpha,poisson}]
                                     [--color-transfer {none,mean_std,lab,histogram}]
-                                    [--video-mode {disk,pipe}] [--job-id JOB_ID]
+                                    [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
+                                    [--with-enhancer] [--job-id JOB_ID]
 
 options:
   -h, --help            show this help message and exit
@@ -165,6 +169,9 @@ options:
                         色彩匹配：none、mean_std、lab 或 histogram。
   --video-mode {disk,pipe}
                         视频路径：disk（默认）或 pipe。
+  --eye-mode {swap,blend,target}
+                        眼部处理：swap、blend（默认，尽量保留目标眼睛）或 target。
+  --with-enhancer       同时运行 face_enhancer。眼部使用 enhancer.eye_blend。
   --job-id JOB_ID       任务编号。字母、数字、下划线和连字符。
 
 usage: barrett-faceswap jobs resume [-h] [--config CONFIG] [--lang LANG] job_id
@@ -202,7 +209,8 @@ usage: barrett-faceswap live [-h] --source SOURCE [--config CONFIG] [--lang LANG
                              [--pixel-boost PIXEL_BOOST] [--many-faces] [--reference REFERENCE]
                              [--face-map FACE_MAP] [--blend-mode {alpha,poisson}]
                              [--color-transfer {none,mean_std,lab,histogram}]
-                             [--video-mode {disk,pipe}]
+                             [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
+                             [--with-enhancer]
 
 options:
   -h, --help            show this help message and exit
@@ -242,6 +250,9 @@ options:
                         色彩匹配：none、mean_std、lab 或 histogram。
   --video-mode {disk,pipe}
                         视频路径：disk（默认）或 pipe。
+  --eye-mode {swap,blend,target}
+                        眼部处理：swap、blend（默认，尽量保留目标眼睛）或 target。
+  --with-enhancer       同时运行 face_enhancer。眼部使用 enhancer.eye_blend。
 
 usage: barrett-faceswap inspect-models [-h] [--config CONFIG] [--lang LANG]
 
@@ -291,12 +302,13 @@ options:
   --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
 usage: barrett-faceswap download-models [-h] [--config CONFIG] [--lang LANG] [--with-gfpgan]
-                                        [--force]
+                                        [--force] [--from-dir FROM_DIR]
 
 options:
-  -h, --help       show this help message and exit
-  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
-  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
-  --with-gfpgan    同时下载可选的 GFPGAN 1.4 ONNX。
-  --force          即使本地文件已经匹配，也重新下载。
+  -h, --help           show this help message and exit
+  --config CONFIG      YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG          界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+  --with-gfpgan        同时下载可选的 GFPGAN 1.4 ONNX。
+  --force              即使本地文件已经匹配，也重新下载。
+  --from-dir FROM_DIR  下载前先从这个目录复制匹配的 ONNX 文件。仍会校验 SHA-256。
 ```

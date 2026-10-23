@@ -15,7 +15,7 @@ jobs:
       - name: Install system packages
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install
-        run: pip install -e ".[dev,docs]"
+        run: pip install -e ".[cpu,dev,docs]"
       - name: Test
         run: pytest
       - name: Docs

@@ -14,6 +14,7 @@ import logging
 import cv2
 import numpy as np
 
+from barrett_faceswap.binding import run_feeds
 from barrett_faceswap.errors import DetectorError, NoFaceError
 from barrett_faceswap.i18n import t
 from barrett_faceswap.types import Face
@@ -31,6 +32,14 @@ class FaceDetector:
         self.nms_threshold = float(nms_threshold)
 
     def detect(self, image_bgr: np.ndarray) -> list[Face]:
+        faces = self.try_detect(image_bgr)
+        if not faces:
+            raise NoFaceError(t("detect.no_face"))
+        return faces
+
+    def try_detect(self, image_bgr: np.ndarray, threshold: float | None = None) -> list[Face]:
+        """Return faces, or an empty list when nothing clears the threshold."""
+
         if image_bgr.ndim != 3 or image_bgr.shape[2] != 3:
             raise DetectorError(t("detect.need_bgr"))
         height, width = image_bgr.shape[:2]
@@ -40,17 +49,14 @@ class FaceDetector:
         rgb = (rgb - 127.5) / 128.0
         blob = np.transpose(rgb, (2, 0, 1))[None, ...]
         input_name = self.session.get_inputs()[0].name
-        outputs = self.session.run(None, {input_name: blob})
-        faces = decode_scrfd(
+        outputs = run_feeds(self.session, {input_name: blob}, cuda_graph=False)
+        return decode_scrfd(
             outputs,
             det_size=det_w,
-            score_threshold=self.score_threshold,
+            score_threshold=self.score_threshold if threshold is None else float(threshold),
             nms_threshold=self.nms_threshold,
             origin_size=(width, height),
         )
-        if not faces:
-            raise NoFaceError(t("detect.no_face"))
-        return faces
 
 
 def select_face(faces: list[Face], index: int) -> Face:

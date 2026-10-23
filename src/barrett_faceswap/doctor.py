@@ -6,6 +6,8 @@ weights and it does not fail when CUDA is absent.
 
 from __future__ import annotations
 
+from importlib import metadata
+
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.execution import available_provider_names, prepare_runtime
 from barrett_faceswap.i18n import t
@@ -21,6 +23,9 @@ def run_doctor(config: AppConfig) -> list[str]:
     status = prepare_runtime()
     providers = available_provider_names()
     lines = [t("doctor.providers", providers=", ".join(providers) if providers else "-")]
+    installed = installed_ort_names()
+    if "onnxruntime" in installed and "onnxruntime-gpu" in installed:
+        lines.append(t("doctor.both_wheels"))
     preload = str(status.get("preload") or "unavailable")
     if preload == "failed":
         label = t("doctor.preload_failed", error=status.get("error") or "-")
@@ -47,3 +52,14 @@ def run_doctor(config: AppConfig) -> list[str]:
             state = t("doctor.missing")
         lines.append(t("doctor.model", role=role, state=state, sha256=digest, path=path))
     return lines
+
+
+def installed_ort_names() -> list[str]:
+    """Distribution names for the CPU and GPU ONNX Runtime wheels, if present."""
+
+    found: list[str] = []
+    for dist in metadata.distributions():
+        name = str(dist.metadata["Name"] or "").lower()
+        if name in {"onnxruntime", "onnxruntime-gpu"} and name not in found:
+            found.append(name)
+    return found

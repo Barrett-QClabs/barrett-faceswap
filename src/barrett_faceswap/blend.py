@@ -26,16 +26,14 @@ def match_color(swapped_bgr: np.ndarray, target_bgr: np.ndarray, mask: np.ndarra
 
     out = swapped_bgr.astype(np.float32)
     target = target_bgr.astype(np.float32)
-    region = mask > 0.4
-    if int(region.sum()) < 10:
+    region = np.where(mask > 0.4, 255, 0).astype(np.uint8)
+    if int(cv2.countNonZero(region)) < 10:
         return swapped_bgr
     for channel in range(3):
-        source_values = out[..., channel][region]
-        target_values = target[..., channel][region]
-        source_std = float(source_values.std()) + 1e-6
-        target_std = float(target_values.std()) + 1e-6
-        out[..., channel] = (out[..., channel] - float(source_values.mean())) * (target_std / source_std)
-        out[..., channel] += float(target_values.mean())
+        source_mean, source_std = cv2.meanStdDev(out[..., channel], mask=region)
+        target_mean, target_std = cv2.meanStdDev(target[..., channel], mask=region)
+        scale = (float(target_std[0, 0]) + 1e-6) / (float(source_std[0, 0]) + 1e-6)
+        out[..., channel] = (out[..., channel] - float(source_mean[0, 0])) * scale + float(target_mean[0, 0])
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
@@ -59,18 +57,16 @@ def apply_color(mode: str, swapped_bgr: np.ndarray, target_bgr: np.ndarray, mask
 def _match_lab(swapped_bgr: np.ndarray, target_bgr: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Match per-channel mean and deviation in Lab."""
 
-    region = mask > 0.4
-    if int(region.sum()) < 10:
+    region = np.where(mask > 0.4, 255, 0).astype(np.uint8)
+    if int(cv2.countNonZero(region)) < 10:
         return swapped_bgr
     swapped = cv2.cvtColor(swapped_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
     target = cv2.cvtColor(target_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
     for channel in range(3):
-        source_values = swapped[..., channel][region]
-        target_values = target[..., channel][region]
-        source_std = float(source_values.std()) + 1e-6
-        target_std = float(target_values.std()) + 1e-6
-        swapped[..., channel] = (swapped[..., channel] - float(source_values.mean())) * (target_std / source_std)
-        swapped[..., channel] += float(target_values.mean())
+        source_mean, source_std = cv2.meanStdDev(swapped[..., channel], mask=region)
+        target_mean, target_std = cv2.meanStdDev(target[..., channel], mask=region)
+        scale = (float(target_std[0, 0]) + 1e-6) / (float(source_std[0, 0]) + 1e-6)
+        swapped[..., channel] = (swapped[..., channel] - float(source_mean[0, 0])) * scale + float(target_mean[0, 0])
     clipped = np.clip(swapped, 0, 255).astype(np.uint8)
     return cv2.cvtColor(clipped, cv2.COLOR_LAB2BGR)
 
@@ -114,15 +110,36 @@ def paste_back(
     matrix: np.ndarray,
     mask: np.ndarray,
 ) -> np.ndarray:
-    """Inverse-warp ``crop_bgr`` and composite it with ``mask``."""
+    """Inverse-warp ``crop_bgr`` onto the crop's bounding box and composite it."""
 
     height, width = base_bgr.shape[:2]
     inverse = cv2.invertAffineTransform(np.asarray(matrix, dtype=np.float32))
-    warped = cv2.warpAffine(crop_bgr, inverse, (width, height), flags=cv2.INTER_LINEAR)
-    warped_mask = cv2.warpAffine(mask, inverse, (width, height), flags=cv2.INTER_LINEAR)
+    crop_h, crop_w = crop_bgr.shape[:2]
+    corners = np.array(
+        [[0, 0], [crop_w - 1, 0], [crop_w - 1, crop_h - 1], [0, crop_h - 1]],
+        dtype=np.float32,
+    )
+    mapped = cv2.transform(corners.reshape(1, -1, 2), inverse).reshape(-1, 2)
+    margin = 4
+    x1 = max(0, int(np.floor(float(mapped[:, 0].min()))) - margin)
+    y1 = max(0, int(np.floor(float(mapped[:, 1].min()))) - margin)
+    x2 = min(width, int(np.ceil(float(mapped[:, 0].max()))) + margin + 1)
+    y2 = min(height, int(np.ceil(float(mapped[:, 1].max()))) + margin + 1)
+    if x2 <= x1 or y2 <= y1:
+        return base_bgr.copy()
+    shifted = inverse.copy()
+    shifted[0, 2] -= float(x1)
+    shifted[1, 2] -= float(y1)
+    roi_w = x2 - x1
+    roi_h = y2 - y1
+    warped = cv2.warpAffine(crop_bgr, shifted, (roi_w, roi_h), flags=cv2.INTER_LINEAR)
+    warped_mask = cv2.warpAffine(mask, shifted, (roi_w, roi_h), flags=cv2.INTER_LINEAR)
     alpha = warped_mask[..., None].astype(np.float32)
-    blended = warped.astype(np.float32) * alpha + base_bgr.astype(np.float32) * (1.0 - alpha)
-    return np.clip(blended, 0, 255).astype(np.uint8)
+    base = base_bgr.copy()
+    roi = base[y1:y2, x1:x2].astype(np.float32)
+    blended = warped.astype(np.float32) * alpha + roi * (1.0 - alpha)
+    base[y1:y2, x1:x2] = np.clip(blended, 0, 255).astype(np.uint8)
+    return base
 
 
 def paste_poisson(

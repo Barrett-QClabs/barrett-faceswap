@@ -26,16 +26,19 @@ dependencies = [
   "Pillow>=10.0",
   "PyYAML>=6.0",
   "tqdm>=4.66",
-  "onnxruntime>=1.17",
   "onnx>=1.15",
   "pydantic>=2.6",
 ]
 
 [project.optional-dependencies]
-# Install in place of onnxruntime, not beside it. See the README.
+# The base install does not pin an ONNX Runtime wheel. Choose one extra.
+#   pip install -e ".[cpu,dev]"
+#   pip install -e ".[gpu]"
+# Do not install both wheels. The CPU build can hide the GPU build.
 # RTX 50-series (Blackwell, sm_120) with driver 580: onnxruntime-gpu 1.31 needs
 # CUDA 13 and cuDNN 9. The extra installs those libraries. Provider setup calls
 # onnxruntime.preload_dlls() and prepends site-packages/nvidia/*/lib.
+cpu = ["onnxruntime>=1.17"]
 gpu = ["onnxruntime-gpu[cuda,cudnn]>=1.21"]
 ui = ["gradio>=4.44,<6"]
 dev = ["pytest>=8.0", "gradio>=4.44,<6"]

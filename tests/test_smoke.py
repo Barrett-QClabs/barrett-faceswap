@@ -37,6 +37,11 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.video.mode == "disk"
     assert config.blend.mode == "alpha"
     assert config.blend.color == "lab"
+    assert config.blend.eye_mode == "blend"
+    assert config.blend.eye_sharpen == 0.6
+    assert config.enhancer.eye_blend == 1.0
+    assert config.video.max_face_gap == 10
+    assert config.video.smooth == "one_euro"
     assert config.compliance.enabled is False
     assert config.models.gfpgan.path.name == "gfpgan_1.4.onnx"
     assert config.execution.commercial is False

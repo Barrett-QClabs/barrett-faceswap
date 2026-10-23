@@ -32,14 +32,15 @@ Use a face only when that person has authorized the specific use. Do not create 
 - Masks merged with a per-pixel minimum: inset box, xseg-style occlusion ONNX, and BiSeNet face-parsing regions. A missing occlusion file stays an all-ones mask. A missing parser uses a feathered landmark convex hull on the swap crop, and an ellipse when no landmarks are passed
 - `face_enhancer`: GFPGAN 1.4 or CodeFormer ONNX, with a blend amount. It is registered and left out of the default processor list so a swap does not require those files
 - Video: ffprobe, frame extraction, a thread pool through the same processors, `libx264` or `h264_nvenc`, then the original audio muxed back. Optional trim
-- ONNX Runtime sessions cached by model hash, provider list, device, precision, and the CUDA-graph flag. CUDA is preferred when you ask for it. TensorRT engine and timing caches, fp16, and the builder optimization level are attached when that provider is installed. `execution.precision: fp16` selects a sibling `*_fp16.onnx` and falls back to fp32 when the file is absent. CUDA graph capture and IO binding run only when the session has the CUDA provider
+- ONNX Runtime sessions cached by model hash, provider list, device, precision, and the CUDA-graph flag. CUDA is preferred when you ask for it. TensorRT engine and timing caches, fp16, and the builder optimization level are attached when that provider is installed. `execution.precision: fp16` selects a sibling `*_fp16.onnx` and falls back to fp32 when the file is absent. A CUDA session reuses IO binding. CUDA graph capture is requested only when `execution.cuda_graph` is on
 - Model registry with license, commercial-use flag, alignment name, input size, and an optional sha256 pin checked on load
 - Pydantic config shared by the CLI, the video pipeline, and the UI
 - English and Chinese catalogs (`--lang`, `ui.language`, `BARRETT_FACESWAP_LANG`). The Gradio dropdown switches every label
 - Opt-in compliance package: consent, watermark, pluggable content filter, append-only audit log. On a video it runs once up front, samples frames for the filter, watermarks every output frame when enforcement is on, and writes one audit line. A live session uses the same hooks: consent on the first frame, a watermark on each output frame, and one audit line per session
 - Realtime webcam: `barrett-faceswap live` runs capture, detect, swap, and output on three threads. Bounded queues drop stale frames. Detection runs every few frames and the cache interpolates the rest. The source embedding is computed once. Output can open a preview and, on Linux, a v4l2loopback device. The Gradio page has a webcam tab that uses the same session object
 - `--commercial` refuses every registry row with `commercial_use: false`. The built-in rows stay false. `scripts/train_swapper.py` only checks a local `commercial-ok` manifest and prints a plan. It does not train or download
-- `barrett-faceswap download-models` fetches `buffalo_l` and `inswapper_128`, checks sha256, resumes, and tries the next mirror. `--with-gfpgan` is optional. CI does not run it. `barrett-faceswap doctor` prints providers, CUDA/cuDNN preload, and local model hashes
+- `barrett-faceswap download-models` fetches `buffalo_l` and `inswapper_128`, checks sha256, resumes, and tries the next mirror. Each mirror connect waits at most 15 seconds. `--from-dir` copies matching ONNX files before any download. `--with-gfpgan` is optional. CI does not run it. `barrett-faceswap doctor` prints providers, CUDA/cuDNN preload, and local model hashes, and warns when both ONNX Runtime wheels are installed
+- Video does not stop on a frame with no face. It retries a lower threshold, rotations, and an upscale, then fills landmarks from neighbors inside `video.max_face_gap` (default 10). `--eye-mode blend` (the default) keeps most of the target eyes. `--with-enhancer` adds GFPGAN or CodeFormer with a stronger eye blend. `--pixel-boost 256` or `512` tiles inswapper for a still or a video
 - Bilingual docs site under `docs/en` and `docs/zh-CN` (MkDocs Material). CI builds it and does not deploy
 
 Still later: more swappers beyond this set, and frame-exact pipe resume. `compliance.enabled` stays false until an official launch.
@@ -51,10 +52,10 @@ Python 3.10 or newer.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[cpu,dev]"
 ```
 
-The dependency is the headless OpenCV wheel (`opencv-python-headless`, imported as `cv2`) so a server or CI job does not need a display. `onnxruntime` is the default CPU build.
+The dependency is the headless OpenCV wheel (`opencv-python-headless`, imported as `cv2`) so a server or CI job does not need a display. The base install does not pin an ONNX Runtime wheel. The `[cpu]` extra installs `onnxruntime`. CI uses that extra.
 
 On an NVIDIA machine, including an RTX 5090 (Blackwell, `sm_120`) on Ubuntu 24.04 with driver 580, install the GPU extra **instead of** the CPU wheel:
 
@@ -63,7 +64,7 @@ pip uninstall -y onnxruntime onnxruntime-gpu
 pip install -e ".[gpu]"
 ```
 
-`[gpu]` is `onnxruntime-gpu[cuda,cudnn]`. onnxruntime-gpu 1.31 needs CUDA 13 and cuDNN 9 (`libcublasLt.so.13`, `libcudnn.so.9`). Those libraries come from the NVIDIA pip packages. At provider setup the process calls `onnxruntime.preload_dlls()` when that function exists and prepends `site-packages/nvidia/cu13/lib` and `site-packages/nvidia/cudnn/lib` onto `LD_LIBRARY_PATH`. You do not have to export that path yourself. Do not keep the CPU wheel and the GPU wheel installed together. CI runs the CPU wheel. TensorRT and CUDA graph options are skipped when those providers are not installed.
+`[gpu]` is `onnxruntime-gpu[cuda,cudnn]`. onnxruntime-gpu 1.31 needs CUDA 13 and cuDNN 9 (`libcublasLt.so.13`, `libcudnn.so.9`). Those libraries come from the NVIDIA pip packages. At provider setup the process calls `onnxruntime.preload_dlls()` when that function exists and prepends `site-packages/nvidia/cu13/lib` and `site-packages/nvidia/cudnn/lib` onto `LD_LIBRARY_PATH`. You do not have to export that path yourself. Do not keep the CPU wheel and the GPU wheel installed together. `barrett-faceswap doctor` warns when both are present. CI installs the `[cpu]` extra. TensorRT and CUDA graph options are skipped when those providers are not installed.
 
 ```bash
 barrett-faceswap doctor
@@ -139,7 +140,7 @@ barrett-faceswap swap \
   --dry-run
 ```
 
-`--swapper-model` selects the graph. Weights are not downloaded; see `scripts/download_models.md`. `--pixel-boost 0` is omitted here and means the model's native size (inswapper still honors `swap.resolution`). A face map is a JSON list of `{source, target_index?, reference?}` and wins over `--many-faces` and `--reference`.
+`--swapper-model` selects the graph. Weights are not downloaded; see `scripts/download_models.md`. `--pixel-boost 0` is omitted here and means the model's native size (inswapper still honors `swap.resolution`). `--pixel-boost 256` or `512` on `inswapper_128` aligns a larger crop and runs 128-pixel tiles, including on a video. `--eye-mode blend` (default) mixes the original target eyes back under a feathered mask. `swap` keeps the swapped eyes. `target` keeps the original eyes. `--with-enhancer` appends `face_enhancer`; the eyes use `enhancer.eye_blend` (default 1). A frame with no detection does not abort a video. A still image still fails. A face map is a JSON list of `{source, target_index?, reference?}` and wins over `--many-faces` and `--reference`.
 
 ```bash
 barrett-faceswap jobs submit \

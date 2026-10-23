@@ -28,6 +28,7 @@ class IdentitySwapper:
         self.store = store
         self.swap_resolution = int(swap_resolution)
         self._emap: np.ndarray | None = None
+        self._names: tuple[str, str] | None = None
 
     def embed(self, source_bgr: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
         return embed_arcface(self.store, source_bgr, landmarks)
@@ -35,7 +36,9 @@ class IdentitySwapper:
     def forward(self, target_crop_bgr: np.ndarray, embedding: np.ndarray) -> np.ndarray:
         session = self.store.session("swapper")
         latent = self._map_embedding(embedding)
-        image_name, latent_name = _bind_swap_inputs(session)
+        if self._names is None:
+            self._names = _bind_swap_inputs(session)
+        image_name, latent_name = self._names
         blob = _swapper_blob(target_crop_bgr)
         from barrett_faceswap.binding import run_feeds
 
@@ -157,6 +160,7 @@ class GraphSwapper:
         self.store = store
         self.spec = spec
         self.native_size = int(spec.native_size)
+        self._names: tuple[str, str] | None = None
 
     def project(self, arcface: np.ndarray) -> np.ndarray:
         """Return the latent the swap graph consumes."""
@@ -170,7 +174,9 @@ class GraphSwapper:
 
     def forward(self, target_crop_bgr: np.ndarray, latent: np.ndarray) -> np.ndarray:
         session = self.store.session(self.spec.role)
-        image_name, latent_name = _bind_swap_inputs(session)
+        if self._names is None:
+            self._names = _bind_swap_inputs(session)
+        image_name, latent_name = self._names
         blob = _normalize_blob(target_crop_bgr, self.spec.normalize)
         vector = np.asarray(latent, dtype=np.float32).reshape(1, -1)
         from barrett_faceswap.binding import run_feeds
