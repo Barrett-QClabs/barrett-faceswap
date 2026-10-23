@@ -58,8 +58,55 @@ APP_CSS = f"""
 footer {{ display: none !important; }}
 .bf-layout {{ align-items: stretch; gap: 16px; }}
 .bf-preview {{ min-height: 420px; }}
-.bf-cta {{ min-height: 44px; background: {_CTA} !important; color: #ffffff !important; }}
-.bf-cta:hover {{ background: {_CTA_HOVER} !important; }}
+/* Primary stays blue with white text. Secondary was a light fill with light text. */
+.gradio-container button.primary,
+.gradio-container .bf-cta {{
+  min-height: 44px;
+  background: {_CTA} !important;
+  color: #FFFFFF !important;
+  border-color: {_CTA} !important;
+}}
+.gradio-container button.primary:hover,
+.gradio-container .bf-cta:hover {{
+  background: {_CTA_HOVER} !important;
+  color: #FFFFFF !important;
+}}
+.gradio-container button.primary *,
+.gradio-container .bf-cta * {{
+  color: #FFFFFF !important;
+}}
+.gradio-container button.secondary {{
+  background: {_CARD} !important;
+  color: {_TEXT} !important;
+  border: 1px solid {_CTA_HOVER} !important;
+}}
+.gradio-container button.secondary:hover {{
+  background: {_LINE} !important;
+  color: #FFFFFF !important;
+}}
+.gradio-container button.secondary * {{
+  color: inherit !important;
+}}
+/* File and image titles were light-blue chips with light text. */
+.gradio-container label.float {{
+  background: {_CARD} !important;
+  color: {_TEXT} !important;
+}}
+.gradio-container button.boundedheight,
+.gradio-container button.boundedheight * {{
+  color: {_TEXT} !important;
+}}
+/* Quality and language radios: selected pill is the CTA blue with white text. */
+.gradio-container label:has(input[type="radio"]) {{
+  color: {_TEXT} !important;
+}}
+.gradio-container label:has(input[type="radio"]):has(input:checked) {{
+  background: {_CTA} !important;
+  color: #FFFFFF !important;
+}}
+.gradio-container label:has(input[type="radio"]):has(input:checked) * {{
+  color: #FFFFFF !important;
+}}
 .bf-actions button:disabled {{ opacity: 0.4; }}
 @media (max-width: 959px) {{
   .bf-layout {{ flex-direction: column !important; }}
@@ -292,12 +339,25 @@ def _dark_theme(gr):
             button_primary_background_fill_hover_dark=_CTA_HOVER,
             button_primary_text_color="#FFFFFF",
             button_primary_text_color_dark="#FFFFFF",
-            button_secondary_background_fill="transparent",
-            button_secondary_background_fill_dark="transparent",
+            button_primary_text_color_hover="#FFFFFF",
+            button_primary_text_color_hover_dark="#FFFFFF",
+            button_secondary_background_fill=_CARD,
+            button_secondary_background_fill_dark=_CARD,
+            button_secondary_background_fill_hover=_LINE,
+            button_secondary_background_fill_hover_dark=_LINE,
             button_secondary_border_color=_CTA_HOVER,
             button_secondary_border_color_dark=_CTA_HOVER,
+            button_secondary_border_color_hover=_CTA_HOVER,
+            button_secondary_border_color_hover_dark=_CTA_HOVER,
             button_secondary_text_color=_TEXT,
             button_secondary_text_color_dark=_TEXT,
+            button_secondary_text_color_hover="#FFFFFF",
+            button_secondary_text_color_hover_dark="#FFFFFF",
+            block_label_background_fill=_CARD,
+            block_label_background_fill_dark=_CARD,
+            color_accent=_CTA,
+            color_accent_soft=_LINE,
+            color_accent_soft_dark=_LINE,
             input_background_fill=_BG,
             input_background_fill_dark=_BG,
             input_border_color=_LINE,

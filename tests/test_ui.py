@@ -94,6 +94,11 @@ def test_quality_presets_do_not_collapse_fast_into_balanced() -> None:
     assert "#0B0D10" in APP_CSS
     assert "#2563EB" in APP_CSS
     assert "#14181F" in APP_CSS
+    assert "#E8ECF1" in APP_CSS
+    assert "#FFFFFF" in APP_CSS
+    assert "button.secondary" in APP_CSS
+    assert "label.float" in APP_CSS
+    assert 'input[type="radio"]' in APP_CSS
     assert "sticky" in APP_CSS
 
 
