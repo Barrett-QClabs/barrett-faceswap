@@ -1,6 +1,6 @@
 # 架构
 
-文件换脸走 `FaceSwapPipeline`。视频走 `VideoPipeline`。摄像头走 `LivePipeline`：采集、处理和输出各一条线程，并与 Gradio 摄像头页共用 `LiveSession`。
+文件换脸走 `FaceSwapPipeline`。视频走 `VideoPipeline`。摄像头走 `LivePipeline`：采集、处理和输出各一条线程，并与 Gradio 摄像头页共用 `LiveSession`。Gradio 页面默认是简体中文，深色主题，带质量预设，长视频有进度条。摄像头页使用同一套换脸器、像素提升、遮挡和增强设置。`compliance.enabled` 保持 false。
 
 处理器只返回帧，不写输出文件。`CompliancePolicy` 同时包住文件路径和实时路径。`compliance.enabled` 默认为 false，因此干跑不会要求同意、不会加水印，也不会写审计。
 

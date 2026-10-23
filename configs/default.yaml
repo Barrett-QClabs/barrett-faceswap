@@ -3,8 +3,9 @@
 # Run commands from the repository root.
 
 ui:
-  # en | zh-CN. Overridden by BARRETT_FACESWAP_LANG and by --lang.
-  language: en
+  # zh-CN | en. The Gradio header toggle and --lang override this.
+  # Precedence stays --lang, then BARRETT_FACESWAP_LANG, then this value.
+  language: zh-CN
 
 paths:
   models_dir: models

@@ -330,6 +330,19 @@ def test_overrides_keep_blend_and_select_model(tmp_path: Path) -> None:
     assert updated.compliance.enabled is False
 
 
+def test_pixel_boost_zero_overrides_a_larger_config(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config = config.model_copy(update={"swap": config.swap.model_copy(update={"pixel_boost": 256})})
+    request = SwapRequest(
+        source_path=tmp_path / "a.png",
+        target_path=tmp_path / "b.png",
+        output_path=tmp_path / "c.png",
+        pixel_boost=0,
+    )
+    updated = apply_request_overrides(config, request)
+    assert updated.swap.pixel_boost == 0
+
+
 def test_image_job_and_resume_guard(tmp_path: Path) -> None:
     source = tmp_path / "source.png"
     target = tmp_path / "target.png"

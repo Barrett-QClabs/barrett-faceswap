@@ -37,7 +37,7 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - ONNX Runtime 会话按模型哈希、提供者列表、设备、精度和 CUDA 图标记缓存。默认提供者是 CUDA，然后是 CPU。同时列出 CUDA 和 TensorRT 时 CUDA 仍在前面。`--execution-provider tensorrt` 会在 `.cache/tensorrt/engines` 建立引擎缓存，每个角色使用自己的前缀。`tensorrt.fp16` 默认是 false，因为 fp16 会改变身份。`execution.precision: fp16` 选用同目录的 `*_fp16.onnx`，文件不存在时退回 fp32。CUDA 会话会复用 IO binding。只有 `execution.cuda_graph` 打开时才请求 CUDA 图捕获
 - 模型注册表包含许可、商业标记、对齐名称、输入尺寸，以及加载时可选的 sha256 校验
 - CLI、视频流水线和界面共用的 Pydantic 配置
-- 中英文目录（`--lang`、`ui.language`、`BARRETT_FACESWAP_LANG`）。Gradio 的语言下拉会切换全部标签
+- 中英文目录（`--lang`、`ui.language`、`BARRETT_FACESWAP_LANG`）。Gradio 页头的语言开关会切换全部标签。随仓库提供的界面语言是 zh-CN
 - 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志。视频只在开始时走一次前置检查，按间隔抽样过滤，强制打开时给每一帧加水印，并写一行审计。实时会话使用同一组钩子：第一帧做同意检查，每一帧输出加水印，每个会话一行审计
 - 实时摄像头：`barrett-faceswap live` 用三条线程做采集、检测、替换和输出。有界队列丢掉过期帧。检测隔几帧做一次，其余帧由缓存插值。源脸向量只算一次。输出可以打开预览，在 Linux 上也可以写到 v4l2loopback。Gradio 页面有一个摄像头页，使用同一个会话对象
 - `--commercial` 拒绝注册表里 `commercial_use` 为 false 的每一行。内置行保持 false。`scripts/train_swapper.py` 只检查本地的 `commercial-ok` 清单并打印计划。它不训练，也不下载
@@ -127,7 +127,7 @@ Gradio：
 barrett-faceswap ui
 ```
 
-页面上有源、目标、输出、处理器、执行提供者、增强器、换脸模型、遮挡模型、像素提升、多人脸、参考脸、脸映射、融合、颜色迁移、视频模式、视频编码器、商业门禁、预览，以及摄像头页。`barrett-faceswap ui --lang zh-CN` 会在下拉改变之前就使用中文标签。语言下拉（`zh-CN` / `en`）会按目录重写全部标签，包括按钮和摄像头页。视频预览只处理第一帧。目标是视频并且点击运行时，才会采用编码器和视频模式下拉框的值。静态图像的运行会忽略它们。除非勾选合规或配置里已经打开，否则合规保持关闭。摄像头页在浏览器允许摄像头之前不会打开设备。开始只是待命。第一帧做同意检查。合规打开时，停止会写审计行。
+页面是深色应用（背景 `#0B0D10`，卡片 `#14181F`，主按钮 `#2563EB`）。随仓库提供的语言是 zh-CN。页头开关可以换成英语，并重写全部标签，包括两个页签。主路径是源脸、目标、换脸器和质量预设（快速、均衡、高清、自定义），然后是仅预览和开始换脸。结果预览是右侧的大区域，窄屏时移到控件上方。手机上操作行吸在底部。均衡使用 `hyperswap_1a_256`，关闭增强，遮挡模型 `xseg_1`，像素提升为 0。高级设置默认收起：选脸、增强、蒙版与遮挡、视频、执行、合规和输出路径。长视频会填充进度条。摄像头页使用同一套换脸器、像素提升、遮挡模型、增强器和执行提供者。`barrett-faceswap ui --lang en` 以英语启动。视频预览只处理第一帧。目标是视频并且点击开始换脸时，才会采用编码器和视频模式。静态图像的运行会忽略它们。除非勾选合规或配置里已经打开，否则合规保持关闭。摄像头页在浏览器允许摄像头之前不会打开设备。开始只是待命。第一帧做同意检查。合规打开时，停止会写审计行。
 
 ```bash
 barrett-faceswap swap \
@@ -222,7 +222,7 @@ barrett-faceswap swap \
   --consent-file path/to/consent.json
 ```
 
-`--lang zh-CN` 或 `BARRETT_FACESWAP_LANG=zh-CN` 会切换命令行、日志和错误文本。配置里的 `ui.language` 是兜底。优先级是 `--lang`，然后是环境变量，然后是 `ui.language`，最后是英语。
+`--lang zh-CN` 或 `BARRETT_FACESWAP_LANG=zh-CN` 会切换命令行、日志和错误文本。随仓库提供的 `ui.language` 是 `zh-CN`。优先级是 `--lang`，然后是环境变量，然后是 `ui.language`，最后是英语。
 
 其他命令：`barrett-faceswap inspect-models`、`barrett-faceswap list-processors`、`barrett-faceswap benchmark`、`barrett-faceswap ui`。
 

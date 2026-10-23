@@ -27,7 +27,7 @@ def test_package_imports() -> None:
 def test_shipped_compliance_default_is_off() -> None:
     config = load_config(REPO / "configs" / "default.yaml")
     assert config.compliance.enabled is False
-    assert config.ui.language == "en"
+    assert config.ui.language == "zh-CN"
     assert config.models.swapper.sha256 is None
     assert config.models.detector.path.name == "det_10g.onnx"
     assert config.processors == ["face_swapper"]

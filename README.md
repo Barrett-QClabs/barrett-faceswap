@@ -37,7 +37,7 @@ Use a face only when that person has authorized the specific use. Do not create 
 - ONNX Runtime sessions cached by model hash, provider list, device, precision, and the CUDA-graph flag. The default providers are CUDA, then CPU. CUDA stays first when both CUDA and TensorRT are listed. `--execution-provider tensorrt` builds an engine cache under `.cache/tensorrt/engines`, with a separate prefix per role. `tensorrt.fp16` defaults to false because fp16 changes identity. `execution.precision: fp16` selects a sibling `*_fp16.onnx` and falls back to fp32 when the file is absent. A CUDA session reuses IO binding. CUDA graph capture is requested only when `execution.cuda_graph` is on
 - Model registry with license, commercial-use flag, alignment name, input size, and an optional sha256 pin checked on load
 - Pydantic config shared by the CLI, the video pipeline, and the UI
-- English and Chinese catalogs (`--lang`, `ui.language`, `BARRETT_FACESWAP_LANG`). The Gradio dropdown switches every label
+- English and Chinese catalogs (`--lang`, `ui.language`, `BARRETT_FACESWAP_LANG`). The Gradio header toggle switches every label. The shipped UI language is zh-CN
 - Opt-in compliance package: consent, watermark, pluggable content filter, append-only audit log. On a video it runs once up front, samples frames for the filter, watermarks every output frame when enforcement is on, and writes one audit line. A live session uses the same hooks: consent on the first frame, a watermark on each output frame, and one audit line per session
 - Realtime webcam: `barrett-faceswap live` runs capture, detect, swap, and output on three threads. Bounded queues drop stale frames. Detection runs every few frames and the cache interpolates the rest. The source embedding is computed once. Output can open a preview and, on Linux, a v4l2loopback device. The Gradio page has a webcam tab that uses the same session object
 - `--commercial` refuses every registry row with `commercial_use: false`. The built-in rows stay false. `scripts/train_swapper.py` only checks a local `commercial-ok` manifest and prints a plan. It does not train or download
@@ -127,7 +127,7 @@ Gradio:
 barrett-faceswap ui
 ```
 
-The page has source, target, output, processors, execution provider, enhancer, swapper, occluder, pixel boost, many-faces, reference face, face map, blend, color transfer, video mode, video encoder, a commercial checkbox, a preview, and a webcam tab. `barrett-faceswap ui --lang zh-CN` uses Chinese labels before the dropdown changes. The language dropdown (`zh-CN` / `en`) rewrites every label from the catalogs, including the buttons and the webcam tab. A video preview processes the first frame only. The encoder and the video-mode dropdown are applied on Run when the target is a video. A still-image Run ignores them. Compliance stays off unless the checkbox or the config turns it on. The webcam tab does not open a device until the browser grants the camera. Start arms the session. The first frame runs the consent check. Stop writes the audit line when compliance is on.
+The page is a dark app (`#0B0D10` background, `#14181F` cards, `#2563EB` primary button). The shipped language is zh-CN. The header toggle switches to English and rewrites every label, including both tabs. The main path is source face, target, swapper, and a quality preset (Fast, Balanced, High, Custom), then Preview only and Start swap. The result preview is the large pane on the right, and it moves above the controls on a narrow screen. A sticky action row keeps the buttons reachable on a phone. Balanced uses `hyperswap_1a_256`, enhancer off, occluder `xseg_1`, and pixel boost 0. Advanced stays collapsed: face selection, enhancer, mask and occluder, video, execution, compliance, and output path. A long video fills a progress bar. The camera tab uses the same swapper, pixel boost, occluder, enhancer, and execution provider. `barrett-faceswap ui --lang en` starts in English. A video preview processes the first frame only. The encoder and the video-mode controls apply on Start swap when the target is a video. A still-image run ignores them. Compliance stays off unless the checkbox or the config turns it on. The camera tab does not open a device until the browser grants the camera. Start arms the session. The first frame runs the consent check. Stop writes the audit line when compliance is on.
 
 ```bash
 barrett-faceswap swap \
@@ -222,7 +222,7 @@ barrett-faceswap swap \
   --consent-file path/to/consent.json
 ```
 
-`--lang zh-CN` or `BARRETT_FACESWAP_LANG=zh-CN` switches CLI text, logs, and errors. `ui.language` in the config is the fallback. Precedence is `--lang`, then the environment variable, then `ui.language`, then English.
+`--lang zh-CN` or `BARRETT_FACESWAP_LANG=zh-CN` switches CLI text, logs, and errors. `ui.language` in the shipped config is `zh-CN`. Precedence is `--lang`, then the environment variable, then `ui.language`, then English.
 
 Other commands: `barrett-faceswap inspect-models`, `barrett-faceswap list-processors`, `barrett-faceswap benchmark`, `barrett-faceswap ui`.
 
