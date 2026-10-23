@@ -23,8 +23,12 @@ Use a face only when that person has authorized the specific use. Do not create 
 
 ## Features
 
-- SCRFD-style ONNX detection (`det_10g`), ArcFace embedding (`w600k_r50`), and an inswapper-style swap (`inswapper_128`)
-- Five-point alignment templates and paste-back
+- SCRFD-style ONNX detection (`det_10g`), ArcFace embedding (`w600k_r50`), and selectable swappers: `inswapper_128` (default), `hyperswap_1a/1b/1c_256`, `simswap_256`, `simswap_unofficial_512`, and `ghost_1/2/3_256`. Each registry row has a license key and `commercial_use: false`. HyperSwap, SimSwap, and Ghost use an operator-supplied crossface ONNX to map ArcFace into that graph's latent
+- Pixel boost: a larger aligned crop is split into native-size tiles, inferred, and stitched (128 / 256 / 512 / 768 / 1024 when that size divides cleanly for the chosen model)
+- Face selection: one face by index, every face (`--many-faces`), a reference face by ArcFace cosine similarity, or a JSON source-to-target map. Video keeps that choice with a small IoU tracker
+- Paste-back is alpha by default. `--blend-mode poisson` uses `cv2.seamlessClone`. Color transfer is `mean_std` (default), `lab`, `histogram`, or `none`
+- Jobs persist a spec and the next unfinished frame under `jobs/<id>/` so an interrupted video can resume
+- Video defaults to disk frames. `--video-mode pipe` decodes and encodes through ffmpeg pipes and does not write a PNG per frame
 - Masks merged with a per-pixel minimum: inset box, xseg-style occlusion ONNX, and BiSeNet face-parsing regions. A missing mask file keeps the ellipse or all-ones stub
 - `face_enhancer`: GFPGAN 1.4 or CodeFormer ONNX, with a blend amount. It is registered and left out of the default processor list so a swap does not require those files
 - Video: ffprobe, frame extraction, a thread pool through the same processors, `libx264` or `h264_nvenc`, then the original audio muxed back. Optional trim
@@ -34,7 +38,7 @@ Use a face only when that person has authorized the specific use. Do not create 
 - English and Chinese catalogs (`--lang`, `ui.language`, `BARRETT_FACESWAP_LANG`). The Gradio dropdown switches every label
 - Opt-in compliance package: consent, watermark, pluggable content filter, append-only audit log. On a video it runs once up front, samples frames for the filter, watermarks every output frame when enforcement is on, and writes one audit line
 
-Later, without promising a date: a webcam loop, TensorRT engine cache, pixel boost, and more swap backends.
+Later, without promising a date: a webcam loop, CUDA graphs, a TensorRT engine cache, more swappers beyond this set, and automatic weight download.
 
 ## Install
 
@@ -110,7 +114,37 @@ Gradio:
 barrett-faceswap ui
 ```
 
-The page has source, target, output, processors, execution provider, enhancer, video encoder, and preview. The language dropdown (`zh-CN` / `en`) rewrites every label from the catalogs, including the buttons. A video preview processes the first frame only. The encoder dropdown is applied on Run when the target is a video. A still-image Run ignores it. Compliance stays off unless the checkbox or the config turns it on.
+The page has source, target, output, processors, execution provider, enhancer, swapper, pixel boost, many-faces, reference face, face map, blend, color transfer, video mode, video encoder, and preview. The language dropdown (`zh-CN` / `en`) rewrites every label from the catalogs, including the buttons. A video preview processes the first frame only. The encoder and the video-mode dropdown are applied on Run when the target is a video. A still-image Run ignores them. Compliance stays off unless the checkbox or the config turns it on.
+
+```bash
+barrett-faceswap swap \
+  --source path/to/authorized-source.png \
+  --target path/to/authorized-clip.mp4 \
+  --output outputs/clip.mp4 \
+  --swapper-model simswap_256 \
+  --pixel-boost 512 \
+  --many-faces \
+  --blend-mode poisson \
+  --color-transfer lab \
+  --video-mode pipe \
+  --job-id clip-a \
+  --dry-run
+```
+
+`--swapper-model` selects the graph. Weights are not downloaded; see `scripts/download_models.md`. `--pixel-boost 0` is omitted here and means the model's native size (inswapper still honors `swap.resolution`). A face map is a JSON list of `{source, target_index?, reference?}` and wins over `--many-faces` and `--reference`.
+
+```bash
+barrett-faceswap jobs submit \
+  --source path/to/authorized-source.png \
+  --target path/to/authorized-clip.mp4 \
+  --output outputs/clip.mp4 \
+  --dry-run \
+  --job-id clip-a
+barrett-faceswap jobs list
+barrett-faceswap jobs resume clip-a
+```
+
+`jobs submit` only writes the spec. `jobs resume` and `swap --job-id ID --resume` continue from `next_frame`. Disk mode reuses extracted frames. Pipe mode seeks by timestamp, which is not frame-exact. `jobs run` starts the oldest pending, running, or interrupted job.
 
 Benchmark, without weights:
 
@@ -146,11 +180,12 @@ scripts/download_models.md    where to obtain weights; nothing here downloads th
 src/barrett_faceswap/
   cli.py pipeline.py          CLI and the only supported run path
   detect.py align.py swap.py blend.py masks.py
+  swap_catalog.py pixel_boost.py facesel.py jobs.py
   model_registry.py models.py execution.py
   config.py                   pydantic schema
   i18n/locales/               en.yaml and zh_CN.yaml
   processors/                 face_swapper and face_enhancer
-  media/                      ffprobe, frame extract, encode
+  media/                      ffprobe, frame extract, encode, raw pipes
   compliance/                 policy, consent, watermark, filter, audit
   ui/                         Gradio app; captions via t()
 ```

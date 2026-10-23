@@ -20,6 +20,7 @@ from barrett_faceswap.config import (
     apply_request_overrides,
     load_config,
 )
+from barrett_faceswap.swap_catalog import BLEND_MODES, COLOR_TRANSFERS, SWAPPER_NAMES, VIDEO_MODES
 from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import LanguageError, get_language, normalize_language, set_language, t
 from barrett_faceswap.media.ffmpeg import VIDEO_OUTPUT_SUFFIXES, read_first_frame
@@ -49,6 +50,14 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.enhancer", "label"),
     ControlSpec("ui.enhancer_blend", "label"),
     ControlSpec("ui.enhancer_weight", "label"),
+    ControlSpec("ui.swapper_model", "label"),
+    ControlSpec("ui.pixel_boost", "label"),
+    ControlSpec("ui.many_faces", "label"),
+    ControlSpec("ui.reference", "label"),
+    ControlSpec("ui.face_map", "label"),
+    ControlSpec("ui.blend_mode", "label"),
+    ControlSpec("ui.color_transfer", "label"),
+    ControlSpec("ui.video_mode", "label"),
     ControlSpec("ui.video_encoder", "label"),
     ControlSpec("ui.trim_start", "label"),
     ControlSpec("ui.trim_end", "label"),
@@ -125,6 +134,14 @@ def build_demo(config_path: str | Path):
         enhancer_model: str,
         blend: float,
         weight: float,
+        swapper_model: str,
+        pixel_boost: int,
+        many_faces: bool,
+        reference: object,
+        face_map: object,
+        blend_mode: str,
+        color_transfer: str,
+        video_mode: str,
         encoder: str,
         trim_start_text: str,
         trim_end_text: str,
@@ -148,6 +165,7 @@ def build_demo(config_path: str | Path):
                 status_key = "ui.done"
                 request_target = target_path
                 video_encoder = video_encoder_for_run(target_path, encoder, preview_only=preview_only)
+                selected_video_mode = video_mode if is_video(target_path) and not preview_only else None
                 trim_start = _seconds(trim_start_text)
                 trim_end = _seconds(trim_end_text)
                 if preview_only:
@@ -184,6 +202,14 @@ def build_demo(config_path: str | Path):
                     enhancer_model=enhancer_model,
                     enhancer_blend=float(blend),
                     enhancer_weight=float(weight),
+                    swapper_model=swapper_model,
+                    pixel_boost=int(pixel_boost) if int(pixel_boost) else None,
+                    many_faces=bool(many_faces),
+                    reference_path=_as_path(reference),
+                    face_map=_as_path(face_map),
+                    blend_mode=blend_mode,
+                    color_transfer=color_transfer,
+                    video_mode=selected_video_mode,
                 )
                 config = apply_request_overrides(load_config(config_file), request)
                 result = FaceSwapPipeline(config).run(request)
@@ -225,6 +251,34 @@ def build_demo(config_path: str | Path):
         )
         blend = gr.Slider(0, 1, value=initial.enhancer.blend, step=0.05, label=t("ui.enhancer_blend"))
         weight = gr.Slider(0, 1, value=initial.enhancer.weight, step=0.05, label=t("ui.enhancer_weight"))
+        swapper_model = gr.Dropdown(
+            choices=list(SWAPPER_NAMES),
+            value=initial.swap.model,
+            label=t("ui.swapper_model"),
+        )
+        pixel_boost = gr.Dropdown(
+            choices=[0, 128, 256, 512, 768, 1024],
+            value=int(initial.swap.pixel_boost),
+            label=t("ui.pixel_boost"),
+        )
+        many_faces = gr.Checkbox(value=initial.swap.selector == "many", label=t("ui.many_faces"))
+        reference = gr.File(type="filepath", label=t("ui.reference"), file_count="single")
+        face_map = gr.File(type="filepath", label=t("ui.face_map"), file_count="single")
+        blend_mode = gr.Dropdown(
+            choices=list(BLEND_MODES),
+            value=initial.blend.mode,
+            label=t("ui.blend_mode"),
+        )
+        color_transfer = gr.Dropdown(
+            choices=list(COLOR_TRANSFERS),
+            value=initial.blend.color,
+            label=t("ui.color_transfer"),
+        )
+        video_mode = gr.Dropdown(
+            choices=list(VIDEO_MODES),
+            value=initial.video.mode,
+            label=t("ui.video_mode"),
+        )
         encoder = gr.Dropdown(
             choices=list(VIDEO_ENCODERS),
             value=initial.video.encoder,
@@ -252,6 +306,14 @@ def build_demo(config_path: str | Path):
             enhancer,
             blend,
             weight,
+            swapper_model,
+            pixel_boost,
+            many_faces,
+            reference,
+            face_map,
+            blend_mode,
+            color_transfer,
+            video_mode,
             encoder,
             trim_start,
             trim_end,
@@ -277,6 +339,14 @@ def build_demo(config_path: str | Path):
             enhancer,
             blend,
             weight,
+            swapper_model,
+            pixel_boost,
+            many_faces,
+            reference,
+            face_map,
+            blend_mode,
+            color_transfer,
+            video_mode,
             encoder,
             trim_start,
             trim_end,

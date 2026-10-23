@@ -13,8 +13,13 @@ from pydantic import ValidationError
 
 from barrett_faceswap import __version__
 from barrett_faceswap.benchmark import run_benchmark
-from barrett_faceswap.config import apply_request_overrides, load_config
-from barrett_faceswap.config import ENHANCER_MODELS, VIDEO_ENCODERS
+from barrett_faceswap.config import ENHANCER_MODELS, VIDEO_ENCODERS, apply_request_overrides, load_config
+from barrett_faceswap.swap_catalog import (
+    BLEND_MODES,
+    COLOR_TRANSFERS,
+    SWAPPER_NAMES,
+    VIDEO_MODES,
+)
 from barrett_faceswap.errors import (
     BarrettFaceswapError,
     ComplianceError,
@@ -104,6 +109,35 @@ def build_parser() -> argparse.ArgumentParser:
     swap.add_argument("--enhancer-model", default=None, choices=list(ENHANCER_MODELS), help=t("cli.enhancer_model"))
     swap.add_argument("--enhancer-blend", type=float, default=None, help=t("cli.enhancer_blend"))
     swap.add_argument("--enhancer-weight", type=float, default=None, help=t("cli.enhancer_weight"))
+    _add_phase3_flags(swap)
+    swap.add_argument("--job-id", default=None, help=t("cli.job_id"))
+    swap.add_argument("--resume", action="store_true", help=t("cli.resume"))
+
+    jobs = sub.add_parser("jobs", help=t("cli.jobs_help"))
+    jobs.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    jobs.add_argument("--lang", default=None, help=t("cli.lang"))
+    job_cmds = jobs.add_subparsers(dest="job_command", required=True)
+    submit = job_cmds.add_parser("submit", help=t("cli.jobs_submit"))
+    submit.add_argument("--source", required=True, type=Path, help=t("cli.source"))
+    submit.add_argument("--target", required=True, type=Path, help=t("cli.target"))
+    submit.add_argument("--output", required=True, type=Path, help=t("cli.output"))
+    submit.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    submit.add_argument("--lang", default=None, help=t("cli.lang"))
+    submit.add_argument("--dry-run", action="store_true", help=t("cli.dry_run"))
+    submit.add_argument("--processors", default=None, help=t("cli.processors"))
+    submit.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
+    _add_phase3_flags(submit)
+    submit.add_argument("--job-id", default=None, help=t("cli.job_id"))
+    resume = job_cmds.add_parser("resume", help=t("cli.jobs_resume"))
+    resume.add_argument("job_id", help=t("cli.job_id"))
+    resume.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    resume.add_argument("--lang", default=None, help=t("cli.lang"))
+    listing = job_cmds.add_parser("list", help=t("cli.jobs_list"))
+    listing.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    listing.add_argument("--lang", default=None, help=t("cli.lang"))
+    run_next = job_cmds.add_parser("run", help=t("cli.jobs_run"))
+    run_next.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    run_next.add_argument("--lang", default=None, help=t("cli.lang"))
 
     inspect = sub.add_parser("inspect-models", help=t("cli.inspect_help"))
     inspect.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
@@ -141,6 +175,8 @@ def _dispatch(namespace: argparse.Namespace) -> int:
 
         launch_ui(Path(namespace.config), host=namespace.host, port=namespace.port, share=namespace.share)
         return 0
+    if namespace.command == "jobs":
+        return _dispatch_jobs(namespace)
     if namespace.command == "benchmark":
         config = load_config(namespace.config)
         report = run_benchmark(
@@ -189,7 +225,104 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         enhancer_model=namespace.enhancer_model,
         enhancer_blend=namespace.enhancer_blend,
         enhancer_weight=namespace.enhancer_weight,
+        swapper_model=namespace.swapper_model,
+        pixel_boost=namespace.pixel_boost,
+        many_faces=namespace.many_faces,
+        reference_path=namespace.reference,
+        face_map=namespace.face_map,
+        blend_mode=namespace.blend_mode,
+        color_transfer=namespace.color_transfer,
+        video_mode=namespace.video_mode,
+        job_id=namespace.job_id,
+        resume=namespace.resume,
     )
+    config = apply_request_overrides(config, request)
+    result = FaceSwapPipeline(config).run(request)
+    for note in result.notes:
+        print(note, file=sys.stderr)
+    print(t("cli.wrote", path=result.output_path))
+    return 0
+
+
+def _add_phase3_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--swapper-model", default=None, choices=list(SWAPPER_NAMES), help=t("cli.swapper_model"))
+    parser.add_argument("--pixel-boost", type=int, default=None, help=t("cli.pixel_boost"))
+    parser.add_argument("--many-faces", action="store_true", help=t("cli.many_faces"))
+    parser.add_argument("--reference", type=Path, default=None, help=t("cli.reference"))
+    parser.add_argument("--face-map", type=Path, default=None, help=t("cli.face_map"))
+    parser.add_argument("--blend-mode", default=None, choices=list(BLEND_MODES), help=t("cli.blend_mode"))
+    parser.add_argument("--color-transfer", default=None, choices=list(COLOR_TRANSFERS), help=t("cli.color_transfer"))
+    parser.add_argument("--video-mode", default=None, choices=list(VIDEO_MODES), help=t("cli.video_mode"))
+
+
+def _dispatch_jobs(namespace: argparse.Namespace) -> int:
+    import secrets
+
+    from barrett_faceswap.jobs import JobStore, request_from_job
+
+    config = load_config(namespace.config)
+    store = JobStore(config.jobs.root)
+    if namespace.job_command == "list":
+        jobs = store.list_jobs()
+        if not jobs:
+            print(t("jobs.empty"))
+            return 0
+        for state in jobs:
+            print(
+                t(
+                    "jobs.line",
+                    job=state.id,
+                    state=state.state,
+                    frame=state.next_frame,
+                    total="-" if state.total_frames is None else state.total_frames,
+                )
+            )
+        return 0
+    if namespace.job_command == "submit":
+        job_id = namespace.job_id or secrets.token_hex(4)
+        request = _request_from_namespace(namespace, job_id=job_id, resume=False)
+        store.create(job_id, request)
+        print(t("jobs.queued", job=job_id))
+        return 0
+    if namespace.job_command == "resume":
+        state = store.load(namespace.job_id)
+    else:
+        state = store.next_runnable()
+        if state is None:
+            print(t("jobs.empty"))
+            return 0
+    if state.state == "done":
+        print(t("jobs.already_done", job=state.id))
+        return 0
+    request = request_from_job(state)
+    return _execute(load_config(namespace.config), request)
+
+
+def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None, resume: bool) -> SwapRequest:
+    processors = None
+    if getattr(namespace, "processors", None):
+        processors = [item.strip() for item in namespace.processors.split(",") if item.strip()]
+    return SwapRequest(
+        source_path=namespace.source,
+        target_path=namespace.target,
+        output_path=namespace.output,
+        dry_run=bool(getattr(namespace, "dry_run", False)),
+        processors=processors,
+        execution_providers=getattr(namespace, "execution_provider", None),
+        swapper_model=namespace.swapper_model,
+        pixel_boost=namespace.pixel_boost,
+        many_faces=bool(namespace.many_faces),
+        reference_path=namespace.reference,
+        face_map=namespace.face_map,
+        blend_mode=namespace.blend_mode,
+        color_transfer=namespace.color_transfer,
+        video_mode=namespace.video_mode,
+        job_id=job_id,
+        resume=resume,
+    )
+
+
+def _execute(config, request: SwapRequest) -> int:
     config = apply_request_overrides(config, request)
     result = FaceSwapPipeline(config).run(request)
     for note in result.notes:

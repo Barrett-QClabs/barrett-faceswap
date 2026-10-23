@@ -15,8 +15,19 @@ Expected names:
 | codeformer | `models/codeformer.onnx` | `ffhq_512` | 512 |
 | occluder | `models/occlusion_xseg.onnx` | `xseg` | 256 |
 | parser | `models/bisenet_face_parsing.onnx` | `bisenet_19` | 512 |
+| hyperswap_1a | `models/hyperswap_1a_256.onnx` | `arcface_256` | 256 |
+| hyperswap_1b | `models/hyperswap_1b_256.onnx` | `arcface_256` | 256 |
+| hyperswap_1c | `models/hyperswap_1c_256.onnx` | `arcface_256` | 256 |
+| simswap_256 | `models/simswap_256.onnx` | `arcface_256` | 256 |
+| simswap_512 | `models/simswap_unofficial_512.onnx` | `arcface_512` | 512 |
+| ghost_1 | `models/ghost_1_256.onnx` | `arcface_256` | 256 |
+| ghost_2 | `models/ghost_2_256.onnx` | `arcface_256` | 256 |
+| ghost_3 | `models/ghost_3_256.onnx` | `arcface_256` | 256 |
+| crossface_hyperswap | `models/crossface_hyperswap.onnx` | `embedding_512` | 512-d |
+| crossface_simswap | `models/crossface_simswap.onnx` | `embedding_512` | 512-d |
+| crossface_ghost | `models/crossface_ghost.onnx` | `embedding_512` | 512-d |
 
-The last four files are optional. A swap runs without them. `face_enhancer` needs the enhancer file you select. Occlusion and parsing masks fall back to stubs when their files are absent.
+The enhancer, mask, extra swapper, and crossface files are optional. A default inswapper swap runs without them. `face_enhancer` needs the enhancer file you select. Occlusion and parsing masks fall back to stubs when their files are absent. Selecting another swapper opens that file and its crossface graph. Nothing in this document is fetched by CI.
 
 ## InsightFace buffalo_l
 
@@ -37,6 +48,42 @@ InsightFace documents a direct file:
 <https://github.com/deepinsight/insightface/releases/download/model-zoo/inswapper_128.onnx>
 
 Place it at `models/inswapper_128.onnx`. Their example says the 128 demo is unmaintained and points at their own product for higher-resolution swaps. The graph's `emap` initializer is required. This repository reads that tensor from the ONNX file. It does not ship a copy.
+
+ONNX contract implemented here: a 4-D RGB image in 0..1 and a 2-D latent. The latent is the L2-normalized product of the 512-d ArcFace embedding and the `emap` matrix stored as an initializer (512×512). The crop uses the inswapper template (ArcFace 112 scaled by size/128, then shifted by `8 * size / 128` pixels on x). Output is decoded as 0..1 RGB. `commercial_use` is false.
+
+## HyperSwap 256
+
+There is no weight file in this repository. The index operators use to find `hyperswap_1a_256`, `hyperswap_1b_256`, and `hyperswap_1c_256` packs is:
+
+<https://github.com/facefusion/facefusion-assets>
+
+FaceFusion itself is OpenRAIL-AS. Do not copy that project's source into this tree. Place the ONNX files at `models/hyperswap_1a_256.onnx`, `models/hyperswap_1b_256.onnx`, and `models/hyperswap_1c_256.onnx`. Also place an operator-supplied converter at `models/crossface_hyperswap.onnx`.
+
+ONNX contract implemented here, original to this repository:
+
+- Swap image: NCHW RGB float32, `(pixel / 255 - 0.5) / 0.5`, spatial size 256 unless you tile with pixel boost.
+- Swap latent: float32 `[1, 512]`.
+- Inputs are bound by rank (4-D image, 2-D latent). Names are read from the session.
+- Crossface: one 512-d vector in, one 512-d vector out, then L2-normalized. This repository does not ship that graph.
+- Crop template: ArcFace 112 scaled by `size / 112`, with no 8 px shift.
+- Output is decoded as [-1, 1] when any value is below `-0.01`, as 0..255 when the max is above `1.5`, and as 0..1 otherwise.
+- `commercial_use` is false. The registry does not grant a commercial license.
+
+## SimSwap
+
+Project and license (CC BY-NC 4.0):
+
+<https://github.com/neuralchen/SimSwap>
+
+Do not copy SimSwap source. Export or obtain `models/simswap_256.onnx` and, if you want the larger unofficial graph, `models/simswap_unofficial_512.onnx`. The shared converter is `models/crossface_simswap.onnx`. The contract matches HyperSwap above, with native sizes 256 and 512. Pixel boost must be a multiple of that native size (768 is valid for 256 and not for 512). `commercial_use` is false because the upstream license is non-commercial.
+
+## GHOST
+
+Project:
+
+<https://github.com/ai-forever/ghost>
+
+The published training code is Apache-2.0. Circulating ONNX packs are not cleared for commercial use by this registry, so `commercial_use` stays false. Place `models/ghost_1_256.onnx`, `models/ghost_2_256.onnx`, and `models/ghost_3_256.onnx`, plus `models/crossface_ghost.onnx`. The image, latent, template, and output contract matches the HyperSwap section. Native size is 256. Do not copy GHOST source into this tree.
 
 ## GFPGAN 1.4
 
@@ -79,7 +126,7 @@ InsightFace states that pretrained models are for non-commercial research only. 
 - `contact@insightface.ai` for the inswapper series
 - `recognition-oss-pack@insightface.ai` for open recognition packs such as `buffalo_l`
 
-Confirm the current text at <https://github.com/deepinsight/insightface#license> before you rely on a file. Commercial use needs their grant. SimSwap checkpoints are CC BY-NC 4.0 and are not part of this layout. GFPGAN, CodeFormer, the occlusion file, and the parsing file have the separate terms in the sections above. None of them are covered by this repository's MIT license.
+Confirm the current text at <https://github.com/deepinsight/insightface#license> before you rely on a file. Commercial use needs their grant. SimSwap checkpoints are CC BY-NC 4.0. HyperSwap packs are operator-supplied and are not cleared here. GHOST ONNX packs are not commercially cleared here even where the training code is Apache-2.0. Crossface converters are operator-supplied. GFPGAN, CodeFormer, the occlusion file, and the parsing file have the separate terms in the sections above. None of them are covered by this repository's MIT license. CI does not download any of these files.
 
 ## Pin the hash
 

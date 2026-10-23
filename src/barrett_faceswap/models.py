@@ -16,7 +16,7 @@ from barrett_faceswap.config import AppConfig
 from barrett_faceswap.errors import ModelHashError, ModelNotFoundError
 from barrett_faceswap.execution import resolve_providers
 from barrett_faceswap.i18n import t
-from barrett_faceswap.model_registry import registry_record
+from barrett_faceswap.model_registry import ROLE_ORDER, registry_record
 
 logger = logging.getLogger(__name__)
 
@@ -73,15 +73,7 @@ class ModelStore:
 
     def paths(self) -> dict[str, Path]:
         models = self.config.models
-        return {
-            "detector": models.detector.path,
-            "recognizer": models.recognizer.path,
-            "swapper": models.swapper.path,
-            "gfpgan": models.gfpgan.path,
-            "codeformer": models.codeformer.path,
-            "occluder": models.occluder.path,
-            "parser": models.parser.path,
-        }
+        return {role: getattr(models, role).path for role in ROLE_ORDER}
 
     def missing(self, roles: tuple[str, ...] | None = None) -> list[tuple[str, Path]]:
         selected = self.paths() if roles is None else {role: self.paths()[role] for role in roles}

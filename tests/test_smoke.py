@@ -19,7 +19,7 @@ from tests.conftest import REPO, write_config, write_png
 
 
 def test_package_imports() -> None:
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.3.0"
     assert "face_swapper" in available_processors()
     assert "face_enhancer" in available_processors()
 
@@ -33,6 +33,10 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.processors == ["face_swapper"]
     assert config.video.encoder == "libx264"
     assert config.enhancer.model == "gfpgan_1.4"
+    assert config.swap.model == "inswapper_128"
+    assert config.video.mode == "disk"
+    assert config.blend.mode == "alpha"
+    assert config.compliance.enabled is False
     assert config.models.gfpgan.path.name == "gfpgan_1.4.onnx"
 
 

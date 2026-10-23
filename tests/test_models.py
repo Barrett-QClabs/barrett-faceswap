@@ -14,9 +14,8 @@ from tests.conftest import REPO, write_config
 
 
 def test_registry_marks_insightface_weights_non_commercial() -> None:
-    for role in ("detector", "recognizer", "swapper", "gfpgan", "codeformer", "occluder", "parser"):
-        record = BUILTIN[role]
-        assert record.commercial_use is False
+    for role, record in BUILTIN.items():
+        assert record.commercial_use is False, role
         assert record.sha256 is None
         assert record.input_size[0] > 0
         assert record.license_key
@@ -67,7 +66,9 @@ def test_session_cache_reuses_the_same_model_provider_and_device(tmp_path: Path)
 def test_inspect_lines_mention_the_license(tmp_path: Path) -> None:
     config = load_config(REPO / "configs" / "default.yaml")
     lines = describe_models(config)
-    assert len(lines) == 7
+    from barrett_faceswap.model_registry import ROLE_ORDER
+
+    assert len(lines) == len(ROLE_ORDER)
     assert any("inswapper_128" in line for line in lines)
     assert any("gfpgan_1.4" in line for line in lines)
     assert any("Apache" in line or "S-Lab" in line for line in lines)

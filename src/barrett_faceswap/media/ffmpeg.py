@@ -1,8 +1,8 @@
 """Probe, extract, and encode video without copying another project's ffmpeg builder.
 
-Frames are written to a directory so the compliance gate can sample them and
-so a visible watermark can be burned in before the encoder runs. A pipe that
-never touches disk is left for a later phase.
+Disk mode writes PNG frames so the compliance gate can sample them. Pipe mode
+decodes raw BGR frames on stdout and encodes raw BGR on stdin. Disk stays the
+default.
 """
 
 from __future__ import annotations
@@ -11,8 +11,11 @@ import json
 import shutil
 import subprocess
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 from barrett_faceswap.errors import MediaToolError
 from barrett_faceswap.i18n import t
@@ -253,6 +256,263 @@ def encode_video(
     if not output.is_file():
         raise MediaToolError(t("video.ffmpeg_failed", detail="output missing"))
     return mode
+
+
+def even_size(width: int, height: int) -> tuple[int, int]:
+    """yuv420p wants even dimensions."""
+
+    return max(2, int(width) - int(width) % 2), max(2, int(height) - int(height) % 2)
+
+
+def build_decode_pipe_command(
+    source: Path,
+    *,
+    width: int,
+    height: int,
+    trim_start: float | None,
+    trim_end: float | None,
+    seek: float | None,
+) -> list[str]:
+    """ffmpeg argv that writes raw BGR frames to stdout."""
+
+    command = [_ffmpeg_bin(), "-hide_banner", "-loglevel", "error"]
+    start = seek
+    if trim_start is not None and seek:
+        start = float(trim_start) + float(seek)
+    elif trim_start is not None:
+        start = float(trim_start)
+    if start:
+        command += ["-ss", _seconds(start)]
+    if trim_end is not None:
+        command += ["-to", _seconds(trim_end)]
+    command += [
+        "-i",
+        str(source),
+        "-map",
+        "0:v:0",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "-vf",
+        f"scale={int(width)}:{int(height)}",
+        "pipe:1",
+    ]
+    return command
+
+
+def build_encode_pipe_command(
+    output: Path,
+    *,
+    width: int,
+    height: int,
+    fps: float,
+    encoder: str,
+    crf: int,
+    audio_source: Path | None,
+    audio_mode: str,
+    trim_start: float | None,
+    trim_end: float | None,
+) -> list[str]:
+    """ffmpeg argv that reads raw BGR frames from stdin."""
+
+    if encoder not in {"libx264", "h264_nvenc"}:
+        raise MediaToolError(t("config.encoder", allowed="libx264, h264_nvenc"))
+    command = [
+        _ffmpeg_bin(),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "-s",
+        f"{int(width)}x{int(height)}",
+        "-r",
+        f"{float(fps):.6f}",
+        "-i",
+        "pipe:0",
+    ]
+    if audio_mode != "none" and audio_source is not None:
+        if trim_start is not None:
+            command += ["-ss", _seconds(trim_start)]
+        if trim_end is not None:
+            command += ["-to", _seconds(trim_end)]
+        command += ["-i", str(audio_source)]
+    command += ["-map", "0:v:0"]
+    if audio_mode != "none" and audio_source is not None:
+        command += ["-map", "1:a:0"]
+    command += ["-c:v", encoder]
+    if encoder == "libx264":
+        command += ["-preset", "veryfast", "-crf", str(int(crf))]
+    else:
+        command += ["-preset", "p4", "-rc", "vbr", "-cq", str(int(crf)), "-b:v", "0"]
+    command += ["-pix_fmt", "yuv420p"]
+    if audio_mode == "copy":
+        command += ["-c:a", "copy"]
+    elif audio_mode == "aac":
+        command += ["-c:a", "aac", "-b:a", "192k"]
+    if audio_mode != "none":
+        command += ["-shortest"]
+    command += [str(output)]
+    return command
+
+
+def iter_raw_frames(
+    source: Path,
+    *,
+    width: int,
+    height: int,
+    trim_start: float | None,
+    trim_end: float | None,
+    seek: float | None,
+):
+    """Yield BGR frames from ffmpeg stdout. Does not encode."""
+
+    process = subprocess.Popen(
+        build_decode_pipe_command(
+            source,
+            width=width,
+            height=height,
+            trim_start=trim_start,
+            trim_end=trim_end,
+            seek=seek,
+        ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert process.stdout is not None
+    need = int(width) * int(height) * 3
+    try:
+        while True:
+            buffer = bytearray()
+            while len(buffer) < need:
+                chunk = process.stdout.read(need - len(buffer))
+                if not chunk:
+                    if buffer:
+                        raise MediaToolError(t("video.pipe_short"))
+                    return
+                buffer.extend(chunk)
+            frame = np.frombuffer(buffer, dtype=np.uint8).reshape(int(height), int(width), 3)
+            yield frame.copy()
+    finally:
+        if process.poll() is None:
+            process.kill()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+class RawVideoPipe:
+    """Decode raw frames and encode raw frames without writing a PNG per frame."""
+
+    def __init__(
+        self,
+        source: Path,
+        output: Path,
+        *,
+        width: int,
+        height: int,
+        fps: float,
+        encoder: str,
+        crf: int,
+        audio_source: Path | None,
+        audio_mode: str,
+        trim_start: float | None,
+        trim_end: float | None,
+        seek: float | None,
+    ) -> None:
+        self.width = int(width)
+        self.height = int(height)
+        self._errors: list[str] = []
+        output.parent.mkdir(parents=True, exist_ok=True)
+        self.decode = subprocess.Popen(
+            build_decode_pipe_command(
+                source,
+                width=self.width,
+                height=self.height,
+                trim_start=trim_start,
+                trim_end=trim_end,
+                seek=seek,
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.encode = subprocess.Popen(
+            build_encode_pipe_command(
+                output,
+                width=self.width,
+                height=self.height,
+                fps=fps,
+                encoder=encoder,
+                crf=crf,
+                audio_source=audio_source,
+                audio_mode=audio_mode,
+                trim_start=trim_start,
+                trim_end=trim_end,
+            ),
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self._threads = [
+            threading.Thread(target=self._drain, args=(self.decode.stderr,), daemon=True),
+            threading.Thread(target=self._drain, args=(self.encode.stderr,), daemon=True),
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def read(self) -> np.ndarray | None:
+        assert self.decode.stdout is not None
+        need = self.width * self.height * 3
+        buffer = bytearray()
+        while len(buffer) < need:
+            chunk = self.decode.stdout.read(need - len(buffer))
+            if not chunk:
+                if not buffer:
+                    return None
+                raise MediaToolError(t("video.pipe_short"))
+            buffer.extend(chunk)
+        frame = np.frombuffer(buffer, dtype=np.uint8).reshape(self.height, self.width, 3)
+        return frame.copy()
+
+    def write(self, frame: np.ndarray) -> None:
+        assert self.encode.stdin is not None
+        if frame.shape[0] != self.height or frame.shape[1] != self.width:
+            import cv2
+
+            frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
+        self.encode.stdin.write(np.ascontiguousarray(frame, dtype=np.uint8).tobytes())
+
+    def close(self) -> None:
+        if self.encode.stdin is not None:
+            self.encode.stdin.close()
+        decode_code = self.decode.wait(timeout=120)
+        encode_code = self.encode.wait(timeout=120)
+        for thread in self._threads:
+            thread.join(timeout=5)
+        if decode_code != 0 or encode_code != 0:
+            detail = " ".join(self._errors)[-500:] or f"decode={decode_code} encode={encode_code}"
+            raise MediaToolError(t("video.ffmpeg_failed", detail=detail))
+
+    def abort(self) -> None:
+        for process in (self.decode, self.encode):
+            if process.poll() is None:
+                process.kill()
+        for process in (self.decode, self.encode):
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+
+    def _drain(self, pipe) -> None:
+        if pipe is None:
+            return
+        data = pipe.read()
+        if data:
+            self._errors.append(data.decode("utf-8", errors="replace"))
 
 
 def read_first_frame(path: Path):

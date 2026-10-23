@@ -66,6 +66,20 @@ def template_for_size(size: int) -> np.ndarray:
     return destination.astype(np.float32)
 
 
+def swap_template(kind: str, size: int) -> np.ndarray:
+    """Destination points for a swapper template name."""
+
+    if kind == "inswapper":
+        return template_for_size(size)
+    if kind == "arcface":
+        if size <= 0:
+            raise AlignError(t("align.bad_size"))
+        return (ARCFACE_112 * (float(size) / 112.0)).astype(np.float32)
+    if kind == "ffhq":
+        return ffhq_template(size)
+    raise AlignError(t("align.template_kind", kind=kind))
+
+
 def align_face(
     image_bgr: np.ndarray,
     landmarks: np.ndarray,
