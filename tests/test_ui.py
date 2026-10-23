@@ -84,13 +84,19 @@ def test_quality_presets_do_not_collapse_fast_into_balanced() -> None:
     assert "hyperswap_1a" in str(balanced["swapper"])
     assert resolve_preset("balanced", "hyperswap_1a_256", 0, False, "xseg_1") == "balanced"
     assert resolve_preset("fast", "hyperswap_1a_256", 0, False, "xseg_1") == "fast"
-    assert resolve_preset("hq", "hyperswap_1a_256", 512, True, "xseg_1") == "hq"
-    assert resolve_preset("custom", "hyperswap_1a_256", 512, True, "xseg_1") == "hq"
-    assert resolve_preset("balanced", "hyperswap_1a_256", 512, False, "xseg_1") == "custom"
-    assert resolve_preset("hq", "hyperswap_1a_256", 0, False, "xseg_1") == "custom"
-    assert hq["pixel_boost"] == 512
-    assert hq["enhancer"] is True
-    assert hq["blend"] == 0.35
+    assert resolve_preset("hq", "hyperswap_1a_256", 0, False, "xseg_1") == "hq"
+    assert resolve_preset("custom", "hyperswap_1a_256", 0, False, "xseg_1") == "custom"
+    assert resolve_preset("balanced", "hyperswap_1a_256", 512, True, "xseg_1") == "custom"
+    assert resolve_preset("hq", "hyperswap_1a_256", 512, True, "xseg_1") == "custom"
+    assert hq["pixel_boost"] == 0
+    assert hq["enhancer"] is False
+    assert "enhancer_model" not in hq
+    assert (hq["swapper"], hq["pixel_boost"], hq["enhancer"], hq["occluder"]) == (
+        balanced["swapper"],
+        balanced["pixel_boost"],
+        balanced["enhancer"],
+        balanced["occluder"],
+    )
     assert "#0B0D10" in APP_CSS
     assert "#1E40AF" in APP_CSS
     assert "#14181F" in APP_CSS

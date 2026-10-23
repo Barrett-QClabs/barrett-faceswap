@@ -246,8 +246,11 @@ footer {{ display: none !important; }}
 }}
 """
 
-# Fast and Balanced share one field tuple. resolve_preset keeps the current
-# name when it is one of the matches, so the two radios do not collapse.
+# Fast, Balanced, and High share the open-app stack: HyperSwap, enhancer off,
+# xseg_1, pixel boost 0. resolve_preset keeps the current name when it is one
+# of the matches, so the radios do not collapse into each other. High must not
+# enable GFPGAN or CodeFormer. Expression and landmark refine stay on the
+# config, which the page loads before these widgets.
 PRESETS: dict[str, dict[str, object]] = {
     "fast": {
         "swapper": "hyperswap_1a_256",
@@ -263,12 +266,9 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "hq": {
         "swapper": "hyperswap_1a_256",
-        "pixel_boost": 512,
-        "enhancer": True,
+        "pixel_boost": 0,
+        "enhancer": False,
         "occluder": "xseg_1",
-        "enhancer_model": "gfpgan_1.4",
-        "blend": 0.35,
-        "weight": 0.7,
     },
 }
 
@@ -291,10 +291,10 @@ def resolve_preset(
 ) -> str:
     """Pick a preset name from the widgets.
 
-    The widgets stay the source of truth. Fast and Balanced are the same
-    numbers, so a current match is kept. Two matches that do not include the
-    current name become Custom instead of snapping to one of them. One match
-    selects that preset.
+    The widgets stay the source of truth. Fast, Balanced, and High are the
+    same numbers, so a current match is kept. Several matches that do not
+    include the current name become Custom instead of snapping to one of them.
+    One match selects that preset.
     """
 
     signature = (str(swapper), int(pixel_boost), bool(enhancer_on), str(occluder))
