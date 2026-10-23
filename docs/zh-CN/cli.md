@@ -4,12 +4,13 @@
 
 ```text
 usage: barrett-faceswap [-h] [--version] [--lang LANG]
-                        {swap,jobs,live,inspect-models,list-processors,ui,benchmark} ...
+                        {swap,jobs,live,inspect-models,list-processors,ui,benchmark,doctor,download-models}
+                        ...
 
 对静态图像或视频换脸。开发默认关闭合规强制，避免挡住本地试跑。
 
 positional arguments:
-  {swap,jobs,live,inspect-models,list-processors,ui,benchmark}
+  {swap,jobs,live,inspect-models,list-processors,ui,benchmark,doctor,download-models}
     swap                做人脸检测、对齐、替换并贴回。目标若是视频，则逐帧处理。
     jobs                把换脸放进队列，中断后可以续跑。
     live                运行实时摄像头循环。源脸向量只计算一次。
@@ -17,6 +18,8 @@ positional arguments:
     list-processors     列出已注册的帧处理器。
     ui                  启动 Gradio 界面。
     benchmark           为处理器链计时，并打印每秒帧数。
+    doctor              报告执行提供者、CUDA 与 cuDNN 库，以及模型文件。
+    download-models     下载 buffalo_l 和 inswapper_128，校验 sha256，并在镜像之间重试。
 
 options:
   -h, --help            show this help message and exit
@@ -279,4 +282,21 @@ options:
   --execution-provider EXECUTION_PROVIDER
                         优先使用的执行提供者。可重复该参数以指定顺序。列表中包含 CUDA 时会优先 CUDA。
   --live                为一次合成的实时会话计时，并打印各阶段延迟。
+
+usage: barrett-faceswap doctor [-h] [--config CONFIG] [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap download-models [-h] [--config CONFIG] [--lang LANG] [--with-gfpgan]
+                                        [--force]
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+  --with-gfpgan    同时下载可选的 GFPGAN 1.4 ONNX。
+  --force          即使本地文件已经匹配，也重新下载。
 ```

@@ -46,13 +46,76 @@ def occlusion_mask(size: int, path: str | None = None) -> np.ndarray:
     return np.ones((size, size), dtype=np.float32)
 
 
-def parser_stub_mask(size: int, blur: int, path: str | None = None) -> np.ndarray:
-    """Elliptical region used when the parsing model file is absent."""
+def landmark_hull_mask(size: int, landmarks: np.ndarray, blur: int) -> np.ndarray:
+    """Feathered convex hull of the five crop landmarks, expanded past the eyes and mouth.
 
+    The five ArcFace points do not cover the forehead or the cheeks. Extra
+    points are derived from the eye line and the eye-to-mouth direction, then
+    blurred with the same kernel as the ellipse stub.
+    """
+
+    points = np.asarray(landmarks, dtype=np.float32).reshape(-1, 2)
+    if points.shape[0] < 5:
+        return region_mask(size, blur)
+    expanded = _expand_face_points(points[:5])
+    if expanded is None:
+        return region_mask(size, blur)
+    hull = cv2.convexHull(expanded)
+    if hull is None or len(hull) < 3:
+        return region_mask(size, blur)
+    canvas = np.zeros((size, size), dtype=np.uint8)
+    cv2.fillConvexPoly(canvas, hull.reshape(-1, 2).astype(np.int32), 255)
+    return _blur(canvas.astype(np.float32) / 255.0, blur)
+
+
+def parser_stub_mask(
+    size: int,
+    blur: int,
+    path: str | None = None,
+    landmarks: np.ndarray | None = None,
+) -> np.ndarray:
+    """Region used when the parsing model file is absent.
+
+    With crop-space landmarks this is a feathered convex hull. Without them
+    it stays the ellipse, which is what the enhancer and older callers use.
+    """
+
+    if landmarks is not None:
+        if not getattr(parser_stub_mask, "_hull_noted", False):
+            logger.info(t("masks.parser_hull", path=path or "-"))
+            setattr(parser_stub_mask, "_hull_noted", True)
+        return landmark_hull_mask(size, landmarks, blur)
     if not getattr(parser_stub_mask, "_noted", False):
         logger.info(t("masks.parser_stub", path=path or "-"))
         setattr(parser_stub_mask, "_noted", True)
     return region_mask(size, blur)
+
+
+def _expand_face_points(points: np.ndarray) -> np.ndarray | None:
+    """Add forehead, chin, and side points around the five-point template."""
+
+    left_eye, right_eye, _nose, left_mouth, right_mouth = points
+    eye_mid = (left_eye + right_eye) * 0.5
+    mouth_mid = (left_mouth + right_mouth) * 0.5
+    down = mouth_mid - eye_mid
+    eye_span = right_eye - left_eye
+    span = float(np.linalg.norm(eye_span))
+    if span < 1e-3:
+        return None
+    lateral = np.array([-eye_span[1], eye_span[0]], dtype=np.float32)
+    lateral_norm = float(np.linalg.norm(lateral)) or 1.0
+    lateral = lateral / lateral_norm * span * 0.55
+    extras = np.stack(
+        [
+            eye_mid - down * 0.85,
+            mouth_mid + down * 0.65,
+            left_eye - lateral,
+            right_eye + lateral,
+            left_mouth - lateral * 0.65,
+            right_mouth + lateral * 0.65,
+        ]
+    ).astype(np.float32)
+    return np.concatenate([points, extras], axis=0)
 
 
 def merge_min(masks: list[np.ndarray]) -> np.ndarray:

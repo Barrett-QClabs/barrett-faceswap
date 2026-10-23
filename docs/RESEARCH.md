@@ -37,7 +37,7 @@ Phase 1 speaks the public tensor contract of three weights, without depending on
 
 - `det_10g.onnx` from the `buffalo_l` pack: SCRFD-10GF, 640 input, five landmarks
 - `w600k_r50.onnx`: ArcFace ResNet50 trained on WebFace600K, 112 input, 512-d embedding
-- `inswapper_128.onnx`: 128 crop plus that embedding, including the `emap` matrix stored in the graph
+- `inswapper_128.onnx`: 128 crop plus that embedding. The 512×512 matrix is the last initializer, named `buff2fs` in the official file. This repository prefers a tensor named `emap` and otherwise uses the last initializer.
 
 The model zoo states that pretrained models are for non-commercial research only, whether you download them by hand or through their library. A note dated 2025-11-24 asks people to contact `contact@insightface.ai` for inswapper-series licensing, and `recognition-oss-pack@insightface.ai` for the open recognition packs. See the upstream license section: <https://github.com/deepinsight/insightface#license>.
 

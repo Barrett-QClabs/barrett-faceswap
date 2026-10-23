@@ -26,10 +26,10 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - SCRFD 风格的 ONNX 检测（`det_10g`）、ArcFace 向量（`w600k_r50`），以及可选换脸器：`inswapper_128`（默认）、`hyperswap_1a/1b/1c_256`、`simswap_256`、`simswap_unofficial_512`、`ghost_1/2/3_256`。注册表每一行都有许可键，并且 `commercial_use` 为 false。HyperSwap、SimSwap 和 Ghost 需要操作者提供的 crossface ONNX，把 ArcFace 映射到该图的隐向量
 - 像素提升：把更大的对齐裁剪切成原生尺寸的小块，逐块推理后再拼回去（128 / 256 / 512 / 768 / 1024，且该尺寸必须能被所选模型整除）
 - 选脸：按序号选一张、`--many-faces` 替换每一张、用 ArcFace 余弦相似度对参考脸，或用 JSON 做源脸到目标脸的映射。视频用一个小的 IoU 跟踪器保持这次选择
-- 贴回默认是 alpha。`--blend-mode poisson` 使用 `cv2.seamlessClone`。颜色迁移是 `mean_std`（默认）、`lab`、`histogram` 或 `none`
+- 贴回默认是 alpha。`--blend-mode poisson` 使用 `cv2.seamlessClone`。颜色迁移默认是 `lab`（Lab 空间的均值和标准差）。`mean_std`、`histogram` 和 `none` 仍然可用。`--color-transfer none` 会关掉匹配
 - 任务把规格和下一帧未完成的序号存在 `jobs/<id>/`，中断的视频可以续跑
 - 视频默认把帧写到磁盘。`--video-mode pipe` 经 ffmpeg 管道解码和编码，不为每一帧写 PNG
-- 蒙版按像素取最小值合并：内缩方框、xseg 风格的遮挡 ONNX、BiSeNet 人脸解析区域。蒙版文件缺失时仍使用椭圆或全 1 占位
+- 蒙版按像素取最小值合并：内缩方框、xseg 风格的遮挡 ONNX、BiSeNet 人脸解析区域。遮挡文件缺失时仍是全 1 蒙版。解析文件缺失时，换脸裁剪用带羽化的关键点凸包；没有关键点时用椭圆
 - `face_enhancer`：GFPGAN 1.4 或 CodeFormer ONNX，带混合系数。它已注册，但默认不在处理器列表里，因此换脸不强制要求这些文件
 - 视频：ffprobe、抽帧、线程池走同一套处理器、`libx264` 或 `h264_nvenc`，再把原音轨混回去。可以裁剪时间段
 - ONNX Runtime 会话按模型哈希、提供者列表、设备、精度和 CUDA 图标记缓存。请求里包含 CUDA 时优先 CUDA。安装了 TensorRT 提供者时会挂上引擎缓存、计时缓存、fp16 和构建优化级别。`execution.precision: fp16` 选用同目录的 `*_fp16.onnx`，文件不存在时退回 fp32。CUDA 图捕获和 IO binding 只在会话带有 CUDA 提供者时启用
@@ -39,9 +39,10 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志。视频只在开始时走一次前置检查，按间隔抽样过滤，强制打开时给每一帧加水印，并写一行审计。实时会话使用同一组钩子：第一帧做同意检查，每一帧输出加水印，每个会话一行审计
 - 实时摄像头：`barrett-faceswap live` 用三条线程做采集、检测、替换和输出。有界队列丢掉过期帧。检测隔几帧做一次，其余帧由缓存插值。源脸向量只算一次。输出可以打开预览，在 Linux 上也可以写到 v4l2loopback。Gradio 页面有一个摄像头页，使用同一个会话对象
 - `--commercial` 拒绝注册表里 `commercial_use` 为 false 的每一行。内置行保持 false。`scripts/train_swapper.py` 只检查本地的 `commercial-ok` 清单并打印计划。它不训练，也不下载
+- `barrett-faceswap download-models` 下载 `buffalo_l` 和 `inswapper_128`，校验 sha256，支持断点续传，并在镜像之间重试。`--with-gfpgan` 是可选项。CI 不会运行它。`barrett-faceswap doctor` 打印提供者、CUDA/cuDNN 预加载状态和本地模型哈希
 - `docs/en` 与 `docs/zh-CN` 下的双语文档站（MkDocs Material）。CI 会构建，不会部署
 
-以后再做：这组之外的换脸器、自动下载权重，以及精确到帧的管道续跑。`compliance.enabled` 在正式发布前保持 false。
+以后再做：这组之外的换脸器，以及精确到帧的管道续跑。`compliance.enabled` 在正式发布前保持 false。
 
 ## 安装
 
@@ -55,14 +56,18 @@ pip install -e ".[dev]"
 
 依赖使用无界面的 OpenCV 轮子（`opencv-python-headless`，导入名仍是 `cv2`），这样服务器和 CI 不需要显示器。默认安装 CPU 版 `onnxruntime`。
 
-在 NVIDIA 机器上，用 GPU 轮子**替换** CPU 轮子：
+在 NVIDIA 机器上，包括 Ubuntu 24.04、驱动 580 的 RTX 5090（Blackwell，`sm_120`），用 GPU 额外依赖**替换** CPU 轮子：
 
 ```bash
-pip uninstall -y onnxruntime
-pip install onnxruntime-gpu
+pip uninstall -y onnxruntime onnxruntime-gpu
+pip install -e ".[gpu]"
 ```
 
-不要两个同时留着。RTX 5090 是 Blackwell（`sm_120`），需要链接 CUDA 12.8 或更新版本的 `onnxruntime-gpu`。CI 走 CPU 轮子。没有安装对应提供者时，TensorRT 和 CUDA 图选项会被跳过。
+`[gpu]` 是 `onnxruntime-gpu[cuda,cudnn]`。onnxruntime-gpu 1.31 需要 CUDA 13 和 cuDNN 9（`libcublasLt.so.13`、`libcudnn.so.9`）。这些库来自 NVIDIA 的 pip 包。创建提供者时，如果存在 `onnxruntime.preload_dlls()` 就会调用它，并把 `site-packages/nvidia/cu13/lib` 和 `site-packages/nvidia/cudnn/lib` 加到 `LD_LIBRARY_PATH` 前面。不需要自己导出这个路径。不要同时留下 CPU 轮子和 GPU 轮子。CI 走 CPU 轮子。没有安装对应提供者时，TensorRT 和 CUDA 图选项会被跳过。
+
+```bash
+barrett-faceswap doctor
+```
 
 Gradio 界面是可选项：
 

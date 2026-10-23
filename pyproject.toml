@@ -33,8 +33,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # Install in place of onnxruntime, not beside it. See the README.
-# An RTX 5090 (Blackwell, sm_120) needs an onnxruntime-gpu build linked to CUDA 12.8 or newer.
-gpu = ["onnxruntime-gpu>=1.17"]
+# RTX 50-series (Blackwell, sm_120) with driver 580: onnxruntime-gpu 1.31 needs
+# CUDA 13 and cuDNN 9. The extra installs those libraries. Provider setup calls
+# onnxruntime.preload_dlls() and prepends site-packages/nvidia/*/lib.
+gpu = ["onnxruntime-gpu[cuda,cudnn]>=1.21"]
 ui = ["gradio>=4.44,<6"]
 dev = ["pytest>=8.0", "gradio>=4.44,<6"]
 docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "mkdocs-static-i18n>=1.2"]

@@ -226,7 +226,7 @@ class SwapConfig(_Model):
 class BlendConfig(_Model):
     mask_blur: int = 15
     mode: str = "alpha"
-    color: str = "mean_std"
+    color: str = "lab"
 
     @field_validator("mode")
     @classmethod

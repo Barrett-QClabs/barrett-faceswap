@@ -55,7 +55,7 @@ ffprobe
 
 | 名称 | 原生尺寸 | 模板 | 归一化 | 隐向量 | Crossface |
 | --- | --- | --- | --- | --- | --- |
-| `inswapper_128` | 128 | inswapper（ArcFace，128 时再平移 8 像素，并随尺寸缩放） | 0..1 RGB | ONNX 初始化器里的 `embedding @ emap` | 无 |
+| `inswapper_128` | 128 | inswapper（ArcFace，128 时再平移 8 像素，并随尺寸缩放） | 0..1 RGB | `embedding @` 512×512 矩阵。优先使用名为 `emap` 的初始值；否则用最后一个初始值（官方文件里叫 `buff2fs`） | 无 |
 | `hyperswap_1a/1b/1c_256` | 256 | ArcFace 按 size/112 缩放 | [-1, 1] | crossface | `crossface_hyperswap` |
 | `simswap_256` | 256 | ArcFace 按 size/112 缩放 | [-1, 1] | crossface | `crossface_simswap` |
 | `simswap_unofficial_512` | 512 | ArcFace 按 size/112 缩放 | [-1, 1] | crossface | `crossface_simswap` |
@@ -75,7 +75,7 @@ ffprobe
 
 ## 融合
 
-`blend.mode` 是 `alpha`（默认的逆变换合成）或 `poisson`（`cv2.seamlessClone`，normal clone）。泊松会清掉一像素的边，避免蒙版碰到画面边缘；蒙版太小或 OpenCV 拒绝克隆时退回 alpha。`blend.color` 是 `mean_std`（默认）、`lab`、`histogram` 或 `none`。
+`blend.mode` 是 `alpha`（默认的逆变换合成）或 `poisson`（`cv2.seamlessClone`，normal clone）。泊松会清掉一像素的边，避免蒙版碰到画面边缘；蒙版太小或 OpenCV 拒绝克隆时退回 alpha。`blend.color` 默认是 `lab`（在换上的区域里按 Lab 的均值和标准差匹配）。`mean_std`、`histogram` 和 `none` 仍然可用。`--color-transfer none` 会关掉匹配。
 
 ## 任务
 
@@ -94,11 +94,11 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 - 输出里若有值低于 `-0.01`，按 [-1, 1] 解码；最大值高于 `1.5` 时按 0..255 解码；其余按 0..1。
 - 空间尺寸跟随会话。注册表的后备尺寸是 512。
 
-两条记录的 `commercial_use` 都是 `False`。GFPGAN 公开的代码和 v1.4 权重是 Apache-2.0，网络里包含 NVIDIA Source Code License 下的 StyleGAN2，因此注册表不把该文件标成已获商业许可。CodeFormer 权重是 S-Lab License 1.0（非商业研究）。本仓库不下载、也不附带这些文件。来源写在 [scripts/download_models.zh-CN.md](../scripts/download_models.zh-CN.md)。
+两条记录的 `commercial_use` 都是 `False`。GFPGAN 公开的代码和 v1.4 权重是 Apache-2.0，网络里包含 NVIDIA Source Code License 下的 StyleGAN2，因此注册表不把该文件标成已获商业许可。CodeFormer 权重是 S-Lab License 1.0（非商业研究）。本仓库不附带这些文件。只有在你显式运行 `download-models --with-gfpgan` 时才会去取一份已发布的 GFPGAN ONNX；CI 不会。来源和从 `.pth` 导出的说明写在 [scripts/download_models.zh-CN.md](../scripts/download_models.zh-CN.md)。
 
 ## 蒙版
 
-`masks.py` 仍然生成内缩方框、椭圆占位和全 1 的遮挡占位，再逐元素取最小值（`merge_min`）。当对应的 ONNX 文件在磁盘上且开关打开时（`masks.occlusion`、`masks.regions_enabled`），`masking.py` 会替换占位。文件缺失时保留占位，并把路径写进日志。
+`masks.py` 生成内缩方框、区域和全 1 的遮挡占位，再逐元素取最小值（`merge_min`）。当对应的 ONNX 文件在磁盘上且开关打开时（`masks.occlusion`、`masks.regions_enabled`），`masking.py` 会替换占位。遮挡文件缺失时保持全 1。解析文件缺失时，如果换脸器传入了裁剪模板上的五个点，就用扩张后的关键点凸包并羽化；没有关键点时仍用椭圆。增强器仍用椭圆。
 
 遮挡（`models/occlusion_xseg.onnx`，注册表尺寸 256）接收 0..1 的 RGB；静态输入是单通道时则接收灰度。数值越高表示该像素保持可见。最大值高于 `1.5` 时按 0..255 解释。`masks.occlusion_invert` 用来翻转那些预测遮挡物而不是人脸的图。xseg 这个想法来自 DeepFaceLab。那个项目的代码是 GPL-3.0，不在本仓库里。`commercial_use` 为 false，因为权重由操作者自行提供，本仓库不授予该文件的权利。
 
@@ -134,7 +134,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 **处理器协议。** `Processor` 有 `pre_check`、`process_frame` 和 `post_process`。`processors/registry.py` 把名称映射到工厂，工厂接收 pydantic 配置和提供者列表。`face_swapper` 和 `face_enhancer` 已注册。这是 FaceFusion 那类接缝。方法和注册表是本地代码。
 
-**会话缓存。** `ModelStore.session` 用解析后的路径、sha256、请求的提供者元组以及设备号作为键。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。写出 `tensorrt` 时，如果该提供者已安装，会挂上引擎缓存、计时缓存、fp16 和构建优化级别；CPU 轮子上则跳过。RTX 5090（Blackwell）需要链接 CUDA 12.8 或更新版本的 `onnxruntime-gpu`。CI 跑的是 CPU 轮子。
+**会话缓存。** `ModelStore.session` 用解析后的路径、sha256、请求的提供者元组以及设备号作为键。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。写出 `tensorrt` 时，如果该提供者已安装，会挂上引擎缓存、计时缓存、fp16 和构建优化级别；CPU 轮子上则跳过。驱动 580 上的 RTX 5090（Blackwell，`sm_120`）使用 `onnxruntime-gpu[cuda,cudnn]`（CUDA 13 和 cuDNN 9）。创建提供者时，如果存在 `onnxruntime.preload_dlls()` 就会调用，并把 NVIDIA pip 包里的 `lib` 目录加到前面。找不到库也不会抛错。CI 跑的是 CPU 轮子。`barrett-faceswap doctor` 打印提供者、预加载状态和模型哈希。
 
 **对齐和贴回。** `align.py` 放着 ArcFace 五点模板和 FFHQ 512 模板。112 是识别裁剪。128 在此基础上向右平移 8 像素，这是 inswapper 导出所期望的。增强器按 `size / 512` 缩放 FFHQ 模板。`blend.py` 做逆变换并按蒙版合成。
 
@@ -149,7 +149,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 ## 这个仓库的差别
 
 - 代码是 MIT，没有打包 FaceFusion、Deep-Live-Cam、roop 或 SimSwap 的源码
-- 安装器、CLI、界面和 CI 都不会下载模型
+- `download-models` 是显式命令。安装器、界面和 CI 都不会下载权重
 - 合规是完整的包，操作者不打开就保持关闭
 - 文案走英文和中文目录
 - 哈希锁定在操作者填写之前是可选的
@@ -158,4 +158,4 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 仍然延后
 
-这组之外的换脸器（blendswap、uniface、hififace 等）、自动下载权重，以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。`compliance.enabled` 在正式发布前保持 false。
+这组之外的换脸器（blendswap、uniface、hififace 等），以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。`compliance.enabled` 在正式发布前保持 false。

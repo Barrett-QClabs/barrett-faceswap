@@ -61,22 +61,39 @@ class IdentitySwapper:
     def _load_emap(self) -> np.ndarray:
         if self._emap is not None:
             return self._emap
-        path = self.store.paths()["swapper"]
-        try:
-            import onnx
-            from onnx import numpy_helper
-        except ImportError as exc:
-            raise SwapError(t("swap.need_onnx")) from exc
-        model = onnx.load(str(path))
-        for initializer in model.graph.initializer:
-            if initializer.name != "emap":
-                continue
-            array = numpy_helper.to_array(initializer).astype(np.float32)
-            if array.size != 512 * 512:
-                raise SwapError(t("swap.emap_size", size=array.size, expected=512 * 512))
-            self._emap = array.reshape(512, 512)
-            return self._emap
-        raise SwapError(t("swap.emap_missing", name=path.name))
+        self._emap = read_emap(self.store.paths()["swapper"])
+        return self._emap
+
+
+def read_emap(path) -> np.ndarray:
+    """Read the 512×512 inswapper matrix from an ONNX file.
+
+    Official ``inswapper_128.onnx`` stores it as the last initializer, named
+    ``buff2fs``. A graph that names the tensor ``emap`` still wins.
+    """
+
+    from pathlib import Path
+
+    file_path = Path(path)
+    try:
+        import onnx
+        from onnx import numpy_helper
+    except ImportError as exc:
+        raise SwapError(t("swap.need_onnx")) from exc
+    model = onnx.load(str(file_path))
+    chosen = None
+    for initializer in model.graph.initializer:
+        if initializer.name == "emap":
+            chosen = initializer
+            break
+    if chosen is None and len(model.graph.initializer):
+        chosen = model.graph.initializer[-1]
+    if chosen is None:
+        raise SwapError(t("swap.emap_missing", name=file_path.name))
+    array = numpy_helper.to_array(chosen).astype(np.float32)
+    if array.size != 512 * 512:
+        raise SwapError(t("swap.emap_size", size=array.size, expected=512 * 512))
+    return array.reshape(512, 512)
 
 
 def _bind_swap_inputs(session) -> tuple[str, str]:

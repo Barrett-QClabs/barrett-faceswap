@@ -55,7 +55,7 @@ Pipe mode (`--video-mode pipe`) decodes raw BGR24 on ffmpeg stdout, runs the sam
 
 | Name | Native | Template | Normalize | Latent | Crossface |
 | --- | --- | --- | --- | --- | --- |
-| `inswapper_128` | 128 | inswapper (ArcFace plus the 8 px shift at 128, scaled with size) | 0..1 RGB | `embedding @ emap` from the ONNX initializer | none |
+| `inswapper_128` | 128 | inswapper (ArcFace plus the 8 px shift at 128, scaled with size) | 0..1 RGB | `embedding @` the 512×512 matrix. Prefer an initializer named `emap`; otherwise the last initializer (`buff2fs` in the official file) | none |
 | `hyperswap_1a/1b/1c_256` | 256 | ArcFace scaled by size/112 | [-1, 1] | crossface | `crossface_hyperswap` |
 | `simswap_256` | 256 | ArcFace scaled by size/112 | [-1, 1] | crossface | `crossface_simswap` |
 | `simswap_unofficial_512` | 512 | ArcFace scaled by size/112 | [-1, 1] | crossface | `crossface_simswap` |
@@ -75,7 +75,7 @@ Image and latent inputs are bound by rank (4-D image, 2-D latent), not by a hard
 
 ## Blend
 
-`blend.mode` is `alpha` (default inverse-warp composite) or `poisson` (`cv2.seamlessClone`, normal clone). Poisson clears a one-pixel border so the mask does not touch the frame edge, and falls back to alpha when the mask is tiny or OpenCV refuses the clone. `blend.color` is `mean_std` (default), `lab`, `histogram`, or `none`.
+`blend.mode` is `alpha` (default inverse-warp composite) or `poisson` (`cv2.seamlessClone`, normal clone). Poisson clears a one-pixel border so the mask does not touch the frame edge, and falls back to alpha when the mask is tiny or OpenCV refuses the clone. `blend.color` defaults to `lab` (mean and standard deviation in Lab on the swapped region). `mean_std`, `histogram`, and `none` remain available. `--color-transfer none` turns the match off.
 
 ## Jobs
 
@@ -94,11 +94,11 @@ The ONNX contract is local code, not a copy of the GFPGAN or CodeFormer training
 - Output is decoded as [-1, 1] when any value is below `-0.01`, as 0..255 when the max is above `1.5`, and as 0..1 otherwise.
 - Spatial size follows the session. The registry fallback is 512.
 
-Both records set `commercial_use=False`. GFPGAN's published code and v1.4 weights are Apache-2.0, and the network incorporates StyleGAN2 under the NVIDIA Source Code License, so the registry does not mark the file as commercially cleared. CodeFormer weights are S-Lab License 1.0 (non-commercial research). Nothing in this tree downloads or vendors those files. Sources are in [scripts/download_models.md](../scripts/download_models.md).
+Both records set `commercial_use=False`. GFPGAN's published code and v1.4 weights are Apache-2.0, and the network incorporates StyleGAN2 under the NVIDIA Source Code License, so the registry does not mark the file as commercially cleared. CodeFormer weights are S-Lab License 1.0 (non-commercial research). This tree does not vendor those files. `download-models --with-gfpgan` can fetch a published GFPGAN ONNX when you ask; CI does not. Sources and the `.pth` export notes are in [scripts/download_models.md](../scripts/download_models.md).
 
 ## Masks
 
-`masks.py` still builds an inset box, an ellipse stub, and an occlusion stub of ones, then takes the element-wise minimum (`merge_min`). `masking.py` replaces a stub when the matching ONNX file is on disk and the flag is on (`masks.occlusion`, `masks.regions_enabled`). A missing file keeps the stub and logs the path.
+`masks.py` builds an inset box, a region, and an occlusion stub of ones, then takes the element-wise minimum (`merge_min`). `masking.py` replaces a stub when the matching ONNX file is on disk and the flag is on (`masks.occlusion`, `masks.regions_enabled`). A missing occlusion file stays all ones. A missing parser uses a feathered convex hull of the expanded five-point landmarks when the swapper passes the crop template, and the ellipse when no landmarks are passed. The enhancer still uses the ellipse.
 
 Occlusion (`models/occlusion_xseg.onnx`, registry size 256) takes 0..1 RGB, or one gray channel when that is the static input. Higher values mean the pixel stays visible. A max above `1.5` is treated as 0..255. `masks.occlusion_invert` flips graphs that predict the occluder instead of the face. The historical xseg idea comes from DeepFaceLab. That project's code is GPL-3.0 and is not in this tree. `commercial_use` is false because the weight is operator-supplied and this repository grants no rights to it.
 
@@ -134,7 +134,7 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 
 **Processor protocol.** `Processor` has `pre_check`, `process_frame`, and `post_process`. `processors/registry.py` maps a name to a factory that receives the pydantic config and the provider list. `face_swapper` and `face_enhancer` are registered. This is the same kind of seam FaceFusion uses. The methods and the registry are local code.
 
-**Session cache.** `ModelStore.session` keys a session by resolved path, sha256, the requested provider tuple, and the device id. Creation is locked. A repeated call does not rebuild the session. `prefer_cuda` moves `cuda` to the front when it is in the request and leaves `cpu` last. If the installed ONNX Runtime has no CUDA provider, that name is skipped and CPU remains. Naming `tensorrt` attaches the engine cache, the timing cache, fp16, and the builder optimization level when that provider is installed, and is skipped on a CPU wheel. An RTX 5090 (Blackwell) needs an `onnxruntime-gpu` build linked against CUDA 12.8 or newer. CI runs the CPU wheel.
+**Session cache.** `ModelStore.session` keys a session by resolved path, sha256, the requested provider tuple, and the device id. Creation is locked. A repeated call does not rebuild the session. `prefer_cuda` moves `cuda` to the front when it is in the request and leaves `cpu` last. If the installed ONNX Runtime has no CUDA provider, that name is skipped and CPU remains. Naming `tensorrt` attaches the engine cache, the timing cache, fp16, and the builder optimization level when that provider is installed, and is skipped on a CPU wheel. An RTX 5090 (Blackwell, `sm_120`) with driver 580 uses `onnxruntime-gpu[cuda,cudnn]` (CUDA 13 and cuDNN 9). Provider setup calls `onnxruntime.preload_dlls()` when it exists and prepends the NVIDIA pip `lib` directories. A missing library does not raise. CI runs the CPU wheel. `barrett-faceswap doctor` prints providers, preload status, and model hashes.
 
 **Alignment and paste-back.** `align.py` holds the five-point ArcFace template and an FFHQ 512 template. Size 112 is the recognizer crop. Size 128 adds the 8 pixel horizontal shift the inswapper export expects. The enhancer scales the FFHQ template by `size / 512`. `blend.py` inverse-warps the crop and composites with a mask.
 
@@ -149,7 +149,7 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 ## How this tree differs
 
 - MIT code, no vendored FaceFusion, Deep-Live-Cam, roop, or SimSwap sources
-- No model download in the installer, the CLI, the UI, or CI
+- `download-models` is an explicit command. The installer, the UI, and CI do not download weights
 - Compliance is a real package and is off unless the operator opts in
 - Messages go through catalogs in English and Chinese
 - Hash pins are optional until the operator sets them
@@ -158,4 +158,4 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 
 ## Still deferred
 
-Swappers beyond this set (blendswap, uniface, hififace, and others), automatic weight download, and frame-exact pipe resume. Pipe resume still seeks by timestamp. The Chinese watermark covers `人工智能生成` with original bitmaps; any other character needs `compliance.watermark.font_path`. The training scaffold does not train or export a weight. TensorRT and CUDA graph capture run only when those providers are installed. `compliance.enabled` stays false until an official launch.
+Swappers beyond this set (blendswap, uniface, hififace, and others), and frame-exact pipe resume. Pipe resume still seeks by timestamp. The Chinese watermark covers `人工智能生成` with original bitmaps; any other character needs `compliance.watermark.font_path`. The training scaffold does not train or export a weight. TensorRT and CUDA graph capture run only when those providers are installed. `compliance.enabled` stays false until an official launch.
