@@ -44,8 +44,8 @@ class FaceDetector:
             raise DetectorError(t("detect.need_bgr"))
         height, width = image_bgr.shape[:2]
         det_w, det_h = _input_size(self.session, self.det_size)
-        resized = cv2.resize(image_bgr, (det_w, det_h), interpolation=cv2.INTER_LINEAR)
-        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32)
+        canvas, scale, pad_x, pad_y = letterbox_bgr(image_bgr, det_w, det_h)
+        rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB).astype(np.float32)
         rgb = (rgb - 127.5) / 128.0
         blob = np.transpose(rgb, (2, 0, 1))[None, ...]
         input_name = self.session.get_inputs()[0].name
@@ -56,6 +56,9 @@ class FaceDetector:
             score_threshold=self.score_threshold if threshold is None else float(threshold),
             nms_threshold=self.nms_threshold,
             origin_size=(width, height),
+            scale=scale,
+            pad_x=pad_x,
+            pad_y=pad_y,
         )
 
 
@@ -73,17 +76,56 @@ def face_area(face: Face) -> float:
     return max(0.0, x2 - x1) * max(0.0, y2 - y1)
 
 
+def letterbox_bgr(image_bgr: np.ndarray, det_w: int, det_h: int) -> tuple[np.ndarray, float, float, float]:
+    """Fit ``image_bgr`` inside the detector canvas without stretching it.
+
+    The resized image is anchored at the top-left. The unused right or bottom
+    side is black. This is the SCRFD input layout used by InsightFace: one
+    scale, ``new_height / original_height``, and a pad of ``(0, 0)``.
+
+    Returns ``(canvas, scale, pad_x, pad_y)``. ``scale`` converts original
+    pixels into canvas pixels. Subtract ``pad_x`` and ``pad_y`` before
+    dividing a network point by ``scale``.
+    """
+
+    height, width = int(image_bgr.shape[0]), int(image_bgr.shape[1])
+    if height <= 0 or width <= 0 or det_w <= 0 or det_h <= 0:
+        raise DetectorError(t("detect.need_bgr"))
+    image_ratio = float(height) / float(width)
+    model_ratio = float(det_h) / float(det_w)
+    if image_ratio > model_ratio:
+        new_height = int(det_h)
+        new_width = int(new_height / image_ratio)
+    else:
+        new_width = int(det_w)
+        new_height = int(new_width * image_ratio)
+    new_width = min(int(det_w), max(1, new_width))
+    new_height = min(int(det_h), max(1, new_height))
+    resized = cv2.resize(image_bgr, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+    canvas = np.zeros((int(det_h), int(det_w), 3), dtype=image_bgr.dtype)
+    canvas[:new_height, :new_width] = resized
+    scale = float(new_height) / float(height)
+    if scale <= 0.0:
+        raise DetectorError(t("detect.need_bgr"))
+    return canvas, scale, 0.0, 0.0
+
+
 def decode_scrfd(
     outputs: list[np.ndarray],
     det_size: int,
     score_threshold: float,
     nms_threshold: float,
     origin_size: tuple[int, int] | None = None,
+    scale: float = 1.0,
+    pad_x: float = 0.0,
+    pad_y: float = 0.0,
 ) -> list[Face]:
     """Decode SCRFD heads into faces.
 
-    ``origin_size`` is ``(width, height)`` of the image the caller cares about.
-    When it is set, boxes are scaled from the square network input and clipped.
+    Network coordinates are canvas pixels. ``scale`` and ``pad_x`` / ``pad_y``
+    come from :func:`letterbox_bgr`. ``origin_size`` is ``(width, height)`` of
+    the source image and clips the mapped box and landmarks. A scale of 1 and
+    a zero pad leave the coordinates on the canvas.
     """
 
     heads = group_scrfd_outputs(outputs)
@@ -124,21 +166,15 @@ def decode_scrfd(
         return []
     keep = nms(np.asarray(boxes, dtype=np.float32), np.asarray(scores, dtype=np.float32), nms_threshold)
     faces: list[Face] = []
-    scale_x = 1.0
-    scale_y = 1.0
-    limit: tuple[int, int] | None = None
-    if origin_size is not None:
-        origin_w, origin_h = origin_size
-        scale_x = float(origin_w) / float(det_size)
-        scale_y = float(origin_h) / float(det_size)
-        limit = (origin_w, origin_h)
+    limit = origin_size
+    used_scale = float(scale) if float(scale) > 0.0 else 1.0
     for index in keep:
         box = np.asarray(boxes[index], dtype=np.float32)
         landmarks = points[index].copy()
-        box[0::2] *= scale_x
-        box[1::2] *= scale_y
-        landmarks[:, 0] *= scale_x
-        landmarks[:, 1] *= scale_y
+        box[0::2] = (box[0::2] - float(pad_x)) / used_scale
+        box[1::2] = (box[1::2] - float(pad_y)) / used_scale
+        landmarks[:, 0] = (landmarks[:, 0] - float(pad_x)) / used_scale
+        landmarks[:, 1] = (landmarks[:, 1] - float(pad_y)) / used_scale
         if limit is not None:
             box[0::2] = np.clip(box[0::2], 0, limit[0] - 1)
             box[1::2] = np.clip(box[1::2], 0, limit[1] - 1)
