@@ -179,6 +179,8 @@ def apply_video_metadata(path: Path, text: str) -> VideoMarkResult:
         *video_metadata_args(text),
         "-c",
         "copy",
+        "-movflags",
+        "+faststart",
         str(temporary),
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
