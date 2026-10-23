@@ -30,6 +30,8 @@ class ProcessContext:
     dry_run: bool
     target_face_index: int = 0
     notes: list[str] = field(default_factory=list)
+    # Video runs turn this off so a long clip does not append one note per frame.
+    log_every_frame: bool = True
 
 
 class SwapRequest(BaseModel):
@@ -54,6 +56,15 @@ class SwapRequest(BaseModel):
     processors: list[str] | None = None
     execution_providers: list[str] | None = None
     target_face_index: int = 0
+    trim_start: float | None = None
+    trim_end: float | None = None
+    video_encoder: str | None = None
+    video_threads: int | None = None
+    keep_audio: bool | None = None
+    filter_every_n_frames: int | None = None
+    enhancer_model: str | None = None
+    enhancer_blend: float | None = None
+    enhancer_weight: float | None = None
 
 
 @dataclass

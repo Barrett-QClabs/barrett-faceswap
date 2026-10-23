@@ -22,6 +22,54 @@ models:
   swapper:
     path: models/inswapper_128.onnx
     sha256: null
+  # Optional. Used only when the processor or mask asks for them.
+  gfpgan:
+    path: models/gfpgan_1.4.onnx
+    sha256: null
+  codeformer:
+    path: models/codeformer.onnx
+    sha256: null
+  occluder:
+    path: models/occlusion_xseg.onnx
+    sha256: null
+  parser:
+    path: models/bisenet_face_parsing.onnx
+    sha256: null
+
+enhancer:
+  # gfpgan_1.4 | codeformer. The file is not required until face_enhancer runs.
+  model: gfpgan_1.4
+  # 1 keeps the restoration. 0 keeps the original crop.
+  blend: 0.8
+  # CodeFormer fidelity input. Ignored when the graph has no second input.
+  weight: 0.5
+
+masks:
+  # A missing file falls back to the all-ones or ellipse stub. Nothing is downloaded.
+  occlusion: true
+  parser: true
+  # Set true when the occlusion graph predicts the occluder instead of the visible face.
+  occlusion_invert: false
+  regions:
+    - skin
+    - left_eyebrow
+    - right_eyebrow
+    - left_eye
+    - right_eye
+    - eye_glasses
+    - nose
+    - mouth
+    - upper_lip
+    - lower_lip
+
+video:
+  # libx264 is the CPU default. h264_nvenc needs an NVIDIA driver.
+  encoder: libx264
+  threads: 4
+  # While compliance is on, the content filter sees every Nth frame plus the last.
+  filter_every_n_frames: 30
+  keep_audio: true
+  crf: 18
 
 execution:
   # First available provider wins; CPU is the portable fallback.
@@ -39,6 +87,8 @@ swap:
 blend:
   mask_blur: 15
 
+# face_enhancer is registered. It is not in the default chain, so a swap does not
+# require GFPGAN or CodeFormer weights. Add it when you want restoration.
 processors:
   - face_swapper
 

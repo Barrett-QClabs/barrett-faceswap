@@ -5,9 +5,16 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from barrett_faceswap.align import template_for_size
+from barrett_faceswap.align import ffhq_template, template_for_size
 from barrett_faceswap.detect import decode_scrfd
 from barrett_faceswap.masks import box_feather_mask, merge_min, occlusion_mask, region_mask
+
+
+def test_ffhq_template_scales_from_512() -> None:
+    full = ffhq_template(512)
+    half = ffhq_template(256)
+    assert full.shape == (5, 2)
+    assert np.allclose(half * 2.0, full)
 
 
 def test_inswapper_template_shifts_the_112_points() -> None:

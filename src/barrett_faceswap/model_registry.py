@@ -28,6 +28,16 @@ class ModelRecord:
     download_url: str
 
 
+ROLE_ORDER = (
+    "detector",
+    "recognizer",
+    "swapper",
+    "gfpgan",
+    "codeformer",
+    "occluder",
+    "parser",
+)
+
 BUILTIN: dict[str, ModelRecord] = {
     "detector": ModelRecord(
         role="detector",
@@ -59,6 +69,46 @@ BUILTIN: dict[str, ModelRecord] = {
         input_size=(128, 128),
         download_url="https://github.com/deepinsight/insightface/releases/download/model-zoo/inswapper_128.onnx",
     ),
+    "gfpgan": ModelRecord(
+        role="gfpgan",
+        filename="gfpgan_1.4.onnx",
+        sha256=None,
+        license_key="models.license.gfpgan",
+        commercial_use=False,
+        alignment="ffhq_512",
+        input_size=(512, 512),
+        download_url="https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth",
+    ),
+    "codeformer": ModelRecord(
+        role="codeformer",
+        filename="codeformer.onnx",
+        sha256=None,
+        license_key="models.license.codeformer",
+        commercial_use=False,
+        alignment="ffhq_512",
+        input_size=(512, 512),
+        download_url="https://github.com/sczhou/CodeFormer",
+    ),
+    "occluder": ModelRecord(
+        role="occluder",
+        filename="occlusion_xseg.onnx",
+        sha256=None,
+        license_key="models.license.occluder",
+        commercial_use=False,
+        alignment="xseg",
+        input_size=(256, 256),
+        download_url="https://github.com/iperov/DeepFaceLab",
+    ),
+    "parser": ModelRecord(
+        role="parser",
+        filename="bisenet_face_parsing.onnx",
+        sha256=None,
+        license_key="models.license.parser",
+        commercial_use=False,
+        alignment="bisenet_19",
+        input_size=(512, 512),
+        download_url="https://github.com/zllrunning/face-parsing.PyTorch",
+    ),
 }
 
 
@@ -81,7 +131,7 @@ def describe_models(config: AppConfig) -> list[str]:
     from barrett_faceswap.models import file_sha256
 
     lines: list[str] = []
-    for role in ("detector", "recognizer", "swapper"):
+    for role in ROLE_ORDER:
         record = registry_record(config, role)
         path = getattr(config.models, role).path
         if path.is_file():

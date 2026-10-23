@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from barrett_faceswap.i18n import (
@@ -13,7 +16,11 @@ from barrett_faceswap.i18n import (
     set_language,
     t,
 )
+from barrett_faceswap.model_registry import BUILTIN
 from barrett_faceswap.ui import UI_KEYS, gradio_labels
+
+_CALL = re.compile(r"""\bt\(\s*["']([A-Za-z0-9_.]+)["']""")
+_SRC = Path(__file__).resolve().parents[1] / "src"
 
 
 def test_every_key_exists_in_both_locales() -> None:
@@ -22,6 +29,15 @@ def test_every_key_exists_in_both_locales() -> None:
     assert english == chinese
     assert "compliance.disabled_note" in english
     assert "ui.source" in english
+    for key in UI_KEYS:
+        assert key in english
+    for record in BUILTIN.values():
+        assert record.license_key in english
+    used = set()
+    for path in _SRC.rglob("*.py"):
+        used.update(_CALL.findall(path.read_text(encoding="utf-8")))
+    missing = sorted(used - english)
+    assert missing == []
     for key in english:
         assert placeholders("en", key) == placeholders("zh-CN", key)
 

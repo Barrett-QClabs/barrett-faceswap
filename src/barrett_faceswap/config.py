@@ -15,6 +15,8 @@ from barrett_faceswap.i18n import t
 
 FILTER_PROVIDERS = ("none", "stub", "nudenet", "custom")
 EXECUTION_PROVIDERS = ("cuda", "tensorrt", "rocm", "coreml", "directml", "cpu")
+ENHANCER_MODELS = ("gfpgan_1.4", "codeformer")
+VIDEO_ENCODERS = ("libx264", "h264_nvenc")
 
 
 def resolve_config_path(value: object) -> Path:
@@ -64,10 +66,18 @@ class ModelFile(_Model):
         return text
 
 
+def _optional_model(relative: str) -> ModelFile:
+    return ModelFile(path=relative)
+
+
 class ModelsConfig(_Model):
     detector: ModelFile
     recognizer: ModelFile
     swapper: ModelFile
+    gfpgan: ModelFile = Field(default_factory=lambda: _optional_model("models/gfpgan_1.4.onnx"))
+    codeformer: ModelFile = Field(default_factory=lambda: _optional_model("models/codeformer.onnx"))
+    occluder: ModelFile = Field(default_factory=lambda: _optional_model("models/occlusion_xseg.onnx"))
+    parser: ModelFile = Field(default_factory=lambda: _optional_model("models/bisenet_face_parsing.onnx"))
 
 
 class ExecutionConfig(_Model):
@@ -110,6 +120,93 @@ class SwapConfig(_Model):
 
 class BlendConfig(_Model):
     mask_blur: int = 15
+
+
+class EnhancerConfig(_Model):
+    """GFPGAN 1.4 by default. CodeFormer is selected with ``model: codeformer``."""
+
+    model: str = "gfpgan_1.4"
+    blend: float = 0.8
+    weight: float = 0.5
+
+    @field_validator("model")
+    @classmethod
+    def _model(cls, value: str) -> str:
+        if value not in ENHANCER_MODELS:
+            raise ValueError(t("config.enhancer_model", allowed=", ".join(ENHANCER_MODELS)))
+        return value
+
+    @field_validator("blend", "weight")
+    @classmethod
+    def _unit(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
+
+
+class MasksConfig(_Model):
+    """Occlusion and parsing run only when the ONNX file is present."""
+
+    occlusion: bool = True
+    parser: bool = True
+    occlusion_invert: bool = False
+    regions: list[str] = Field(default_factory=lambda: list(_default_regions()))
+
+    @field_validator("regions")
+    @classmethod
+    def _regions(cls, value: list[str]) -> list[str]:
+        from barrett_faceswap.parsing import PARSING_REGIONS
+
+        if not value:
+            raise ValueError(t("config.regions_empty"))
+        unknown = [item for item in value if item not in PARSING_REGIONS]
+        if unknown:
+            raise ValueError(
+                t(
+                    "config.regions_unknown",
+                    unknown=", ".join(unknown),
+                    allowed=", ".join(PARSING_REGIONS),
+                )
+            )
+        return [str(item) for item in value]
+
+
+class VideoConfig(_Model):
+    """Disk frame pipeline. ``libx264`` is the portable default."""
+
+    encoder: str = "libx264"
+    threads: int = 4
+    filter_every_n_frames: int = 30
+    keep_audio: bool = True
+    crf: int = 18
+
+    @field_validator("encoder")
+    @classmethod
+    def _encoder(cls, value: str) -> str:
+        if value not in VIDEO_ENCODERS:
+            raise ValueError(t("config.encoder", allowed=", ".join(VIDEO_ENCODERS)))
+        return value
+
+    @field_validator("threads")
+    @classmethod
+    def _threads(cls, value: int) -> int:
+        if int(value) < 1:
+            raise ValueError(t("config.threads"))
+        return int(value)
+
+    @field_validator("filter_every_n_frames")
+    @classmethod
+    def _every(cls, value: int) -> int:
+        if int(value) < 1:
+            raise ValueError(t("config.filter_every"))
+        return int(value)
+
+    @field_validator("crf")
+    @classmethod
+    def _crf(cls, value: int) -> int:
+        if not 0 <= int(value) <= 51:
+            raise ValueError(t("config.crf"))
+        return int(value)
 
 
 class ConsentConfig(_Model):
@@ -177,6 +274,9 @@ class AppConfig(_Model):
     detect: DetectConfig = Field(default_factory=DetectConfig)
     swap: SwapConfig = Field(default_factory=SwapConfig)
     blend: BlendConfig = Field(default_factory=BlendConfig)
+    enhancer: EnhancerConfig = Field(default_factory=EnhancerConfig)
+    masks: MasksConfig = Field(default_factory=MasksConfig)
+    video: VideoConfig = Field(default_factory=VideoConfig)
     processors: list[str] = Field(default_factory=lambda: ["face_swapper"])
     compliance: ComplianceConfig = Field(default_factory=ComplianceConfig)
 
@@ -186,6 +286,45 @@ class AppConfig(_Model):
         if not value:
             raise ValueError(t("config.processors_empty"))
         return [str(item) for item in value]
+
+
+def _default_regions() -> tuple[str, ...]:
+    from barrett_faceswap.parsing import DEFAULT_PARSE_REGIONS
+
+    return DEFAULT_PARSE_REGIONS
+
+
+def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
+    """Copy CLI overrides onto the config the processors read.
+
+    ``request`` is a ``SwapRequest``. The annotation stays loose so this module
+    does not import the types module at load time.
+    """
+
+    enhancer = config.enhancer
+    video = config.video
+    model = getattr(request, "enhancer_model", None)
+    blend = getattr(request, "enhancer_blend", None)
+    weight = getattr(request, "enhancer_weight", None)
+    encoder = getattr(request, "video_encoder", None)
+    threads = getattr(request, "video_threads", None)
+    every = getattr(request, "filter_every_n_frames", None)
+    keep_audio = getattr(request, "keep_audio", None)
+    if model is not None:
+        enhancer = enhancer.model_copy(update={"model": model})
+    if blend is not None:
+        enhancer = enhancer.model_copy(update={"blend": blend})
+    if weight is not None:
+        enhancer = enhancer.model_copy(update={"weight": weight})
+    if encoder is not None:
+        video = video.model_copy(update={"encoder": encoder})
+    if threads is not None:
+        video = video.model_copy(update={"threads": threads})
+    if every is not None:
+        video = video.model_copy(update={"filter_every_n_frames": every})
+    if keep_audio is not None:
+        video = video.model_copy(update={"keep_audio": keep_audio})
+    return config.model_copy(update={"enhancer": enhancer, "video": video})
 
 
 def load_config(path: str | Path) -> AppConfig:

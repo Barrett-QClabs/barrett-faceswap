@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import numpy as np
 
 from barrett_faceswap.compliance import audit_log, content_filter
 from barrett_faceswap.compliance.audit_log import append_event, hash_file
@@ -29,7 +32,7 @@ from barrett_faceswap.compliance.content_filter import (
     FilterSettings,
     resolve_filter_settings,
 )
-from barrett_faceswap.compliance.watermark import save_image
+from barrett_faceswap.compliance.watermark import apply_video_metadata, apply_visible_watermark, save_image
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.errors import (
     BarrettFaceswapError,
@@ -39,7 +42,7 @@ from barrett_faceswap.errors import (
 )
 from barrett_faceswap.i18n import t
 from barrett_faceswap.types import SwapRequest, SwapResult
-from barrett_faceswap.vision import read_image
+from barrett_faceswap.vision import is_video, read_image
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,12 @@ class CompliancePolicy:
     def enforcement_enabled(self, request: SwapRequest) -> bool:
         return bool(self.config.compliance.enabled or request.enable_compliance)
 
-    def before_process(self, request: SwapRequest) -> ComplianceContext:
+    def before_process(
+        self,
+        request: SwapRequest,
+        *,
+        target_samples: Sequence[np.ndarray] | None = None,
+    ) -> ComplianceContext:
         if not self.enforcement_enabled(request):
             note = t("compliance.disabled_note")
             logger.warning(note)
@@ -91,7 +99,7 @@ class CompliancePolicy:
             context.watermark_enabled, context.watermark_text, context.watermark_disabled = (
                 self._watermark(request, context)
             )
-            self._screen_inputs(request, context)
+            self._screen_inputs(request, context, target_samples=target_samples)
         except BarrettFaceswapError as exc:
             self._write(context, "refused", reason=str(exc))
             raise
@@ -117,6 +125,49 @@ class CompliancePolicy:
             watermark=context.watermark_enabled,
             text=context.watermark_text,
         )
+        self._write(context, "completed", reason=None)
+        return SwapResult(
+            output_path=request.output_path,
+            dry_run=request.dry_run,
+            compliance_enabled=True,
+            notes=list(context.notes),
+        )
+
+    def screen_frame(self, context: ComplianceContext, frame: np.ndarray, *, role: str) -> None:
+        """Filter one frame. No-op while enforcement is off. A block is audited as refused."""
+
+        if not context.enabled:
+            return
+        decision = self._assess(frame, context, role=role)
+        if decision.minor_flag and context.filter_settings and context.filter_settings.block_on_minor:
+            reason = t("filter.minor_blocked", role=role)
+            self._write(context, "refused", reason=reason)
+            raise ContentBlockedError(reason)
+        if not decision.allowed:
+            reason = t("filter.blocked", role=role, reason=decision.reason)
+            self._write(context, "refused", reason=reason)
+            raise ContentBlockedError(reason)
+
+    def mark_frame(self, context: ComplianceContext, frame: np.ndarray) -> np.ndarray:
+        """Watermark one frame when enforcement and the watermark are both on."""
+
+        if not context.enabled or not context.watermark_enabled:
+            return frame
+        return apply_visible_watermark(frame, context.watermark_text or t("watermark.label"))
+
+    def complete_output(self, context: ComplianceContext, request: SwapRequest) -> SwapResult:
+        """Audit a file the caller already wrote. Used by the video encoder."""
+
+        if not context.enabled:
+            return SwapResult(
+                output_path=request.output_path,
+                dry_run=request.dry_run,
+                compliance_enabled=False,
+                notes=list(context.notes),
+            )
+        if context.watermark_enabled:
+            marked = apply_video_metadata(request.output_path, context.watermark_text or t("watermark.label"))
+            context.notes.append(marked.detail)
         self._write(context, "completed", reason=None)
         return SwapResult(
             output_path=request.output_path,
@@ -170,15 +221,28 @@ class CompliancePolicy:
             raise ComplianceError(t("watermark.config_blocked"))
         return True, text, False
 
-    def _screen_inputs(self, request: SwapRequest, context: ComplianceContext) -> None:
-        source = read_image(request.source_path)
-        target = read_image(request.target_path)
-        for role, image in (("source", source), ("target", target)):
-            decision = self._assess(image, context, role=role)
-            if decision.minor_flag and context.filter_settings and context.filter_settings.block_on_minor:
-                raise ContentBlockedError(t("filter.minor_blocked", role=role))
-            if not decision.allowed:
-                raise ContentBlockedError(t("filter.blocked", role=role, reason=decision.reason))
+    def _screen_inputs(
+        self,
+        request: SwapRequest,
+        context: ComplianceContext,
+        *,
+        target_samples: Sequence[np.ndarray] | None,
+    ) -> None:
+        self._reject_frame(read_image(request.source_path), context, role="source")
+        if is_video(request.target_path):
+            if not target_samples:
+                raise ComplianceError(t("compliance.video_samples_missing"))
+            for index, frame in enumerate(target_samples):
+                self._reject_frame(frame, context, role=f"target[{index}]")
+            return
+        self._reject_frame(read_image(request.target_path), context, role="target")
+
+    def _reject_frame(self, image: np.ndarray, context: ComplianceContext, *, role: str) -> None:
+        decision = self._assess(image, context, role=role)
+        if decision.minor_flag and context.filter_settings and context.filter_settings.block_on_minor:
+            raise ContentBlockedError(t("filter.minor_blocked", role=role))
+        if not decision.allowed:
+            raise ContentBlockedError(t("filter.blocked", role=role, reason=decision.reason))
 
     def _assess(self, image, context: ComplianceContext, *, role: str) -> FilterDecision:
         settings = context.filter_settings

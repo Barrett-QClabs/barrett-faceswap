@@ -2,7 +2,7 @@
 
 # 调研记录
 
-这份记录说明第一阶段设计时读过哪些项目，以及许可证边界。由此得到的设计写在 [ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md)。下面这些项目的源代码都没有被复制进本仓库。
+这份记录说明第一阶段设计时读过哪些项目，以及许可证边界。当前设计（含视频、增强器、蒙版和界面）写在 [ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md)。下面这些项目的源代码都没有被复制进本仓库。
 
 ## FaceFusion
 

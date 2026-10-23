@@ -8,10 +8,11 @@ from tqdm import tqdm
 
 from barrett_faceswap.compliance.policy import CompliancePolicy
 from barrett_faceswap.config import AppConfig
+from barrett_faceswap.errors import ConfigError
 from barrett_faceswap.i18n import t
 from barrett_faceswap.processors import available_processors, create_processor
 from barrett_faceswap.types import ProcessContext, SwapRequest, SwapResult
-from barrett_faceswap.vision import read_image
+from barrett_faceswap.vision import is_video, read_image
 
 
 class FaceSwapPipeline:
@@ -22,6 +23,12 @@ class FaceSwapPipeline:
         self.policy = CompliancePolicy(config, admin_path=admin_path)
 
     def run(self, request: SwapRequest) -> SwapResult:
+        if is_video(request.target_path):
+            from barrett_faceswap.video import VideoPipeline
+
+            return VideoPipeline(self.config, admin_path=self.policy.admin_path).run(request)
+        if request.trim_start is not None or request.trim_end is not None or request.video_encoder is not None:
+            raise ConfigError(t("video.flags_need_video"))
         context = None
         try:
             context = self.policy.before_process(request)

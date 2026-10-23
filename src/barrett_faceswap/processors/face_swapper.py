@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
+from barrett_faceswap.align import align_face
 from barrett_faceswap.blend import match_color, paste_back
-from barrett_faceswap.i18n import t
-from barrett_faceswap.masks import composite_mask
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.detect import FaceDetector, select_face
-from barrett_faceswap.align import align_face
+from barrett_faceswap.i18n import t
+from barrett_faceswap.masking import MaskStack
 from barrett_faceswap.models import ModelStore
 from barrett_faceswap.processors.registry import register_processor
 from barrett_faceswap.swap import IdentitySwapper
@@ -25,6 +25,7 @@ class FaceSwapper:
         self.config = config
         self.providers = providers
         self.store: ModelStore | None = None
+        self.masks: MaskStack | None = None
 
     def pre_check(self, ctx: ProcessContext) -> None:
         if ctx.dry_run:
@@ -32,6 +33,8 @@ class FaceSwapper:
             return
         self.store = ModelStore(self.config, self.providers)
         self.store.ensure_present()
+        self.masks = MaskStack(self.config, self.store)
+        self.masks.load()
 
     def process_frame(self, frame: np.ndarray, ctx: ProcessContext) -> np.ndarray:
         if ctx.dry_run:
@@ -52,16 +55,20 @@ class FaceSwapper:
         swapper = IdentitySwapper(self.store, resolution)
         embedding = swapper.embed(ctx.source_bgr, source_face.landmarks)
         swapped = swapper.forward(crop, embedding)
-        mask = composite_mask(resolution, self.config.blend.mask_blur)
+        if self.masks is None:
+            self.masks = MaskStack(self.config, self.store)
+            self.masks.load()
+        mask = self.masks.compose(crop, resolution, self.config.blend.mask_blur)
         matched = match_color(swapped, crop, mask)
-        ctx.notes.append(
-            t(
-                "processor.swapper_done",
-                source_score=f"{source_face.score:.3f}",
-                target_score=f"{target_face.score:.3f}",
-                index=ctx.target_face_index,
+        if ctx.log_every_frame:
+            ctx.notes.append(
+                t(
+                    "processor.swapper_done",
+                    source_score=f"{source_face.score:.3f}",
+                    target_score=f"{target_face.score:.3f}",
+                    index=ctx.target_face_index,
+                )
             )
-        )
         return paste_back(frame, matched, matrix, mask)
 
     def post_process(self) -> None:

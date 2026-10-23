@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from pathlib import Path
 
 from barrett_faceswap.config import AppConfig
@@ -20,12 +21,17 @@ from barrett_faceswap.model_registry import registry_record
 logger = logging.getLogger(__name__)
 
 _SESSION_CACHE: dict[tuple, object] = {}
+_CACHE_LOCK = threading.Lock()
+
+# The swap path needs these three. Enhancer and mask roles are optional.
+CORE_ROLES = ("detector", "recognizer", "swapper")
 
 
 def clear_session_cache() -> None:
     """Drop cached sessions. Tests use this to isolate provider keys."""
 
-    _SESSION_CACHE.clear()
+    with _CACHE_LOCK:
+        _SESSION_CACHE.clear()
 
 
 def file_sha256(path: Path) -> str:
@@ -58,7 +64,7 @@ def verify_model_hash(path: Path, expected: str | None, role: str) -> str:
 
 
 class ModelStore:
-    """Session cache for the detector, recognizer, and swapper."""
+    """Session cache for detector, swap, enhancer, and mask graphs."""
 
     def __init__(self, config: AppConfig, providers: list[str] | tuple[str, ...] | None = None) -> None:
         self.config = config
@@ -66,19 +72,28 @@ class ModelStore:
         self.device_id = int(config.execution.device_id)
 
     def paths(self) -> dict[str, Path]:
+        models = self.config.models
         return {
-            "detector": self.config.models.detector.path,
-            "recognizer": self.config.models.recognizer.path,
-            "swapper": self.config.models.swapper.path,
+            "detector": models.detector.path,
+            "recognizer": models.recognizer.path,
+            "swapper": models.swapper.path,
+            "gfpgan": models.gfpgan.path,
+            "codeformer": models.codeformer.path,
+            "occluder": models.occluder.path,
+            "parser": models.parser.path,
         }
 
-    def missing(self) -> list[tuple[str, Path]]:
-        return [(role, path) for role, path in self.paths().items() if not path.is_file()]
+    def missing(self, roles: tuple[str, ...] | None = None) -> list[tuple[str, Path]]:
+        selected = self.paths() if roles is None else {role: self.paths()[role] for role in roles}
+        return [(role, path) for role, path in selected.items() if not path.is_file()]
 
-    def ensure_present(self) -> None:
-        """Raise if any required weight is absent. Does not download anything."""
+    def ensure_present(self, roles: tuple[str, ...] | None = None) -> None:
+        """Raise if a required weight is absent. Does not download anything.
 
-        missing = self.missing()
+        The default set is the swap trio. Pass a narrower tuple for the enhancer.
+        """
+
+        missing = self.missing(roles if roles is not None else CORE_ROLES)
         if not missing:
             return
         listing = "\n".join(f"  - {role}: {path}" for role, path in missing)
@@ -91,20 +106,21 @@ class ModelStore:
             raise ModelNotFoundError(t("models.unknown_role", role=role))
         path = self.paths()[role]
         if not path.is_file():
-            self.ensure_present()
+            self.ensure_present((role,))
         record = registry_record(self.config, role)
         digest = verify_model_hash(path, record.sha256, role)
         key = (str(path.resolve()), digest, tuple(self.providers), self.device_id)
-        cached = _SESSION_CACHE.get(key)
-        if cached is not None:
-            return cached
-        ort_providers = resolve_providers(self.providers, self.device_id)
-        if factory is None:
-            session = _onnxruntime().InferenceSession(str(path), providers=ort_providers)
-        else:
-            session = factory(path, ort_providers, self.device_id)
-        _SESSION_CACHE[key] = session
-        return session
+        with _CACHE_LOCK:
+            cached = _SESSION_CACHE.get(key)
+            if cached is not None:
+                return cached
+            ort_providers = resolve_providers(self.providers, self.device_id)
+            if factory is None:
+                session = _onnxruntime().InferenceSession(str(path), providers=ort_providers)
+            else:
+                session = factory(path, ort_providers, self.device_id)
+            _SESSION_CACHE[key] = session
+            return session
 
 
 def _onnxruntime():

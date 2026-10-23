@@ -2,7 +2,7 @@
 
 # Research note
 
-This file records what was read while shaping Phase 1, and the license boundary around that reading. The design that resulted lives in [ARCHITECTURE.md](ARCHITECTURE.md). No source from the projects below was copied into this tree.
+This file records what was read while shaping Phase 1, and the license boundary around that reading. The current design, including video, the enhancer, masks, and the UI, lives in [ARCHITECTURE.md](ARCHITECTURE.md). No source from the projects below was copied into this tree.
 
 ## FaceFusion
 

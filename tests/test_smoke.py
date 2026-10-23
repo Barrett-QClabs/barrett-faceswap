@@ -19,7 +19,7 @@ from tests.conftest import REPO, write_config, write_png
 
 
 def test_package_imports() -> None:
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.2.0"
     assert "face_swapper" in available_processors()
     assert "face_enhancer" in available_processors()
 
@@ -30,6 +30,10 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.ui.language == "en"
     assert config.models.swapper.sha256 is None
     assert config.models.detector.path.name == "det_10g.onnx"
+    assert config.processors == ["face_swapper"]
+    assert config.video.encoder == "libx264"
+    assert config.enhancer.model == "gfpgan_1.4"
+    assert config.models.gfpgan.path.name == "gfpgan_1.4.onnx"
 
 
 def test_dry_run_without_models_or_consent(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

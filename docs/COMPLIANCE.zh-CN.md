@@ -43,7 +43,9 @@
 
 `compliance/watermark.py` 在底部画一条带当前文案的色带。默认文案来自目录里的 `watermark.label`：英文是 `AI-generated`，中文是 `人工智能生成`。可以用 `compliance.watermark.text` 覆盖。
 
-PNG 还会写入 `tEXt` 块（`barrett.faceswap.ai_generated=true` 和 Description）。JPEG 写入 EXIF ImageDescription。文件旁边会有一个 `.meta.json` 旁路文件。`apply_video_metadata` 可以请 ffmpeg 写容器注释；第一阶段拒绝处理视频帧，这个函数留给以后的阶段。没有 ffmpeg 时，旁路文件仍会写上。
+PNG 还会写入 `tEXt` 块（`barrett.faceswap.ai_generated=true` 和 Description）。JPEG 写入 EXIF ImageDescription。文件旁边会有一个 `.meta.json` 旁路文件。
+
+视频运行在强制和水印都打开时给每一帧输出打水印，然后调用 `apply_video_metadata` 写容器注释和旁路文件。过滤检查用的是抽检（`video.filter_every_n_frames`，外加最后一帧），不是每一帧。写元数据的那次 ffmpeg 调用失败时，运行仍然成功：像素上已经有标记，旁路文件也会写上。如果完全没有 ffmpeg，抽帧会在编码之前失败；静态图像运行在没有 ffmpeg 时仍会写旁路文件。可见色带使用拉丁文目录字符串。OpenCV 自带的字体写不出 `人工智能生成`。容器注释和旁路文件保存的是 Unicode 文案。
 
 在强制打开时，`--no-watermark` 是跳过标识的显式、会被记录的方式。配置里把 `watermark.enabled` 设为 false 却不带这个参数，运行会被拒绝，这样只改 YAML 不能悄悄去掉标识。
 

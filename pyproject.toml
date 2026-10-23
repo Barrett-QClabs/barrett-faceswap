@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "barrett-faceswap"
-version = "0.1.0"
-description = "Phase 1 face-swap toolkit: detect, align, ONNX inswapper-style swap, paste-back, and an opt-in compliance gate."
+version = "0.2.0"
+description = "Face-swap toolkit: still images, video frames, GFPGAN/CodeFormer, masks, a bilingual Gradio UI, and an opt-in compliance gate."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -33,8 +33,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # Install in place of onnxruntime, not beside it. See the README.
+# An RTX 5090 (Blackwell, sm_120) needs an onnxruntime-gpu build linked to CUDA 12.8 or newer.
 gpu = ["onnxruntime-gpu>=1.17"]
-dev = ["pytest>=8.0"]
+ui = ["gradio>=4.44,<6"]
+dev = ["pytest>=8.0", "gradio>=4.44,<6"]
 
 [project.scripts]
 barrett-faceswap = "barrett_faceswap.cli:main"
