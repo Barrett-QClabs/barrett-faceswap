@@ -19,8 +19,7 @@ from barrett_faceswap.onnx_io import (
     bgr_to_nchw,
     feed_session,
     first_spatial_output,
-    session_channels,
-    session_hw,
+    session_image_layout,
 )
 
 
@@ -34,9 +33,11 @@ def run_occlusion(
 ) -> np.ndarray:
     """Return a float mask of shape ``(size, size)`` in 0..1."""
 
-    network_h, network_w = session_hw(session, (size, size))
-    channels = session_channels(session, 3)
+    layout, network_h, network_w, channels = session_image_layout(session, (size, size))
     blob = bgr_to_nchw(crop_bgr, network_w, network_h, mode="zero_one", channels=channels)
+    if layout == "nhwc":
+        # Channels-last graphs reject an NCHW feed with INVALID_ARGUMENT.
+        blob = np.ascontiguousarray(np.transpose(blob, (0, 2, 3, 1)))
     data = np.squeeze(first_spatial_output(feed_session(session, blob)).astype(np.float32))
     if data.ndim == 3:
         data = data[0] if data.shape[0] <= 4 else data[..., 0]

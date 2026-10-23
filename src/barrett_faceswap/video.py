@@ -546,6 +546,7 @@ class VideoPipeline:
 
     def _drive(self, processors, shared: ProcessContext, frames, publish) -> None:
         shared.allow_missing_face = True
+        shared.reuse_masks = True
         finder = next((item for item in processors if hasattr(item, "find_faces")), None)
         stream = FaceStream(max_gap=int(self.config.video.max_face_gap), smooth=str(self.config.video.smooth))
         for index, frame in frames:

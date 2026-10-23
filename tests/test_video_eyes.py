@@ -162,6 +162,18 @@ def test_eye_mask_and_restore() -> None:
     assert dense[32, 90] > 0.5
     assert dense[120, 4] == 0
 
+    from barrett_faceswap.eyes import eye_openness
+
+    assert eye_openness(template) == 1.0
+    blended = restore_eyes("blend", swapped, target, template, blur=1, sharpen=0)
+    eye_pixel = int(blended[int(round(float(eye[1]))), int(round(float(eye[0]))), 0])
+    # Five-point landmarks have no lids, so an open eye keeps most of the target.
+    assert eye_pixel > 200
+    assert eye_pixel < 255
+    flat = points.copy()
+    flat[:53, 1] = 30
+    assert eye_openness(flat) < eye_openness(points)
+
 
 def test_pixel_boost_uses_four_native_tiles(tmp_path: Path) -> None:
     config = load_config(write_config(tmp_path, enabled=False))
@@ -184,7 +196,11 @@ def test_pixel_boost_uses_four_native_tiles(tmp_path: Path) -> None:
 
     backend = _Tiles()
     swapper.store = object()
-    swapper.masks = SimpleNamespace(compose=lambda crop, side, blur, landmarks=None: np.ones((side, side), np.float32))
+    swapper.masks = SimpleNamespace(
+        compose=lambda crop, side, blur, landmarks=None, **_ignored: np.ones((side, side), np.float32),
+        eye_mask=None,
+        reset=lambda: None,
+    )
     swapper._backend = lambda: backend  # type: ignore[method-assign]
     swapper._slots = [SimpleNamespace(latent=np.zeros((1, 512), np.float32))]
     template = swap_template("inswapper", 256)
@@ -284,6 +300,39 @@ def test_download_imports_a_directory_and_still_fails_over(tmp_path: Path) -> No
         raise AssertionError("network")
 
     notes = download_models(config, opener=opener, pins=pins, from_dir=folder)
+    xseg = b"xseg-alias"
+    parsed = b"parser-alias"
+    mask_pins = {
+        **pins,
+        "occlusion_xseg.onnx": hashlib.sha256(xseg).hexdigest(),
+        "bisenet_face_parsing.onnx": hashlib.sha256(parsed).hexdigest(),
+    }
+    masks = tmp_path / "masks"
+    masks.mkdir()
+    (masks / "xseg_1.onnx").write_bytes(xseg)
+    (masks / "nested").mkdir()
+    (masks / "nested" / "bisenet_resnet_34.onnx").write_bytes(parsed)
+    (masks / "det_10g.onnx").write_bytes(det)
+    (masks / "w600k_r50.onnx").write_bytes(rec)
+    (masks / "inswapper_128.onnx").write_bytes(swap)
+    masked = config.model_copy(
+        update={
+            "models": config.models.model_copy(
+                update={
+                    "occluder": config.models.occluder.model_copy(
+                        update={"path": tmp_path / "weights" / "occlusion_xseg.onnx"}
+                    ),
+                    "parser": config.models.parser.model_copy(
+                        update={"path": tmp_path / "weights" / "bisenet_face_parsing.onnx"}
+                    ),
+                }
+            )
+        }
+    )
+    imported = download_models(masked, opener=opener, pins=mask_pins, from_dir=masks, with_masks=True)
+    assert hashlib.sha256(xseg).hexdigest() in "\n".join(imported)
+    assert (tmp_path / "weights" / "occlusion_xseg.onnx").read_bytes() == xseg
+    assert (tmp_path / "weights" / "bisenet_face_parsing.onnx").read_bytes() == parsed
     text = "\n".join(notes)
     assert pins["inswapper_128.onnx"] in text
     assert (tmp_path / "weights" / "inswapper_128.onnx").read_bytes() == swap

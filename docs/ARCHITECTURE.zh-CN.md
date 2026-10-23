@@ -69,7 +69,15 @@ ffprobe
 
 `pixel_boost` 先按提升后的边长对齐裁剪，再切成连续的原生尺寸方块，用同一个隐向量逐块推理，然后拼回去。允许的边长是 128、256、512、768、1024，且边长不小于原生尺寸并能整除。`0` 表示原生尺寸。inswapper 在 boost 为 `0` 时仍遵守 `swap.resolution`，因此测试可以把模拟图指到一个不是整块倍数的尺寸。边长不能整除原生尺寸时，只做一次推理。视频使用同一个换脸器，因此 `--pixel-boost 256` 或 `512` 在视频里同样切块。`256` 是四块 128 像素。
 
-`--eye-mode` 是 `swap`、`blend`（默认）或 `target`。`blend` 在羽化的眼部蒙版里把大约 65% 的原始目标裁剪混回去。五点关键点变成两个椭圆。106 点集合使用上半脸左右两簇的凸包。`blend.eye_sharpen`（默认 0.6）只在这个区域内做反锐化。`--with-enhancer` 在列表里还没有 `face_enhancer` 时把它追加进去。`enhancer.eye_blend`（默认 0.35）在眼部保留更多目标裁剪。`enhancer.blend`（默认 0.6）覆盖脸的其余部分。
+`--eye-mode` 决定 inswapper 之后眼睛怎么处理。128 的裁剪经常带上源脸的眼睑，直接替换会看起来窄、或者半闭。
+
+| `--eye-mode` | 保留什么 |
+| --- | --- |
+| `swap` | 只保留换过的裁剪。 |
+| `blend`（默认） | 在眼部蒙版里混入目标裁剪。眼睛张开时，这个权重从 0.65 提高到大约 0.91。106 点用每一簇眼睛的垂直跨度除以宽度来衡量张开程度。五点没有眼睑，因此按张开处理。 |
+| `target` | 原来的目标眼睛。 |
+
+五点关键点变成两个椭圆。106 点集合使用上半脸左右两簇的凸包。加载了 `models/bisenet_face_parsing.onnx` 时，左右眼和左右眉的类别会在换脸上替换这个几何蒙版。`blend.eye_sharpen`（默认 0.6）只在这个区域内做反锐化。`--with-enhancer` 在列表里还没有 `face_enhancer` 时把它追加进去。眼睛张开时，`enhancer.eye_blend`（默认 0.35）会再降低，避免修复重画眼睑。`enhancer.blend`（默认 0.6）覆盖脸的其余部分。
 
 ## 选脸
 
@@ -102,17 +110,19 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 蒙版
 
-`masks.py` 生成内缩方框、区域和全 1 的遮挡占位，再逐元素取最小值（`merge_min`）。当对应的 ONNX 文件在磁盘上且开关打开时（`masks.occlusion`、`masks.regions_enabled`），`masking.py` 会替换占位。遮挡文件缺失时保持全 1。解析文件缺失时，如果换脸器传入了裁剪模板上的五个点，就用扩张后的关键点凸包并羽化；没有关键点时仍用椭圆。增强器仍用椭圆。
+`masks.py` 生成内缩方框、区域和全 1 的遮挡占位，再逐元素取最小值（`merge_min`）。当对应的 ONNX 文件在磁盘上且开关打开时（`masks.occlusion`、`masks.parser`），`masking.py` 会替换占位。遮挡文件缺失时保持全 1。解析文件缺失时，如果换脸器传入了裁剪模板上的五个点，就用扩张后的关键点凸包并羽化；没有关键点时仍用椭圆。增强器自己的贴回仍用椭圆。解析文件已加载时，眼和眉的类别用作换脸的眼部蒙版。
 
-遮挡（`models/occlusion_xseg.onnx`，注册表尺寸 256）接收 0..1 的 RGB；静态输入是单通道时则接收灰度。数值越高表示该像素保持可见。最大值高于 `1.5` 时按 0..255 解释。`masks.occlusion_invert` 用来翻转那些预测遮挡物而不是人脸的图。xseg 这个想法来自 DeepFaceLab。那个项目的代码是 GPL-3.0，不在本仓库里。`commercial_use` 为 false，因为权重由操作者自行提供，本仓库不授予该文件的权利。
+视频和实时（`masks.stride`，默认 2）每隔一帧才跑遮挡和解析图，并在关键点位移除以脸宽不超过 `masks.stride_motion`（默认 0.04）时，把上一张裁剪蒙版按对齐变化贴到当前帧。位移更大就立刻重算。`stride: 1` 表示每一帧都跑。静态图像始终重算。两张图都在时用两个线程一起跑。加载时，填充不对称的 ConvTranspose 会被改成零填充再加一层切片，数值不变，并且可以被 CUDA 提供者执行。facefusion 的 xseg 图是通道在最后（`[N, 256, 256, 3]`）；这种布局会先转置，不会按 NCHW 送进去。
 
-解析（`models/bisenet_face_parsing.onnx`）使用 ImageNet 的均值和标准差。标签是 `parsing.py` 里的 19 个 CelebAMask-HQ 序号（0 背景到 18 帽子）。默认区域是皮肤、眉毛、眼睛、眼镜、鼻子、嘴和嘴唇。头发、衣服、帽子、脖子和耳朵留在外面。图可以返回类别分数或整数标签图。常见检查点在 CelebAMask-HQ 上训练，该数据集是非商业研究用途，因此 `commercial_use` 为 false。
+遮挡（`models/occlusion_xseg.onnx`，注册表尺寸 256）接收 0..1 的 RGB；静态输入是单通道时则接收灰度。通道在最后的静态形状也可以。数值越高表示该像素保持可见。最大值高于 `1.5` 时按 0..255 解释。`masks.occlusion_invert` 用来翻转那些预测遮挡物而不是人脸的图。`download-models --with-masks` 会下载 facefusion-assets 的 `xseg_1.onnx`（models-3.1.0）并存到这个路径。该文件的许可未经核实，很可能不能用于商业用途。xseg 这个想法来自 DeepFaceLab。那个项目的代码是 GPL-3.0，不在本仓库里。`commercial_use` 为 false。
+
+解析（`models/bisenet_face_parsing.onnx`）使用 ImageNet 的均值和标准差。标签是 `parsing.py` 里的 19 个 CelebAMask-HQ 序号（0 背景到 18 帽子）。默认区域是皮肤、眉毛、眼睛、眼镜、鼻子、嘴和嘴唇。头发、衣服、帽子、脖子和耳朵留在外面。图可以返回类别分数或整数标签图。`--with-masks` 也会下载 facefusion-assets 的 `bisenet_resnet_34.onnx`（models-3.0.0）。该文件的许可未经核实，很可能不能用于商业用途。常见检查点在 CelebAMask-HQ 上训练，该数据集是非商业研究用途，因此 `commercial_use` 为 false。
 
 ## 界面和基准
 
 `barrett-faceswap ui` 构建一个 Gradio Blocks 应用。Gradio 只在 `build_demo` / `launch_ui` 里导入，属于 `[ui]` 额外依赖。语言下拉框调用 `t()`，并重写每一条标题，包括预览和运行按钮、第三阶段控件、商业门禁复选框和摄像头页。对视频点预览时抽出第一帧，再走静态图像流水线。运行会写到输出路径。只有目标是视频并且点击的是运行时，才会送出编码器和视频模式下拉框的值。合规复选框不能把已经打开的配置关掉。随仓库提供的复选框跟随配置，配置是关闭的。摄像头页和命令行共用 `LiveSession`。开始只是待命，第一帧摄像头画面做同意检查，停止时若强制打开会写一行审计。三条线程在 `barrett-faceswap live` 里，不在浏览器回调里。
 
-`barrett-faceswap benchmark` 为处理器链计时，并打印各阶段毫秒数和 `realtime_fps`。`--source` 和 `--target` 一起传入时会把这两张静态图缩放到计时尺寸并跑检测。不传时，用一张绘制的人脸提供关键点，即使检测器不会给这张图打分，替换仍然会计时。`--live` 给一次会话计时（采集、检测、替换、输出），不会打开摄像头。`--dry-run` 不加载 ONNX。`nvidia-smi` 可用时读取显存，否则报告不可用。
+`barrett-faceswap benchmark` 为处理器链计时，并打印各阶段毫秒数和 `realtime_fps`。`--source` 和 `--target` 一起传入时会在这两张静态图上跑检测。报告里的尺寸是目标图的真实尺寸。`--width` 和 `--height` 只用于绘制的后备人脸。不传静态图时，用一张绘制的人脸提供关键点，即使检测器不会给这张图打分，替换仍然会计时。`--live` 给一次会话计时（采集、检测、替换、输出），不会打开摄像头。`--dry-run` 不加载 ONNX。`nvidia-smi` 可用时读取显存，否则报告不可用。
 
 ## 实时
 

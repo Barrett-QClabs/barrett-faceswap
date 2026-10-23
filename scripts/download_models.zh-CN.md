@@ -7,10 +7,11 @@
 ```bash
 barrett-faceswap download-models
 barrett-faceswap download-models --with-gfpgan
+barrett-faceswap download-models --with-masks
 barrett-faceswap doctor
 ```
 
-`download-models` 会下载 `buffalo_l.zip` 和 `inswapper_128.onnx`，校验 sha256，在服务器返回 HTTP 206 时续传未完成的文件，并在三次失败后换下一个镜像。每次尝试把 TCP 连接限制在 15 秒、读取限制在 30 秒，卡住的镜像会尽快切换，而不是一直停在套接字上。`--from-dir PATH` 按文件名复制（包含子目录），并在任何下载之前校验 sha256。哈希不匹配会停止命令。缺少的文件仍会下载。该目录里的 `buffalo_l.zip` 会按下载到的压缩包同样解压。`--force` 会重新下载。`--with-gfpgan` 是可选项。`doctor` 打印执行提供者、CUDA/cuDNN 是否预加载成功、本地文件的 sha256，以及同时安装了 `onnxruntime` 和 `onnxruntime-gpu` 时的警告。CI 不会运行这两个命令。
+`download-models` 会下载 `buffalo_l.zip` 和 `inswapper_128.onnx`，校验 sha256，在服务器返回 HTTP 206 时续传未完成的文件，并在三次失败后换下一个镜像。每次尝试把 TCP 连接限制在 15 秒、读取限制在 30 秒，卡住的镜像会尽快切换，而不是一直停在套接字上。`--from-dir PATH` 按文件名复制（包含子目录），并在任何下载之前校验 sha256。哈希不匹配会停止命令。缺少的文件仍会下载。该目录里的 `buffalo_l.zip` 会按下载到的压缩包同样解压。`--force` 会重新下载。`--with-gfpgan` 和 `--with-masks` 是可选项。`--with-masks` 会下载 `xseg_1.onnx` 和 `bisenet_resnet_34.onnx`。`--from-dir` 也接受这两个上游文件名，以及存放名 `occlusion_xseg.onnx` 和 `bisenet_face_parsing.onnx`。这两份蒙版文件的许可未经核实，很可能不能用于商业用途。`doctor` 打印执行提供者、CUDA/cuDNN 是否预加载成功、本地文件的 sha256，以及同时安装了 `onnxruntime` 和 `onnxruntime-gpu` 时的警告。CI 不会运行这两个命令。
 
 命令核对的哈希：
 
@@ -20,6 +21,8 @@ barrett-faceswap doctor
 | `w600k_r50.onnx` | `4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43` |
 | `inswapper_128.onnx` | `e4a3f08c753cb72d04e10aa0f7dbe3deebbf39567d4ead6dce08e98aa49e16af` |
 | `gfpgan_1.4.onnx` | `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385` |
+| `xseg_1.onnx`（存为 `occlusion_xseg.onnx`） | `c4d1498b8a03b5fe2a3a5d2ef2a0402ab03bd51edaf5b2d8d5fb764702a97dd3` |
+| `bisenet_resnet_34.onnx`（存为 `bisenet_face_parsing.onnx`） | `4a0b8c958a3c938913bd06a8365dbb3c8761afba6ecbf0d14b3b1f77eb230c96` |
 
 buffalo 压缩包本身不锁定哈希。命令在解压后核对两个 ONNX 成员，因此一份有效的重新打包也会被接受。你仍然可以手动复制文件，再用 `barrett-faceswap inspect-models` 锁定。
 
@@ -153,7 +156,14 @@ GFPGAN 的代码和公开的 v1.4 权重是 Apache-2.0。网络里包含 NVIDIA 
 
 ## 遮挡（xseg 风格）
 
-把操作者自行准备的文件放到 `models/occlusion_xseg.onnx`。没有指定的下载地址。期望的图在 256 上接收 0..1 的 RGB（或单通道灰度），并返回一个通道，数值越高表示该像素保持可见。最大值高于 1.5 时按 0..255 读取。如果图预测的是遮挡物而不是人脸，把 `masks.occlusion_invert` 设为 true。xseg 这个想法与 DeepFaceLab（<https://github.com/iperov/DeepFaceLab>）有关。那段代码是 GPL-3.0，不得复制进本仓库。`commercial_use` 为 false。
+`download-models --with-masks` 会把 facefusion-assets models-3.1.0 的 `xseg_1.onnx` 写到 `models/occlusion_xseg.onnx`。只接受 sha256 `c4d1498b8a03b5fe2a3a5d2ef2a0402ab03bd51edaf5b2d8d5fb764702a97dd3`。
+
+```text
+https://github.com/facefusion/facefusion-assets/releases/download/models-3.1.0/xseg_1.onnx
+https://huggingface.co/facefusion/models-3.1.0/resolve/main/xseg_1.onnx
+```
+
+该文件的许可未经核实，很可能不能用于商业用途。本仓库不授予它的权利。图接收 0..1 的 RGB。已发布的文件是通道在最后，`[N, 256, 256, 3]`。通道在前的图，或单通道灰度，也可以。它返回一个通道，数值越高表示该像素保持可见。最大值高于 1.5 时按 0..255 读取。如果图预测的是遮挡物而不是人脸，把 `masks.occlusion_invert` 设为 true。加载时会在内存里改写不对称的 ConvTranspose 填充，这样 CUDA 提供者不会把这些节点退回 CPU。xseg 这个想法与 DeepFaceLab（<https://github.com/iperov/DeepFaceLab>）有关。那段代码是 GPL-3.0，不得复制进本仓库。`commercial_use` 为 false。
 
 ## 人脸解析（BiSeNet）
 
@@ -161,7 +171,14 @@ GFPGAN 的代码和公开的 v1.4 权重是 Apache-2.0。网络里包含 NVIDIA 
 
 <https://github.com/zllrunning/face-parsing.PyTorch>
 
-该仓库的代码是 MIT。`79999_iter.pth` 这类权重通常在 CelebAMask-HQ 上训练，而该数据集是非商业研究用途。请核对你实际放到 `models/bisenet_face_parsing.onnx` 的文件。输入是 ImageNet 归一化的 RGB（均值 0.485、0.456、0.406；标准差 0.229、0.224、0.225）。输出是逐类分数或整数标签图。类别序号是 `src/barrett_faceswap/parsing.py` 里的 19 个 CelebAMask-HQ 标签（`background` 是 0，`hat` 是 18）。`commercial_use` 为 false。
+该仓库的代码是 MIT。`--with-masks` 也会把 facefusion-assets models-3.0.0 的 `bisenet_resnet_34.onnx` 写到 `models/bisenet_face_parsing.onnx`。只接受 sha256 `4a0b8c958a3c938913bd06a8365dbb3c8761afba6ecbf0d14b3b1f77eb230c96`。
+
+```text
+https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/bisenet_resnet_34.onnx
+https://huggingface.co/facefusion/models-3.0.0/resolve/main/bisenet_resnet_34.onnx
+```
+
+该文件的许可未经核实，很可能不能用于商业用途。`79999_iter.pth` 这类权重通常在 CelebAMask-HQ 上训练，而该数据集是非商业研究用途。输入是 ImageNet 归一化的 RGB（均值 0.485、0.456、0.406；标准差 0.229、0.224、0.225）。输出是逐类分数或整数标签图。类别序号是 `src/barrett_faceswap/parsing.py` 里的 19 个 CelebAMask-HQ 标签（`background` 是 0，`hat` 是 18）。眼和眉的类别也用作换脸的眼部蒙版。`commercial_use` 为 false。
 
 ## RetinaFace
 

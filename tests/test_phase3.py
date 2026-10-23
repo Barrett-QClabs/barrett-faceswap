@@ -80,8 +80,8 @@ def _face(x: float, size: float = 40.0, score: float = 0.9) -> Face:
 
 
 class _Masks:
-    def compose(self, crop, side, blur, landmarks=None):
-        del crop, blur, landmarks
+    def compose(self, crop, side, blur, landmarks=None, **_ignored):
+        del crop, blur, landmarks, _ignored
         return np.ones((side, side), dtype=np.float32)
 
 

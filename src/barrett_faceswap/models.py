@@ -18,6 +18,7 @@ from barrett_faceswap.errors import ModelHashError, ModelNotFoundError
 from barrett_faceswap.execution import resolve_providers
 from barrett_faceswap.i18n import t
 from barrett_faceswap.model_registry import ROLE_ORDER, registry_record
+from barrett_faceswap.onnx_rewrite import convtranspose_cuda_bytes, should_rewrite
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,13 @@ class ModelStore:
                 return cached
             ort_providers = resolve_providers(self.providers, self.device_id, self.config.execution)
             if factory is None:
-                session = _onnxruntime().InferenceSession(str(path), providers=ort_providers)
+                if should_rewrite(role):
+                    payload, rewritten = convtranspose_cuda_bytes(path.read_bytes(), role=role)
+                    if rewritten:
+                        logger.info(t("models.convtranspose_rewrite", role=role, count=rewritten))
+                    session = _onnxruntime().InferenceSession(payload, providers=ort_providers)
+                else:
+                    session = _onnxruntime().InferenceSession(str(path), providers=ort_providers)
             else:
                 session = factory(path, ort_providers, self.device_id)
             _SESSION_CACHE[key] = session

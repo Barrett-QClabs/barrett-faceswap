@@ -21,7 +21,7 @@ from barrett_faceswap.onnx_io import (
     session_channels,
     session_hw,
 )
-from barrett_faceswap.parsing import PARSING_REGIONS
+from barrett_faceswap.parsing import EYE_PARSE_REGIONS, PARSING_REGIONS
 
 
 def labels_from_output(array: np.ndarray) -> np.ndarray:
@@ -49,6 +49,37 @@ def labels_from_output(array: np.ndarray) -> np.ndarray:
     raise ProcessorError(t("masks.parser_rank", shape=tuple(int(dim) for dim in np.asarray(array).shape)))
 
 
+def parser_labels(session, crop_bgr: np.ndarray, size: int) -> np.ndarray:
+    """Integer label map resized to ``size`` with nearest neighbors."""
+
+    network_h, network_w = session_hw(session, (size, size))
+    channels = session_channels(session, 3)
+    blob = bgr_to_nchw(crop_bgr, network_w, network_h, mode="imagenet", channels=channels)
+    labels = labels_from_output(first_spatial_output(feed_session(session, blob)))
+    if labels.shape != (size, size):
+        labels = cv2.resize(labels.astype(np.float32), (size, size), interpolation=cv2.INTER_NEAREST)
+    return labels.astype(np.int32)
+
+
+def mask_from_labels(labels: np.ndarray, regions: list[str], blur: int) -> np.ndarray:
+    """Float mask for the named parsing classes."""
+
+    selected = [PARSING_REGIONS[name] for name in regions if name in PARSING_REGIONS]
+    if not selected:
+        raise ProcessorError(t("masks.parser_regions"))
+    mask = np.isin(labels, np.asarray(selected, dtype=np.int32)).astype(np.float32)
+    return _blur(mask, blur)
+
+
+def eye_mask_from_labels(labels: np.ndarray, blur: int) -> np.ndarray | None:
+    """Eye and brow classes, or ``None`` when the parser did not mark them."""
+
+    mask = mask_from_labels(labels, list(EYE_PARSE_REGIONS), blur)
+    if float(mask.sum()) < 4.0:
+        return None
+    return mask
+
+
 def run_parser(
     session,
     crop_bgr: np.ndarray,
@@ -58,14 +89,4 @@ def run_parser(
 ) -> np.ndarray:
     """Return a float mask of shape ``(size, size)`` for the selected regions."""
 
-    network_h, network_w = session_hw(session, (size, size))
-    channels = session_channels(session, 3)
-    blob = bgr_to_nchw(crop_bgr, network_w, network_h, mode="imagenet", channels=channels)
-    labels = labels_from_output(first_spatial_output(feed_session(session, blob)))
-    selected = [PARSING_REGIONS[name] for name in regions if name in PARSING_REGIONS]
-    if not selected:
-        raise ProcessorError(t("masks.parser_regions"))
-    mask = np.isin(labels, np.asarray(selected, dtype=np.int32)).astype(np.float32)
-    if mask.shape != (size, size):
-        mask = cv2.resize(mask, (size, size), interpolation=cv2.INTER_NEAREST)
-    return _blur(mask, blur)
+    return mask_from_labels(parser_labels(session, crop_bgr, size), regions, blur)

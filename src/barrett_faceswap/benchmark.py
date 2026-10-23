@@ -107,6 +107,7 @@ def run_benchmark(
         raise ConfigError(t("benchmark.size"))
     selected = list(providers or config.execution.providers)
     source, frame, hint_source, hint_target = _benchmark_pair(width, height, source_path, target_path)
+    height, width = int(frame.shape[0]), int(frame.shape[1])
     names = list(config.processors)
     processors = [create_processor(name, config, selected) for name in names]
     context = ProcessContext(
@@ -184,6 +185,7 @@ def run_live_benchmark(
         raise ConfigError(t("benchmark.frames"))
     selected = list(providers or config.execution.providers)
     source, frame, hint_source, hint_target = _benchmark_pair(width, height, source_path, target_path)
+    height, width = int(frame.shape[0]), int(frame.shape[1])
     sequence = [frame.copy() for _ in range(frames)]
     import tempfile
 
@@ -239,8 +241,10 @@ def _benchmark_pair(
     if source_path is not None and target_path is not None:
         from barrett_faceswap.vision import read_image
 
-        source = cv2.resize(read_image(source_path), (width, height), interpolation=cv2.INTER_AREA)
-        frame = cv2.resize(read_image(target_path), (width, height), interpolation=cv2.INTER_AREA)
+        # --width and --height size the synthetic fallback. A real target keeps
+        # its own frame so the report is not stuck at 256x256.
+        source = read_image(source_path)
+        frame = read_image(target_path)
         return source, frame, None, None
     source, source_face = synthetic_face(width, height, (70, 110, 180))
     frame, target_face = synthetic_face(width, height, (40, 70, 140))

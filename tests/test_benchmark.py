@@ -59,6 +59,25 @@ def test_synthetic_face_keeps_landmarks_on_the_drawing() -> None:
     assert int(eye.sum()) < int(nose.sum())
 
 
+def test_benchmark_target_keeps_its_real_size(tmp_path: Path) -> None:
+    config = load_config(write_config(tmp_path, enabled=False))
+    source = tmp_path / "source.png"
+    target = tmp_path / "target.png"
+    write_png(source, (10, 20, 30), size=(32, 24))
+    write_png(target, (40, 50, 60), size=(720, 128))
+    report = run_benchmark(
+        config,
+        frames=1,
+        width=256,
+        height=256,
+        dry_run=True,
+        source_path=source,
+        target_path=target,
+    )
+    assert report.width == 720
+    assert report.height == 128
+
+
 def test_benchmark_source_and_target_must_be_paired(tmp_path: Path) -> None:
     config = load_config(write_config(tmp_path, enabled=False))
     source = tmp_path / "source.png"

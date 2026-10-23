@@ -37,6 +37,10 @@ class ProcessContext:
     known_faces: list | None = None
     # Video sets this so a frame with no face is returned unchanged.
     allow_missing_face: bool = False
+    # Video and live reuse occlusion and parsing masks between frames.
+    reuse_masks: bool = False
+    # Set by the swapper so the enhancer can keep open eyes.
+    eye_openness: float | None = None
     # When set, the source embedding uses this face and skips source detection.
     source_face: Face | None = None
 

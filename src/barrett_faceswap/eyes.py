@@ -25,6 +25,35 @@ def eye_mask(size: int, landmarks: np.ndarray, blur: int) -> np.ndarray:
     return _feather(mask, blur)
 
 
+def eye_openness(landmarks: np.ndarray) -> float:
+    """How open the eyes are, from 0 (closed) to 1 (open).
+
+    Five-point landmarks have no upper and lower lid, so they are treated as
+    open. That keeps the target eye instead of mixing in the narrower
+    inswapper lids. A 106-point set uses the vertical spread of each eye
+    cluster divided by its width. No fixed index table is required.
+    """
+
+    points = np.asarray(landmarks, dtype=np.float32).reshape(-1, 2)
+    if points.shape[0] < 106:
+        return 1.0
+    median_y = float(np.median(points[:, 1]))
+    upper = points[points[:, 1] <= median_y]
+    if upper.shape[0] < 6:
+        upper = points
+    median_x = float(np.median(upper[:, 0]))
+    ratios = [
+        _cluster_ratio(group)
+        for group in (upper[upper[:, 0] < median_x], upper[upper[:, 0] >= median_x])
+    ]
+    ratios = [ratio for ratio in ratios if ratio is not None]
+    if not ratios:
+        return 1.0
+    ratio = float(np.mean(ratios))
+    # A closed cluster is a thin band. An open eye is closer to a square.
+    return float(np.clip((ratio - 0.18) / 0.32, 0.0, 1.0))
+
+
 def restore_eyes(
     mode: str,
     swapped_bgr: np.ndarray,
@@ -32,12 +61,16 @@ def restore_eyes(
     landmarks: np.ndarray,
     blur: int,
     sharpen: float,
+    mask: np.ndarray | None = None,
+    openness: float | None = None,
 ) -> np.ndarray:
     """Put target eye detail back, then sharpen inside the eye mask.
 
     ``swap`` keeps the swapped eyes. ``blend`` mixes in the original eyes.
-    ``target`` keeps the original eyes. Sharpening is an unsharp mask limited
-    to the feathered eye region so the rest of the face is left alone.
+    ``target`` keeps the original eyes. Open eyes raise the blend toward the
+    target so the source eyelids do not leave a half-closed outline.
+    ``mask``, when set, replaces the ellipse or hull. Sharpening stays inside
+    the feathered region.
     """
 
     if mode not in {"swap", "blend", "target"}:
@@ -45,10 +78,16 @@ def restore_eyes(
     amount = float(sharpen)
     if mode == "swap" and amount <= 0:
         return swapped_bgr
-    mask = eye_mask(int(swapped_bgr.shape[0]), landmarks, blur)
+    if mask is None:
+        mask = eye_mask(int(swapped_bgr.shape[0]), landmarks, blur)
+    else:
+        mask = _fit_eye_mask(mask, swapped_bgr.shape[0], swapped_bgr.shape[1])
     image = swapped_bgr
     if mode != "swap":
-        keep = 1.0 if mode == "target" else 0.65
+        measured = eye_openness(landmarks) if openness is None else float(np.clip(openness, 0.0, 1.0))
+        base = 1.0 if mode == "target" else 0.65
+        # 0.65 at closed, about 0.91 when the target eyes are open.
+        keep = base if mode == "target" else base + (1.0 - base) * 0.75 * measured
         alpha = (mask * keep)[..., None]
         mixed = target_bgr.astype(np.float32) * alpha + swapped_bgr.astype(np.float32) * (1.0 - alpha)
         image = np.clip(mixed, 0, 255).astype(np.uint8)
@@ -112,6 +151,30 @@ def _core(group: np.ndarray) -> np.ndarray:
     radius = float(np.percentile(distance, 45)) * 1.6
     kept = group[distance <= max(radius, 1.0)]
     return kept if kept.shape[0] >= 3 else group
+
+
+def _cluster_ratio(group: np.ndarray) -> float | None:
+    if group.shape[0] < 6:
+        return None
+    width = float(group[:, 0].max() - group[:, 0].min())
+    if width < 1.0:
+        return None
+    median_y = float(np.median(group[:, 1]))
+    upper = group[group[:, 1] <= median_y]
+    lower = group[group[:, 1] > median_y]
+    if upper.shape[0] == 0 or lower.shape[0] == 0:
+        return 0.0
+    gap = float(lower[:, 1].mean() - upper[:, 1].mean())
+    return max(gap, 0.0) / width
+
+
+def _fit_eye_mask(mask: np.ndarray, height: int, width: int) -> np.ndarray:
+    fitted = np.asarray(mask, dtype=np.float32)
+    if fitted.ndim == 3:
+        fitted = fitted[..., 0]
+    if fitted.shape[:2] != (height, width):
+        fitted = cv2.resize(fitted, (width, height), interpolation=cv2.INTER_LINEAR)
+    return np.clip(fitted, 0.0, 1.0)
 
 
 def _feather(mask: np.ndarray, blur: int) -> np.ndarray:

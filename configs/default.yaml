@@ -91,6 +91,12 @@ masks:
   parser: true
   # Set true when the occlusion graph predicts the occluder instead of the visible face.
   occlusion_invert: false
+  # Video and live run the ONNX masks every N frames and warp the last mask
+  # while the face barely moves. 1 runs them on every frame. Still images
+  # always run them. Asymmetric ConvTranspose padding is rewritten at load so
+  # CUDA does not drop xseg back to the CPU.
+  stride: 2
+  stride_motion: 0.04
   regions:
     - skin
     - left_eyebrow

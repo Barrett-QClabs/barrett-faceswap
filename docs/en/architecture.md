@@ -11,6 +11,6 @@ Execution options degrade to CPU:
 - TensorRT cache directories, fp16, and the builder optimization level are attached only when that provider is installed.
 - RTX 50-series uses the `[gpu]` extra, `onnxruntime-gpu[cuda,cudnn]` (CUDA 13 and cuDNN 9). Setup calls `onnxruntime.preload_dlls()` when it exists. Install `[cpu]` or `[gpu]`, not both. `barrett-faceswap doctor` reports providers and warns when both wheels are installed. A CPU wheel does not raise.
 
-`benchmark` and `benchmark --live` print per-stage latency and `realtime_fps`. `--source` and `--target` time detection on those stills. Without them, a drawn face supplies landmarks. The live benchmark does not open a webcam. A cached ONNX session is hashed once per load.
+`benchmark` and `benchmark --live` print per-stage latency and `realtime_fps`. `--source` and `--target` time detection on those stills, and the report uses the target's real size. Without them, a drawn face supplies landmarks. The live benchmark does not open a webcam. A cached ONNX session is hashed once per load. xseg may be channels-last. Asymmetric ConvTranspose padding is rewritten at load. Video masks run every `masks.stride` frames (default 2) while the face barely moves. `--eye-mode blend` keeps an open target eye more strongly than a closed one.
 
 See `docs/ARCHITECTURE.md` for the swapper table, pixel boost, face selection, jobs, and masks.

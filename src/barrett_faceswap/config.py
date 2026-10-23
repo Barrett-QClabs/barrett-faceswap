@@ -298,7 +298,25 @@ class MasksConfig(_Model):
     occlusion: bool = True
     parser: bool = True
     occlusion_invert: bool = False
+    # Video and live recompute ONNX masks every this many frames. 1 is every frame.
+    stride: int = 2
+    # Mean landmark shift / face width. Above this, the previous mask is dropped.
+    stride_motion: float = 0.04
     regions: list[str] = Field(default_factory=lambda: list(_default_regions()))
+
+    @field_validator("stride")
+    @classmethod
+    def _stride(cls, value: int) -> int:
+        if int(value) < 1:
+            raise ValueError(t("config.mask_stride"))
+        return int(value)
+
+    @field_validator("stride_motion")
+    @classmethod
+    def _stride_motion(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
 
     @field_validator("regions")
     @classmethod
