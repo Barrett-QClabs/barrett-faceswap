@@ -10,7 +10,7 @@ barrett-faceswap download-models --with-gfpgan
 barrett-faceswap doctor
 ```
 
-`download-models` fetches `buffalo_l.zip` and `inswapper_128.onnx`, checks sha256, resumes a partial file when the server answers HTTP 206, and tries the next mirror after three failures. `--force` downloads again. `--with-gfpgan` is optional. `doctor` prints execution providers, whether CUDA/cuDNN preload ran, and the sha256 of the local files. CI does not run either command.
+`download-models` fetches `buffalo_l.zip` and `inswapper_128.onnx`, checks sha256, resumes a partial file when the server answers HTTP 206, and tries the next mirror after three failures. Each attempt bounds the TCP connect at 15 seconds and the read at 30 seconds, so a hung mirror fails over instead of waiting on the socket. `--from-dir PATH` copies files by basename (including inside subdirectories) and checks sha256 before any download. A hash mismatch stops the command. A missing file is still downloaded. A `buffalo_l.zip` in that directory is extracted the same way as a downloaded archive. `--force` downloads again. `--with-gfpgan` is optional. `doctor` prints execution providers, whether CUDA/cuDNN preload ran, the sha256 of the local files, and a warning when both `onnxruntime` and `onnxruntime-gpu` are installed. CI does not run either command.
 
 Pins checked by the command:
 

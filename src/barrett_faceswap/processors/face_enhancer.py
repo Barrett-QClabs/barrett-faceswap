@@ -18,6 +18,7 @@ from barrett_faceswap.blend import paste_back
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.detect import FaceDetector
 from barrett_faceswap.enhance import blend_images, run_enhancer
+from barrett_faceswap.eyes import eye_mask
 from barrett_faceswap.errors import NoFaceError, ProcessorError
 from barrett_faceswap.i18n import t
 from barrett_faceswap.masks import region_mask
@@ -47,6 +48,7 @@ class FaceEnhancer:
         self.role = ENHANCER_ROLES.get(config.enhancer.model, "")
         self._lock = threading.Lock()
         self._miss_noted = False
+        self._detector_obj: FaceDetector | None = None
 
     def pre_check(self, ctx: ProcessContext) -> None:
         if ctx.dry_run:
@@ -67,15 +69,15 @@ class FaceEnhancer:
             self.pre_check(ctx)
         assert self.enhancer_session is not None
         assert self.detector_session is not None
-        detector = FaceDetector(
-            self.detector_session,
-            det_size=self.config.detect.det_size,
-            score_threshold=self.config.detect.score_threshold,
-            nms_threshold=self.config.detect.nms_threshold,
-        )
-        try:
-            faces = detector.detect(frame)
-        except NoFaceError:
+        if ctx.known_faces is not None:
+            faces = list(ctx.known_faces)
+        else:
+            try:
+                faces = self._detector().detect(frame)
+            except NoFaceError:
+                self._note_miss(ctx)
+                return frame
+        if not faces:
             self._note_miss(ctx)
             return frame
         record = registry_record(self.config, self.role)
@@ -85,7 +87,14 @@ class FaceEnhancer:
         for face in faces:
             crop, matrix = align_face(output, face.landmarks, side, template=ffhq_template(side))
             restored = run_enhancer(self.enhancer_session, crop, weight=self.config.enhancer.weight)
-            blended = blend_images(restored, crop, self.config.enhancer.blend)
+            eyes = eye_mask(side, ffhq_template(side), self.config.blend.mask_blur)
+            blended = blend_images(
+                restored,
+                crop,
+                self.config.enhancer.blend,
+                eye_mask=eyes,
+                eye_amount=self.config.enhancer.eye_blend,
+            )
             mask = region_mask(side, self.config.blend.mask_blur)
             output = paste_back(output, blended, matrix, mask)
         if ctx.log_every_frame:
@@ -101,6 +110,17 @@ class FaceEnhancer:
 
     def post_process(self) -> None:
         return None
+
+    def _detector(self) -> FaceDetector:
+        if self._detector_obj is None:
+            assert self.detector_session is not None
+            self._detector_obj = FaceDetector(
+                self.detector_session,
+                det_size=self.config.detect.det_size,
+                score_threshold=self.config.detect.score_threshold,
+                nms_threshold=self.config.detect.nms_threshold,
+            )
+        return self._detector_obj
 
     def _note_miss(self, ctx: ProcessContext) -> None:
         with self._lock:

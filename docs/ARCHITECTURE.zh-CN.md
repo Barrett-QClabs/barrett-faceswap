@@ -41,7 +41,9 @@ ffprobe
   -> 容器注释 + .meta.json 旁路文件，一条审计
 ```
 
-磁盘模式（`video.mode: disk`，默认）把帧写在临时目录里，编码结束后删除。带任务编号时，这些帧留在 `jobs/<id>/{raw,processed}`，续跑可以复用。`video.threads` 默认是 4。工作线程共享 ONNX 会话。逐帧分数笔记被关掉（`log_every_frame` 为 false），长视频不会每帧追加一行。一条汇总笔记记录处理了多少帧。多人脸、参考脸、映射，以及任何任务都会强制单线程，这样跟踪器和 `next_frame` 保持顺序。
+磁盘模式（`video.mode: disk`，默认）把帧写在临时目录里，编码结束后删除。带任务编号时，这些帧留在 `jobs/<id>/{raw,processed}`，续跑可以复用。`video.threads` 默认是 4。干跑使用这个线程池。真实运行把人脸补全留在一条线程上，并让 PNG 的读取和写入重叠。逐帧分数笔记被关掉（`log_every_frame` 为 false），长视频不会每帧追加一行。一条汇总笔记记录处理了多少帧，以及检测到、重试后找到、补上和原样通过的数量。多人脸、参考脸、映射，以及任何任务都会强制单线程，这样跟踪器和 `next_frame` 保持顺序。
+
+真实视频在检测失败时不会中止。第一次没找到时，会降低阈值，再试旋转（含 ±90°），然后把输入放大 1.5 倍。`video.max_face_gap`（默认 10）以内的空洞会用相邻帧插值，或者沿用较近一侧。超出这个间隔的帧保持原样。`video.smooth` 是 `one_euro`（默认）、`ema` 或 `none`，原样通过后会重置。静态图像仍然抛出 `NoFaceError`。干跑不做检测。管道模式用队列让 ffmpeg 的解码和编码重叠（解码端带 `-thread_queue_size 32`）。换脸器在一次任务里保持同一个检测器和同一个换脸后端，因此 inswapper 矩阵只读一次。贴回只变换裁剪的包围盒，而不是整帧。Lab 和 mean/std 色彩匹配使用带蒙版的均值和标准差。
 
 驱动无法编码时，`h264_nvenc` 不会退回 `libx264`。`video.keep_audio` 为 true 时保留音轨。完整文件先尝试流复制，失败再试 AAC。裁剪过的片段总会把音频重编码为 AAC。`--no-audio` 丢掉音轨。
 
@@ -65,7 +67,9 @@ ffprobe
 
 ## 像素提升
 
-`pixel_boost` 先按提升后的边长对齐裁剪，再切成连续的原生尺寸方块，用同一个隐向量逐块推理，然后拼回去。允许的边长是 128、256、512、768、1024，且边长不小于原生尺寸并能整除。`0` 表示原生尺寸。inswapper 在 boost 为 `0` 时仍遵守 `swap.resolution`，因此测试可以把模拟图指到一个不是整块倍数的尺寸。边长不能整除原生尺寸时，只做一次推理。
+`pixel_boost` 先按提升后的边长对齐裁剪，再切成连续的原生尺寸方块，用同一个隐向量逐块推理，然后拼回去。允许的边长是 128、256、512、768、1024，且边长不小于原生尺寸并能整除。`0` 表示原生尺寸。inswapper 在 boost 为 `0` 时仍遵守 `swap.resolution`，因此测试可以把模拟图指到一个不是整块倍数的尺寸。边长不能整除原生尺寸时，只做一次推理。视频使用同一个换脸器，因此 `--pixel-boost 256` 或 `512` 在视频里同样切块。`256` 是四块 128 像素。
+
+`--eye-mode` 是 `swap`、`blend`（默认）或 `target`。`blend` 在羽化的眼部蒙版里把大约 65% 的原始目标裁剪混回去。五点关键点变成两个椭圆。106 点集合使用上半脸左右两簇的凸包。`blend.eye_sharpen`（默认 0.6）只在这个区域内做反锐化。`--with-enhancer` 在列表里还没有 `face_enhancer` 时把它追加进去。`enhancer.eye_blend`（默认 1）加强眼部修复，`enhancer.blend` 覆盖脸的其余部分。
 
 ## 选脸
 
@@ -83,9 +87,9 @@ ffprobe
 
 ## 人脸增强
 
-`face_enhancer` 已注册，但不在默认处理器列表里，因此换脸不强制要求这些权重。用 `--processors face_swapper,face_enhancer` 或界面上的复选框打开它。`--enhancer-model` 是 `gfpgan_1.4`（默认）或 `codeformer`。`--enhancer-blend` 把修复结果和原始裁剪混合（`1` 保留修复结果，默认 `0.8`）。`--enhancer-weight` 是 CodeFormer 的保真系数（默认 `0.5`）。GFPGAN 图没有旁路输入，因此那里用不到这个系数。
+`face_enhancer` 已注册，但不在默认处理器列表里，因此换脸不强制要求这些权重。用 `--processors face_swapper,face_enhancer`、`--with-enhancer` 或界面上的复选框打开它。`--enhancer-model` 是 `gfpgan_1.4`（默认）或 `codeformer`。`--enhancer-blend` 把修复结果和原始裁剪混合（`1` 保留修复结果，默认 `0.8`）。`--enhancer-weight` 是 CodeFormer 的保真系数（默认 `0.5`）。GFPGAN 图没有旁路输入，因此那里用不到这个系数。
 
-裁剪按 FFHQ 五点模板对齐，模板按 `size / 512` 缩放，再用椭圆区域蒙版贴回。没有检测到脸时，帧保持原样，并记一条笔记。
+裁剪按 FFHQ 五点模板对齐，模板按 `size / 512` 缩放，再用椭圆区域蒙版贴回。混合在脸上使用 `enhancer.blend`，在同一模板生成的眼部蒙版里使用 `enhancer.eye_blend`。没有检测到脸时，帧保持原样，并记一条笔记。调用方已经提供 `known_faces` 时，增强器使用这些脸。
 
 ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本：
 
@@ -118,7 +122,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 执行
 
-`execution.precision` 是 `fp32`（默认）或 `fp16`。fp16 会在配置文件旁边查找 `{stem}_fp16.onnx`，找不到就退回 fp32。`execution.cuda_graph` 只在会话真的带有 `CUDAExecutionProvider` 时，给 CUDA 提供者加上 `enable_cuda_graph`，并让换脸器走 IO binding。否则仍调用 `session.run`。TensorRT 选项（引擎缓存、计时缓存、fp16、构建优化级别 0–5）只在安装了 `TensorrtExecutionProvider` 时挂上。CPU 的 CI 会跳过两者，也不会创建缓存目录。
+`execution.precision` 是 `fp32`（默认）或 `fp16`。fp16 会在配置文件旁边查找 `{stem}_fp16.onnx`，找不到就退回 fp32。`execution.cuda_graph` 给 CUDA 提供者加上 `enable_cuda_graph`。只要会话报告 `CUDAExecutionProvider`，就会复用一个 IO binding；失败时退回 `session.run`。CPU 会话（包括 CI）仍走 `session.run`。TensorRT 选项（引擎缓存、计时缓存、fp16、构建优化级别 0–5）只在安装了 `TensorrtExecutionProvider` 时挂上。CPU 的 CI 会跳过两者，也不会创建缓存目录。基础包不依赖某个 ONNX Runtime 轮子。安装 `[cpu]` 或 `[gpu]` 附加项，不要两个都装。`doctor` 在两个发行名都存在时会警告。
 
 ## 商业路线
 
@@ -134,9 +138,9 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 **处理器协议。** `Processor` 有 `pre_check`、`process_frame` 和 `post_process`。`processors/registry.py` 把名称映射到工厂，工厂接收 pydantic 配置和提供者列表。`face_swapper` 和 `face_enhancer` 已注册。这是 FaceFusion 那类接缝。方法和注册表是本地代码。
 
-**会话缓存。** `ModelStore.session` 用解析后的路径、sha256、请求的提供者元组以及设备号作为键。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。写出 `tensorrt` 时，如果该提供者已安装，会挂上引擎缓存、计时缓存、fp16 和构建优化级别；CPU 轮子上则跳过。驱动 580 上的 RTX 5090（Blackwell，`sm_120`）使用 `onnxruntime-gpu[cuda,cudnn]`（CUDA 13 和 cuDNN 9）。创建提供者时，如果存在 `onnxruntime.preload_dlls()` 就会调用，并把 NVIDIA pip 包里的 `lib` 目录加到前面。找不到库也不会抛错。CI 跑的是 CPU 轮子。`barrett-faceswap doctor` 打印提供者、预加载状态和模型哈希。
+**会话缓存。** `ModelStore.session` 用解析后的路径、sha256、请求的提供者元组以及设备号作为键。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。写出 `tensorrt` 时，如果该提供者已安装，会挂上引擎缓存、计时缓存、fp16 和构建优化级别；CPU 轮子上则跳过。驱动 580 上的 RTX 5090（Blackwell，`sm_120`）使用 `onnxruntime-gpu[cuda,cudnn]`（CUDA 13 和 cuDNN 9）。创建提供者时，如果存在 `onnxruntime.preload_dlls()` 就会调用，并把 NVIDIA pip 包里的 `lib` 目录加到前面。找不到库也不会抛错。CI 安装 `[cpu]` 附加项。`barrett-faceswap doctor` 打印提供者、预加载状态和模型哈希，并在同时安装了 `onnxruntime` 和 `onnxruntime-gpu` 时警告。
 
-**对齐和贴回。** `align.py` 放着 ArcFace 五点模板和 FFHQ 512 模板。112 是识别裁剪。128 在此基础上向右平移 8 像素，这是 inswapper 导出所期望的。增强器按 `size / 512` 缩放 FFHQ 模板。`blend.py` 做逆变换并按蒙版合成。
+**对齐和贴回。** `align.py` 放着 ArcFace 五点模板和 FFHQ 512 模板。112 是识别裁剪。128 在此基础上向右平移 8 像素，这是 inswapper 导出所期望的。增强器按 `size / 512` 缩放 FFHQ 模板。`blend.py` 把裁剪逆变换到它的包围盒上，再按蒙版合成。
 
 **模型注册表。** `model_registry.py` 记录检测器、识别器、inswapper、可选的 HyperSwap / SimSwap / Ghost / crossface 角色、GFPGAN、CodeFormer、遮挡和解析：文件名、许可键、`commercial_use`、对齐名称和输入尺寸。sha256 锁定值在配置里，默认是 null，因为本仓库不重新分发这些文件。`ensure_present()` 默认只检查换脸用的三个角色，因此增强、蒙版和额外换脸文件保持可选。`inspect-models` 每个角色打印一行。
 

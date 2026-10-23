@@ -21,8 +21,18 @@ from barrett_faceswap.onnx_io import (
 )
 
 
-def blend_images(enhanced_bgr: np.ndarray, original_bgr: np.ndarray, amount: float) -> np.ndarray:
-    """Mix ``enhanced_bgr`` into ``original_bgr``. ``amount`` 1 keeps the restoration."""
+def blend_images(
+    enhanced_bgr: np.ndarray,
+    original_bgr: np.ndarray,
+    amount: float,
+    eye_mask: np.ndarray | None = None,
+    eye_amount: float | None = None,
+) -> np.ndarray:
+    """Mix ``enhanced_bgr`` into ``original_bgr``. ``amount`` 1 keeps the restoration.
+
+    ``eye_mask`` and ``eye_amount`` raise the mix inside the eyes. Omitting
+    them keeps a uniform blend.
+    """
 
     factor = float(np.clip(amount, 0.0, 1.0))
     restored = enhanced_bgr
@@ -32,7 +42,15 @@ def blend_images(enhanced_bgr: np.ndarray, original_bgr: np.ndarray, amount: flo
             (original_bgr.shape[1], original_bgr.shape[0]),
             interpolation=cv2.INTER_LINEAR,
         )
-    mixed = restored.astype(np.float32) * factor + original_bgr.astype(np.float32) * (1.0 - factor)
+    if eye_mask is None or eye_amount is None:
+        mixed = restored.astype(np.float32) * factor + original_bgr.astype(np.float32) * (1.0 - factor)
+        return np.clip(mixed, 0, 255).astype(np.uint8)
+    eye = float(np.clip(eye_amount, 0.0, 1.0))
+    mask = np.asarray(eye_mask, dtype=np.float32)
+    if mask.shape[:2] != original_bgr.shape[:2]:
+        mask = cv2.resize(mask, (original_bgr.shape[1], original_bgr.shape[0]), interpolation=cv2.INTER_LINEAR)
+    alpha = factor + (eye - factor) * mask[..., None]
+    mixed = restored.astype(np.float32) * alpha + original_bgr.astype(np.float32) * (1.0 - alpha)
     return np.clip(mixed, 0, 255).astype(np.uint8)
 
 

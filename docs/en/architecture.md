@@ -7,9 +7,9 @@ Processors return frames. They do not write the output file. `CompliancePolicy` 
 Execution options degrade to CPU:
 
 - `execution.precision: fp16` selects a sibling `*_fp16.onnx` and falls back to the fp32 file.
-- `execution.cuda_graph` uses IO binding only when the session has `CUDAExecutionProvider`.
+- `execution.cuda_graph` requests CUDA graph capture. A session with `CUDAExecutionProvider` reuses IO binding either way. CPU stays on `session.run`.
 - TensorRT cache directories, fp16, and the builder optimization level are attached only when that provider is installed.
-- RTX 50-series uses `onnxruntime-gpu[cuda,cudnn]` (CUDA 13 and cuDNN 9). Setup calls `onnxruntime.preload_dlls()` when it exists. `barrett-faceswap doctor` reports the result. A CPU wheel does not raise.
+- RTX 50-series uses the `[gpu]` extra, `onnxruntime-gpu[cuda,cudnn]` (CUDA 13 and cuDNN 9). Setup calls `onnxruntime.preload_dlls()` when it exists. Install `[cpu]` or `[gpu]`, not both. `barrett-faceswap doctor` reports providers and warns when both wheels are installed. A CPU wheel does not raise.
 
 `benchmark` and `benchmark --live` print per-stage latency and `realtime_fps`. The live benchmark uses synthetic frames.
 

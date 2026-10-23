@@ -1,13 +1,14 @@
 """Run an ONNX session, optionally through IO binding.
 
 CUDA graph capture is a provider option set when the session is created.
-This helper only changes how inputs are fed. Without a CUDA provider it uses
-the ordinary ``session.run`` path, which is what CI executes.
+When the live session has a CUDA provider, feeds go through one reused
+IO binding. CPU sessions, including CI, stay on ``session.run``.
 """
 
 from __future__ import annotations
 
 import logging
+import weakref
 
 import numpy as np
 
@@ -15,6 +16,7 @@ from barrett_faceswap.i18n import t
 
 logger = logging.getLogger(__name__)
 _warned = False
+_bindings: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 def session_provider_names(session) -> list[str]:
@@ -31,18 +33,43 @@ def cuda_available(session) -> bool:
 
 
 def run_feeds(session, feeds: dict[str, np.ndarray], *, cuda_graph: bool) -> list:
-    """Execute ``feeds``. IO binding is used only when CUDA is really present."""
+    """Execute ``feeds``. CUDA sessions reuse one IO binding; CPU uses ``session.run``."""
 
     global _warned
-    if not cuda_graph or not cuda_available(session):
-        if cuda_graph and not _warned:
-            logger.info(t("execution.cuda_graph_skipped"))
-            _warned = True
-        return session.run(None, feeds)
-    binding = session.io_binding()
+    if cuda_available(session):
+        try:
+            return _run_bound(session, feeds)
+        except Exception:
+            logger.debug("IO binding failed", exc_info=True)
+            return session.run(None, feeds)
+    if cuda_graph and not _warned:
+        logger.info(t("execution.cuda_graph_skipped"))
+        _warned = True
+    return session.run(None, feeds)
+
+
+def _run_bound(session, feeds: dict[str, np.ndarray]) -> list:
+    binding = _reuse_binding(session)
     for name, value in feeds.items():
         binding.bind_cpu_input(name, np.ascontiguousarray(value))
     for item in session.get_outputs():
         binding.bind_output(item.name, "cuda")
     session.run_with_iobinding(binding)
     return binding.copy_outputs_to_cpu()
+
+
+def _reuse_binding(session):
+    try:
+        binding = _bindings.get(session)
+    except TypeError:
+        return session.io_binding()
+    if binding is None:
+        binding = session.io_binding()
+        try:
+            _bindings[session] = binding
+        except TypeError:
+            return binding
+        return binding
+    binding.clear_binding_inputs()
+    binding.clear_binding_outputs()
+    return binding

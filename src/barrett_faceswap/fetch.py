@@ -9,7 +9,11 @@ valid re-pack is accepted.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import logging
+import shutil
+import socket
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Callable
@@ -45,6 +49,8 @@ GFPGAN_URLS = (
 
 Opener = Callable[[str, dict[str, str]], object]
 _ATTEMPTS = 3
+CONNECT_TIMEOUT_S = 15
+READ_TIMEOUT_S = 30
 
 
 def download_models(
@@ -55,6 +61,7 @@ def download_models(
     opener: Opener | None = None,
     pins: dict[str, str] | None = None,
     attempts: int = _ATTEMPTS,
+    from_dir: Path | None = None,
 ) -> list[str]:
     """Fetch buffalo_l and inswapper. GFPGAN ONNX is optional.
 
@@ -66,6 +73,8 @@ def download_models(
     if pins:
         expected.update(pins)
     notes: list[str] = []
+    if from_dir is not None:
+        notes.extend(_import_from_dir(Path(from_dir), config, expected, with_gfpgan=with_gfpgan, force=force))
     detector = config.models.detector.path
     recognizer = config.models.recognizer.path
     members = {
@@ -230,10 +239,87 @@ def _fetch_once(url: str, partial: Path, opener: Opener | None) -> None:
 def _open(url: str, headers: dict[str, str], opener: Opener | None) -> object:
     if opener is not None:
         return opener(url, headers)
-    import urllib.request
-
     request = urllib.request.Request(url, headers=headers)
-    return urllib.request.urlopen(request, timeout=120)
+    opener_obj = urllib.request.build_opener(_TimeoutHTTPHandler, _TimeoutHTTPSHandler)
+    return opener_obj.open(request, timeout=READ_TIMEOUT_S)
+
+
+class _ConnectHTTP(http.client.HTTPConnection):
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self.host, self.port), CONNECT_TIMEOUT_S, self.source_address)
+        if self.sock is not None:
+            self.sock.settimeout(READ_TIMEOUT_S)
+
+
+class _ConnectHTTPS(http.client.HTTPSConnection):
+    def connect(self) -> None:
+        sock = socket.create_connection((self.host, self.port), CONNECT_TIMEOUT_S, self.source_address)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        self.sock.settimeout(READ_TIMEOUT_S)
+
+
+class _TimeoutHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_ConnectHTTP, req)
+
+
+class _TimeoutHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_ConnectHTTPS, req, context=self._context)
+
+
+def _import_from_dir(
+    directory: Path,
+    config: AppConfig,
+    expected: dict[str, str],
+    *,
+    with_gfpgan: bool,
+    force: bool,
+) -> list[str]:
+    """Copy matching files by basename. A bad hash fails before any download."""
+
+    if not directory.is_dir():
+        raise BarrettFaceswapError(t("download.not_dir", path=directory))
+    wanted = {
+        "det_10g.onnx": (config.models.detector.path, expected["det_10g.onnx"]),
+        "w600k_r50.onnx": (config.models.recognizer.path, expected["w600k_r50.onnx"]),
+        "inswapper_128.onnx": (config.models.swapper.path, expected["inswapper_128.onnx"]),
+    }
+    if with_gfpgan:
+        wanted["gfpgan_1.4.onnx"] = (config.models.gfpgan.path, expected["gfpgan_1.4.onnx"])
+    found: dict[str, Path] = {}
+    for path in directory.rglob("*"):
+        if path.is_file() and path.name in wanted and path.name not in found:
+            found[path.name] = path
+    notes: list[str] = []
+    for name, (dest, digest) in wanted.items():
+        source = found.get(name)
+        if source is None:
+            continue
+        pin = digest.lower()
+        if dest.is_file() and not force and file_sha256(dest) == pin:
+            notes.append(t("download.skip", path=dest, sha256=pin))
+            continue
+        actual = file_sha256(source)
+        if actual != pin:
+            raise BarrettFaceswapError(t("download.mismatch", name=name, expected=pin, actual=actual))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, dest)
+        notes.append(t("download.imported", path=dest, sha256=actual))
+    members = {
+        "det_10g.onnx": wanted["det_10g.onnx"],
+        "w600k_r50.onnx": wanted["w600k_r50.onnx"],
+    }
+    pending = {
+        name: pair
+        for name, pair in members.items()
+        if not pair[0].is_file() or file_sha256(pair[0]) != pair[1].lower()
+    }
+    if pending:
+        archive = next((path for path in directory.rglob("buffalo_l.zip") if path.is_file()), None)
+        if archive is not None:
+            notes.extend(_extract_members(archive, pending))
+    return notes
 
 
 def _members_match(members: dict[str, tuple[Path, str]]) -> bool:

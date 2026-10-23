@@ -48,8 +48,8 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
                              [--pixel-boost PIXEL_BOOST] [--many-faces] [--reference REFERENCE]
                              [--face-map FACE_MAP] [--blend-mode {alpha,poisson}]
                              [--color-transfer {none,mean_std,lab,histogram}]
-                             [--video-mode {disk,pipe}] [--job-id JOB_ID] [--resume]
-                             [--commercial]
+                             [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
+                             [--with-enhancer] [--job-id JOB_ID] [--resume] [--commercial]
 
 options:
   -h, --help            show this help message and exit
@@ -120,6 +120,10 @@ options:
                         Color match: none, mean_std, lab, or histogram.
   --video-mode {disk,pipe}
                         Video path: disk (default) or pipe.
+  --eye-mode {swap,blend,target}
+                        Eye handling: swap, blend (default, keep most of the target eyes), or
+                        target.
+  --with-enhancer       Also run face_enhancer. Eye regions use enhancer.eye_blend.
   --job-id JOB_ID       Job id. Letters, digits, underscore, and hyphen.
   --resume              Continue a job from the last finished frame.
   --commercial          Refuse any model the registry marks commercial_use false.
@@ -149,7 +153,8 @@ usage: barrett-faceswap jobs submit [-h] --source SOURCE --target TARGET --outpu
                                     [--reference REFERENCE] [--face-map FACE_MAP]
                                     [--blend-mode {alpha,poisson}]
                                     [--color-transfer {none,mean_std,lab,histogram}]
-                                    [--video-mode {disk,pipe}] [--job-id JOB_ID]
+                                    [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
+                                    [--with-enhancer] [--job-id JOB_ID]
 
 options:
   -h, --help            show this help message and exit
@@ -182,6 +187,10 @@ options:
                         Color match: none, mean_std, lab, or histogram.
   --video-mode {disk,pipe}
                         Video path: disk (default) or pipe.
+  --eye-mode {swap,blend,target}
+                        Eye handling: swap, blend (default, keep most of the target eyes), or
+                        target.
+  --with-enhancer       Also run face_enhancer. Eye regions use enhancer.eye_blend.
   --job-id JOB_ID       Job id. Letters, digits, underscore, and hyphen.
 
 usage: barrett-faceswap jobs resume [-h] [--config CONFIG] [--lang LANG] job_id
@@ -225,7 +234,8 @@ usage: barrett-faceswap live [-h] --source SOURCE [--config CONFIG] [--lang LANG
                              [--pixel-boost PIXEL_BOOST] [--many-faces] [--reference REFERENCE]
                              [--face-map FACE_MAP] [--blend-mode {alpha,poisson}]
                              [--color-transfer {none,mean_std,lab,histogram}]
-                             [--video-mode {disk,pipe}]
+                             [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
+                             [--with-enhancer]
 
 options:
   -h, --help            show this help message and exit
@@ -271,6 +281,10 @@ options:
                         Color match: none, mean_std, lab, or histogram.
   --video-mode {disk,pipe}
                         Video path: disk (default) or pipe.
+  --eye-mode {swap,blend,target}
+                        Eye handling: swap, blend (default, keep most of the target eyes), or
+                        target.
+  --with-enhancer       Also run face_enhancer. Eye regions use enhancer.eye_blend.
 
 usage: barrett-faceswap inspect-models [-h] [--config CONFIG] [--lang LANG]
 
@@ -329,14 +343,16 @@ options:
                    ui.language.
 
 usage: barrett-faceswap download-models [-h] [--config CONFIG] [--lang LANG] [--with-gfpgan]
-                                        [--force]
+                                        [--force] [--from-dir FROM_DIR]
 
 options:
-  -h, --help       show this help message and exit
-  --config CONFIG  Path to the YAML config. Relative paths inside it resolve from the working
-                   directory.
-  --lang LANG      Interface language: en or zh-CN. Overrides BARRETT_FACESWAP_LANG and
-                   ui.language.
-  --with-gfpgan    Also download the optional GFPGAN 1.4 ONNX.
-  --force          Download again even when the local file already matches.
+  -h, --help           show this help message and exit
+  --config CONFIG      Path to the YAML config. Relative paths inside it resolve from the working
+                       directory.
+  --lang LANG          Interface language: en or zh-CN. Overrides BARRETT_FACESWAP_LANG and
+                       ui.language.
+  --with-gfpgan        Also download the optional GFPGAN 1.4 ONNX.
+  --force              Download again even when the local file already matches.
+  --from-dir FROM_DIR  Copy matching ONNX files from this directory before downloading. SHA-256 is
+                       still checked.
 ```

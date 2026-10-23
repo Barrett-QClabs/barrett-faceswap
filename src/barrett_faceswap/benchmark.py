@@ -128,7 +128,14 @@ def run_benchmark(
         for processor in processors:
             current = processor.process_frame(current, context)
     elapsed = max(time.perf_counter() - started, 1e-9)
-    stages = (("prepare", prepare_s), ("swap", elapsed))
+    extra: list[tuple[str, float]] = []
+    for processor in processors:
+        seconds = getattr(processor, "stage_seconds", None)
+        if isinstance(seconds, dict):
+            for name, value in seconds.items():
+                if float(value) > 0:
+                    extra.append((str(name), float(value)))
+    stages = (("prepare", prepare_s), ("swap", elapsed), *tuple(extra))
     for processor in processors:
         processor.post_process()
     del current

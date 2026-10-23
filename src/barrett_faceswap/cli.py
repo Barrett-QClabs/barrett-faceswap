@@ -17,6 +17,7 @@ from barrett_faceswap.config import ENHANCER_MODELS, VIDEO_ENCODERS, apply_reque
 from barrett_faceswap.swap_catalog import (
     BLEND_MODES,
     COLOR_TRANSFERS,
+    EYE_MODES,
     SWAPPER_NAMES,
     VIDEO_MODES,
 )
@@ -192,6 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_argument("--lang", default=None, help=t("cli.lang"))
     download.add_argument("--with-gfpgan", action="store_true", help=t("cli.download_with_gfpgan"))
     download.add_argument("--force", action="store_true", help=t("cli.download_force"))
+    download.add_argument("--from-dir", type=Path, default=None, help=t("cli.download_from_dir"))
     return parser
 
 
@@ -211,6 +213,7 @@ def _dispatch(namespace: argparse.Namespace) -> int:
             config,
             with_gfpgan=namespace.with_gfpgan,
             force=namespace.force,
+            from_dir=namespace.from_dir,
         ):
             print(line)
         return 0
@@ -285,6 +288,8 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         blend_mode=namespace.blend_mode,
         color_transfer=namespace.color_transfer,
         video_mode=namespace.video_mode,
+        eye_mode=namespace.eye_mode,
+        with_enhancer=bool(namespace.with_enhancer),
         job_id=namespace.job_id,
         resume=namespace.resume,
         commercial=bool(getattr(namespace, "commercial", False)),
@@ -306,6 +311,8 @@ def _add_phase3_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--blend-mode", default=None, choices=list(BLEND_MODES), help=t("cli.blend_mode"))
     parser.add_argument("--color-transfer", default=None, choices=list(COLOR_TRANSFERS), help=t("cli.color_transfer"))
     parser.add_argument("--video-mode", default=None, choices=list(VIDEO_MODES), help=t("cli.video_mode"))
+    parser.add_argument("--eye-mode", default=None, choices=list(EYE_MODES), help=t("cli.eye_mode"))
+    parser.add_argument("--with-enhancer", action="store_true", help=t("cli.with_enhancer"))
 
 
 def _dispatch_jobs(namespace: argparse.Namespace) -> int:
@@ -370,6 +377,8 @@ def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None
         blend_mode=namespace.blend_mode,
         color_transfer=namespace.color_transfer,
         video_mode=namespace.video_mode,
+        eye_mode=namespace.eye_mode,
+        with_enhancer=bool(namespace.with_enhancer),
         job_id=job_id,
         resume=resume,
     )
@@ -402,6 +411,8 @@ def _dispatch_live(namespace: argparse.Namespace) -> int:
         face_map=namespace.face_map,
         blend_mode=namespace.blend_mode,
         color_transfer=namespace.color_transfer,
+        eye_mode=namespace.eye_mode,
+        with_enhancer=bool(namespace.with_enhancer),
         commercial=namespace.commercial,
         live_session=True,
         live_frames=namespace.frames,

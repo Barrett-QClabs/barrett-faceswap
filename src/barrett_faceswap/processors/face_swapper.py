@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,12 +13,14 @@ from barrett_faceswap.blend import apply_color, paste_back, paste_poisson
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.detect import FaceDetector, select_face
 from barrett_faceswap.errors import NoFaceError
+from barrett_faceswap.eyes import restore_eyes
 from barrett_faceswap.facesel import FaceMapEntry, FaceTracker, assign_slots, load_face_map
 from barrett_faceswap.i18n import t
 from barrett_faceswap.masking import MaskStack
 from barrett_faceswap.models import ModelStore
 from barrett_faceswap.pixel_boost import run_tiled
 from barrett_faceswap.processors.registry import register_processor
+from barrett_faceswap.recover import map_points, search_faces
 from barrett_faceswap.swap import GraphSwapper, IdentitySwapper, embed_arcface
 from barrett_faceswap.swap_catalog import output_size, swapper_by_name
 from barrett_faceswap.types import Face, ProcessContext
@@ -45,6 +48,16 @@ class FaceSwapper:
         self.tracker = FaceTracker(iou_threshold=float(config.swap.track_iou))
         self._slots: list[_Slot] | None = None
         self._spec = swapper_by_name(config.swap.model)
+        self._detector_obj: FaceDetector | None = None
+        self._backend_impl = None
+        self.stage_seconds = {
+            "detect": 0.0,
+            "align": 0.0,
+            "infer": 0.0,
+            "mask": 0.0,
+            "color": 0.0,
+            "paste": 0.0,
+        }
 
     def pre_check(self, ctx: ProcessContext) -> None:
         if ctx.dry_run:
@@ -64,11 +77,20 @@ class FaceSwapper:
         if self.store is None:
             self.pre_check(ctx)
         assert self.store is not None
-        faces = list(ctx.known_faces) if ctx.known_faces is not None else self._detect(frame)
+        if ctx.known_faces is not None:
+            faces = list(ctx.known_faces)
+        else:
+            faces = self._detect(frame)
+        if not faces:
+            if ctx.allow_missing_face:
+                return frame
+            raise NoFaceError(t("detect.no_face"))
         ordered = sorted(faces, key=lambda face: _area(face), reverse=True)
         slots = self._identities(ctx)
         pairs = self._pairs(frame, ordered, slots, ctx)
         if not pairs:
+            if ctx.allow_missing_face:
+                return frame
             raise NoFaceError(t("swap.no_match", threshold=self.config.swap.similarity))
         result = frame
         for face, slot in pairs:
@@ -105,21 +127,43 @@ class FaceSwapper:
     def post_process(self) -> None:
         return None
 
+    def find_faces(self, image: np.ndarray) -> tuple[list[Face], str]:
+        """Video entry. Retries a miss, and does not raise when the frame is empty."""
+
+        if self.store is None:
+            return [], "miss"
+        started = time.perf_counter()
+        try:
+            return search_faces(self._detector(), image)
+        finally:
+            self.stage_seconds["detect"] += time.perf_counter() - started
+
+    def _detector(self) -> FaceDetector:
+        if self._detector_obj is None:
+            assert self.store is not None
+            self._detector_obj = FaceDetector(
+                self.store.session("detector"),
+                det_size=self.config.detect.det_size,
+                score_threshold=self.config.detect.score_threshold,
+                nms_threshold=self.config.detect.nms_threshold,
+            )
+        return self._detector_obj
+
     def _detect(self, image: np.ndarray) -> list[Face]:
-        assert self.store is not None
-        detector = FaceDetector(
-            self.store.session("detector"),
-            det_size=self.config.detect.det_size,
-            score_threshold=self.config.detect.score_threshold,
-            nms_threshold=self.config.detect.nms_threshold,
-        )
-        return detector.detect(image)
+        started = time.perf_counter()
+        try:
+            return self._detector().detect(image)
+        finally:
+            self.stage_seconds["detect"] += time.perf_counter() - started
 
     def _backend(self):
-        assert self.store is not None
-        if self._spec.embedding == "emap":
-            return IdentitySwapper(self.store, self._spec.native_size)
-        return GraphSwapper(self.store, self._spec)
+        if self._backend_impl is None:
+            assert self.store is not None
+            if self._spec.embedding == "emap":
+                self._backend_impl = IdentitySwapper(self.store, self._spec.native_size)
+            else:
+                self._backend_impl = GraphSwapper(self.store, self._spec)
+        return self._backend_impl
 
     def _identities(self, ctx: ProcessContext) -> list[_Slot]:
         if self._slots is not None:
@@ -233,22 +277,44 @@ class FaceSwapper:
             resolution=self.config.swap.resolution,
         )
         template = swap_template(self._spec.template, side)
-        crop, matrix = align_face(frame, face.landmarks, side, template=template)
+        points = np.asarray(face.landmarks, dtype=np.float32).reshape(-1, 2)
+        started = time.perf_counter()
+        crop, matrix = align_face(frame, points[:5], side, template=template)
+        self.stage_seconds["align"] += time.perf_counter() - started
         backend = self._backend()
 
         def _infer(tile: np.ndarray) -> np.ndarray:
             return backend.forward(tile, slot.latent)
 
+        started = time.perf_counter()
         swapped = run_tiled(crop, self._spec.native_size, _infer)
+        self.stage_seconds["infer"] += time.perf_counter() - started
         if self.masks is None:
             assert self.store is not None
             self.masks = MaskStack(self.config, self.store)
             self.masks.load()
+        started = time.perf_counter()
         mask = self.masks.compose(crop, side, self.config.blend.mask_blur, landmarks=template)
+        self.stage_seconds["mask"] += time.perf_counter() - started
+        started = time.perf_counter()
         colored = apply_color(self.config.blend.color, swapped, crop, mask)
+        eye_points = map_points(points, matrix) if points.shape[0] >= 106 else template
+        colored = restore_eyes(
+            self.config.blend.eye_mode,
+            colored,
+            crop,
+            eye_points,
+            self.config.blend.mask_blur,
+            self.config.blend.eye_sharpen,
+        )
+        self.stage_seconds["color"] += time.perf_counter() - started
+        started = time.perf_counter()
         if self.config.blend.mode == "poisson":
-            return paste_poisson(frame, colored, matrix, mask)
-        return paste_back(frame, colored, matrix, mask)
+            pasted = paste_poisson(frame, colored, matrix, mask)
+        else:
+            pasted = paste_back(frame, colored, matrix, mask)
+        self.stage_seconds["paste"] += time.perf_counter() - started
+        return pasted
 
 
 def _area(face: Face) -> float:

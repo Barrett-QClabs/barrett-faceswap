@@ -75,6 +75,8 @@ enhancer:
   model: gfpgan_1.4
   # 1 keeps the restoration. 0 keeps the original crop.
   blend: 0.8
+  # Eyes use this blend. 1 restores the eye region fully while blend covers the face.
+  eye_blend: 1.0
   # CodeFormer fidelity input. Ignored when the graph has no second input.
   weight: 0.5
 
@@ -106,6 +108,11 @@ video:
   filter_every_n_frames: 30
   keep_audio: true
   crf: 18
+  # Frames with no face are retried, then filled from neighbors inside this gap.
+  # Beyond the gap the frame is left unchanged. Still images still fail loudly.
+  max_face_gap: 10
+  # one_euro | ema | none
+  smooth: one_euro
 
 execution:
   # First available provider wins; CPU is the portable fallback.
@@ -155,6 +162,11 @@ blend:
   # none turns color match off. lab is the default mean/std match in Lab.
   # mean_std | histogram remain available.
   color: lab
+  # swap keeps the swapped eyes. blend (default) mixes the target eyes back.
+  # target keeps the original eyes.
+  eye_mode: blend
+  # Unsharp amount inside the eye mask. 0 disables it.
+  eye_sharpen: 0.6
 
 jobs:
   root: jobs

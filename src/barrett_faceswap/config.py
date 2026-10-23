@@ -227,6 +227,8 @@ class BlendConfig(_Model):
     mask_blur: int = 15
     mode: str = "alpha"
     color: str = "lab"
+    eye_mode: str = "blend"
+    eye_sharpen: float = 0.6
 
     @field_validator("mode")
     @classmethod
@@ -246,6 +248,22 @@ class BlendConfig(_Model):
             raise ValueError(t("config.color", mode=value, allowed=", ".join(COLOR_TRANSFERS)))
         return value
 
+    @field_validator("eye_mode")
+    @classmethod
+    def _eye_mode(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import EYE_MODES
+
+        if value not in EYE_MODES:
+            raise ValueError(t("config.eye_mode", mode=value, allowed=", ".join(EYE_MODES)))
+        return value
+
+    @field_validator("eye_sharpen")
+    @classmethod
+    def _eye_sharpen(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 3.0:
+            raise ValueError(t("config.eye_sharpen"))
+        return float(value)
+
 
 class EnhancerConfig(_Model):
     """GFPGAN 1.4 by default. CodeFormer is selected with ``model: codeformer``."""
@@ -253,6 +271,7 @@ class EnhancerConfig(_Model):
     model: str = "gfpgan_1.4"
     blend: float = 0.8
     weight: float = 0.5
+    eye_blend: float = 1.0
 
     @field_validator("model")
     @classmethod
@@ -261,7 +280,7 @@ class EnhancerConfig(_Model):
             raise ValueError(t("config.enhancer_model", allowed=", ".join(ENHANCER_MODELS)))
         return value
 
-    @field_validator("blend", "weight")
+    @field_validator("blend", "weight", "eye_blend")
     @classmethod
     def _unit(cls, value: float) -> float:
         if not 0.0 <= float(value) <= 1.0:
@@ -305,6 +324,8 @@ class VideoConfig(_Model):
     filter_every_n_frames: int = 30
     keep_audio: bool = True
     crf: int = 18
+    max_face_gap: int = 10
+    smooth: str = "one_euro"
 
     @field_validator("mode")
     @classmethod
@@ -342,6 +363,22 @@ class VideoConfig(_Model):
         if not 0 <= int(value) <= 51:
             raise ValueError(t("config.crf"))
         return int(value)
+
+    @field_validator("max_face_gap")
+    @classmethod
+    def _gap(cls, value: int) -> int:
+        if int(value) < 0:
+            raise ValueError(t("config.max_face_gap"))
+        return int(value)
+
+    @field_validator("smooth")
+    @classmethod
+    def _smooth(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import SMOOTH_MODES
+
+        if value not in SMOOTH_MODES:
+            raise ValueError(t("config.smooth", mode=value, allowed=", ".join(SMOOTH_MODES)))
+        return value
 
 
 class ConsentConfig(_Model):
@@ -525,6 +562,9 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
     color = getattr(request, "color_transfer", None)
     if color:
         blend = blend.model_copy(update={"color": color})
+    eye_mode = getattr(request, "eye_mode", None)
+    if eye_mode:
+        blend = blend.model_copy(update={"eye_mode": eye_mode})
     execution = config.execution
     if getattr(request, "commercial", False):
         execution = execution.model_copy(update={"commercial": True})

@@ -206,6 +206,8 @@ SELECTORS = ("index", "many", "reference", "map")
 BLEND_MODES = ("alpha", "poisson")
 COLOR_TRANSFERS = ("none", "mean_std", "lab", "histogram")
 VIDEO_MODES = ("disk", "pipe")
+EYE_MODES = ("swap", "blend", "target")
+SMOOTH_MODES = ("one_euro", "ema", "none")
 
 
 def swapper_by_name(name: str) -> SwapperSpec:

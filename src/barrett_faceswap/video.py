@@ -9,6 +9,7 @@ config leaves enforcement off.
 
 from __future__ import annotations
 
+import queue
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,7 +34,8 @@ from barrett_faceswap.media.ffmpeg import (
     probe,
     sample_indexes,
 )
-from barrett_faceswap.processors import create_processor
+from barrett_faceswap.processors import create_processor, resolve_processor_names
+from barrett_faceswap.recover import FaceStream
 from barrett_faceswap.types import ProcessContext, SwapRequest, SwapResult
 from barrett_faceswap.vision import is_video, read_image, write_image
 
@@ -217,25 +219,37 @@ class VideoPipeline:
             index = start
             produced = 0
             last_clean: np.ndarray | None = None
-            while True:
-                frame = pipe.read()
-                if frame is None:
-                    break
-                if request.dry_run:
+            if request.dry_run:
+                while True:
+                    frame = pipe.read()
+                    if frame is None:
+                        break
                     frame = _dry_run_banner(frame, t("processor.dry_run_banner"))
-                for processor in processors:
-                    frame = processor.process_frame(frame, shared)
-                last_clean = frame.copy()
-                if index in sample_set:
-                    self.policy.screen_frame(context, frame, role=f"output[{index}]")
-                frame = self.policy.mark_frame(context, frame)
-                pipe.write(frame)
-                produced += 1
-                index += 1
-                if job is not None and store is not None:
-                    job.next_frame = index
-                    job.total_frames = max(estimated, index)
-                    store.save(job)
+                    for processor in processors:
+                        frame = processor.process_frame(frame, shared)
+                    last_clean = frame.copy()
+                    if index in sample_set:
+                        self.policy.screen_frame(context, frame, role=f"output[{index}]")
+                    frame = self.policy.mark_frame(context, frame)
+                    pipe.write(frame)
+                    produced += 1
+                    index += 1
+                    if job is not None and store is not None:
+                        job.next_frame = index
+                        job.total_frames = max(estimated, index)
+                        store.save(job)
+            else:
+                produced, index, last_clean = self._pipe_overlap(
+                    pipe,
+                    processors,
+                    shared,
+                    context,
+                    sample_set,
+                    start,
+                    estimated,
+                    job,
+                    store,
+                )
             for processor in processors:
                 processor.post_process()
             if produced and context.enabled and last_clean is not None and (index - 1) not in sample_set:
@@ -280,7 +294,7 @@ class VideoPipeline:
 
     def _processors(self, request: SwapRequest, notes: _LockedNotes):
         source = read_image(request.source_path)
-        names = list(request.processors) if request.processors else list(self.config.processors)
+        names = resolve_processor_names(self.config, request)
         providers = list(request.execution_providers) if request.execution_providers else list(
             self.config.execution.providers
         )
@@ -314,6 +328,11 @@ class VideoPipeline:
             for index, frame_path in enumerate(frames)
             if index >= start_index or not (processed_dir / frame_path.name).is_file()
         ]
+        if not request.dry_run:
+            self._drive_disk(processors, shared, pending, processed_dir, job, store)
+            for processor in processors:
+                processor.post_process()
+            return
         workers = max(1, min(int(self.config.video.threads), len(pending) or 1))
         if self.config.swap.selector != "index" or job is not None:
             workers = 1
@@ -321,8 +340,7 @@ class VideoPipeline:
         def _one(item: tuple[int, Path]) -> None:
             index, frame_path = item
             frame = read_image(frame_path)
-            if request.dry_run:
-                frame = _dry_run_banner(frame, t("processor.dry_run_banner"))
+            frame = _dry_run_banner(frame, t("processor.dry_run_banner"))
             for processor in processors:
                 frame = processor.process_frame(frame, shared)
             write_image(processed_dir / frame_path.name, frame)
@@ -340,6 +358,251 @@ class VideoPipeline:
                     future.result()
         for processor in processors:
             processor.post_process()
+
+    def _drive_disk(
+        self,
+        processors,
+        shared: ProcessContext,
+        pending: list[tuple[int, Path]],
+        processed_dir: Path,
+        job: JobState | None,
+        store: JobStore | None,
+    ) -> None:
+        read_q: queue.Queue = queue.Queue(maxsize=2)
+        write_q: queue.Queue = queue.Queue(maxsize=2)
+        sentinel = object()
+        errors: list[BaseException] = []
+        stop = threading.Event()
+        paths = {index: frame_path for index, frame_path in pending}
+
+        def reader() -> None:
+            try:
+                for index, frame_path in pending:
+                    if stop.is_set():
+                        return
+                    frame = read_image(frame_path)
+                    while not stop.is_set():
+                        try:
+                            read_q.put((index, frame), timeout=0.2)
+                            break
+                        except queue.Full:
+                            continue
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                _offer(read_q, sentinel)
+
+        def writer() -> None:
+            try:
+                while True:
+                    try:
+                        item = write_q.get(timeout=0.2)
+                    except queue.Empty:
+                        if stop.is_set() and errors:
+                            return
+                        continue
+                    if item is sentinel:
+                        return
+                    path, image = item
+                    write_image(path, image)
+            except BaseException as exc:
+                errors.append(exc)
+
+        reader_thread = threading.Thread(target=reader, name="barrett-frame-read", daemon=True)
+        writer_thread = threading.Thread(target=writer, name="barrett-frame-write", daemon=True)
+        reader_thread.start()
+        writer_thread.start()
+
+        def frames():
+            while True:
+                _raise_queued(errors)
+                try:
+                    item = read_q.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                if item is sentinel:
+                    return
+                yield item
+
+        def publish(index: int, image: np.ndarray) -> None:
+            destination = processed_dir / paths[index].name
+            while True:
+                _raise_queued(errors)
+                try:
+                    write_q.put((destination, image), timeout=0.2)
+                    break
+                except queue.Full:
+                    continue
+            if job is not None and store is not None:
+                job.next_frame = index + 1
+                store.save(job)
+
+        try:
+            self._drive(processors, shared, frames(), publish)
+        finally:
+            _offer(write_q, sentinel)
+            stop.set()
+            writer_thread.join(timeout=60)
+            reader_thread.join(timeout=5)
+        _raise_queued(errors)
+
+    def _pipe_overlap(
+        self,
+        pipe,
+        processors,
+        shared: ProcessContext,
+        context,
+        sample_set: set[int],
+        start: int,
+        estimated: int,
+        job: JobState | None,
+        store: JobStore | None,
+    ) -> tuple[int, int, np.ndarray | None]:
+        decoded: queue.Queue = queue.Queue(maxsize=3)
+        encoded: queue.Queue = queue.Queue(maxsize=3)
+        sentinel = object()
+        errors: list[BaseException] = []
+        stop = threading.Event()
+
+        def reader() -> None:
+            try:
+                while not stop.is_set():
+                    frame = pipe.read()
+                    if frame is None:
+                        break
+                    while not stop.is_set():
+                        try:
+                            decoded.put(frame, timeout=0.2)
+                            break
+                        except queue.Full:
+                            continue
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                _offer(decoded, sentinel)
+
+        def writer() -> None:
+            try:
+                while True:
+                    try:
+                        frame = encoded.get(timeout=0.2)
+                    except queue.Empty:
+                        if stop.is_set() and errors:
+                            return
+                        continue
+                    if frame is sentinel:
+                        return
+                    pipe.write(frame)
+            except BaseException as exc:
+                errors.append(exc)
+
+        reader_thread = threading.Thread(target=reader, name="barrett-pipe-read", daemon=True)
+        writer_thread = threading.Thread(target=writer, name="barrett-pipe-write", daemon=True)
+        reader_thread.start()
+        writer_thread.start()
+        state: dict[str, object] = {"index": start, "produced": 0, "last": None}
+
+        def frames():
+            while True:
+                _raise_queued(errors)
+                try:
+                    frame = decoded.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                if frame is sentinel:
+                    return
+                index = int(state["index"])
+                state["index"] = index + 1
+                yield index, frame
+
+        def publish(index: int, image: np.ndarray) -> None:
+            state["last"] = image
+            state["produced"] = int(state["produced"]) + 1
+            if index in sample_set:
+                self.policy.screen_frame(context, image, role=f"output[{index}]")
+            marked = self.policy.mark_frame(context, image)
+            while True:
+                _raise_queued(errors)
+                try:
+                    encoded.put(marked, timeout=0.2)
+                    break
+                except queue.Full:
+                    continue
+            if job is not None and store is not None:
+                job.next_frame = index + 1
+                job.total_frames = max(estimated, index + 1)
+                store.save(job)
+
+        try:
+            self._drive(processors, shared, frames(), publish)
+        finally:
+            _offer(encoded, sentinel)
+            stop.set()
+            writer_thread.join(timeout=60)
+            reader_thread.join(timeout=5)
+        _raise_queued(errors)
+        last = state["last"]
+        return int(state["produced"]), int(state["index"]), last if isinstance(last, np.ndarray) else None
+
+    def _drive(self, processors, shared: ProcessContext, frames, publish) -> None:
+        shared.allow_missing_face = True
+        finder = next((item for item in processors if hasattr(item, "find_faces")), None)
+        stream = FaceStream(max_gap=int(self.config.video.max_face_gap), smooth=str(self.config.video.smooth))
+        for index, frame in frames:
+            if finder is None:
+                found, tag = [], "miss"
+            else:
+                found, tag = finder.find_faces(frame)
+            for recovered in stream.push(index, frame, found, tag):
+                publish(recovered.index, _swap_known(processors, shared, recovered))
+        for recovered in stream.finish():
+            publish(recovered.index, _swap_known(processors, shared, recovered))
+        shared.notes.append(
+            t(
+                "video.face_report",
+                detected=stream.counts["detected"],
+                retried=stream.counts["retried"],
+                filled=stream.counts["filled"],
+                passthrough=stream.counts["passthrough"],
+            )
+        )
+        stages = _stage_text(processors)
+        if stages:
+            shared.notes.append(t("video.stage_report", stages=stages))
+
+
+def _swap_known(processors, shared: ProcessContext, recovered) -> np.ndarray:
+    shared.known_faces = list(recovered.faces)
+    frame = recovered.frame
+    for processor in processors:
+        frame = processor.process_frame(frame, shared)
+    return frame
+
+
+def _stage_text(processors) -> str:
+    parts: list[str] = []
+    for processor in processors:
+        seconds = getattr(processor, "stage_seconds", None)
+        if not isinstance(seconds, dict):
+            continue
+        for name, value in seconds.items():
+            if float(value) > 0:
+                parts.append(f"{name}:{float(value) * 1000.0:.1f}ms")
+    return ",".join(parts)
+
+
+def _offer(channel: queue.Queue, item: object, *, attempts: int = 50) -> None:
+    for _ in range(attempts):
+        try:
+            channel.put(item, timeout=0.2)
+            return
+        except queue.Full:
+            continue
+
+
+def _raise_queued(errors: list[BaseException]) -> None:
+    if errors:
+        raise errors[0]
 
 
 def watermark_frames(policy, context, frame_paths: list[Path]) -> int:

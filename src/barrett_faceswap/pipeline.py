@@ -11,7 +11,7 @@ from barrett_faceswap.config import AppConfig, apply_request_overrides
 from barrett_faceswap.errors import ConfigError
 from barrett_faceswap.i18n import t
 from barrett_faceswap.jobs import JobState, JobStore, open_for_run
-from barrett_faceswap.processors import available_processors, create_processor
+from barrett_faceswap.processors import available_processors, create_processor, resolve_processor_names
 from barrett_faceswap.types import ProcessContext, SwapRequest, SwapResult
 from barrett_faceswap.vision import is_video, read_image
 
@@ -69,7 +69,7 @@ class FaceSwapPipeline:
         frame = read_image(request.target_path)
         if request.dry_run:
             frame = _dry_run_banner(frame, t("processor.dry_run_banner"))
-        names = list(request.processors) if request.processors else list(self.config.processors)
+        names = resolve_processor_names(self.config, request)
         providers = list(request.execution_providers) if request.execution_providers else list(
             self.config.execution.providers
         )

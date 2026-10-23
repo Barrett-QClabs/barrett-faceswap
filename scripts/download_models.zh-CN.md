@@ -10,7 +10,7 @@ barrett-faceswap download-models --with-gfpgan
 barrett-faceswap doctor
 ```
 
-`download-models` 会下载 `buffalo_l.zip` 和 `inswapper_128.onnx`，校验 sha256，在服务器返回 HTTP 206 时续传未完成的文件，并在三次失败后换下一个镜像。`--force` 会重新下载。`--with-gfpgan` 是可选项。`doctor` 打印执行提供者、CUDA/cuDNN 是否预加载成功，以及本地文件的 sha256。CI 不会运行这两个命令。
+`download-models` 会下载 `buffalo_l.zip` 和 `inswapper_128.onnx`，校验 sha256，在服务器返回 HTTP 206 时续传未完成的文件，并在三次失败后换下一个镜像。每次尝试把 TCP 连接限制在 15 秒、读取限制在 30 秒，卡住的镜像会尽快切换，而不是一直停在套接字上。`--from-dir PATH` 按文件名复制（包含子目录），并在任何下载之前校验 sha256。哈希不匹配会停止命令。缺少的文件仍会下载。该目录里的 `buffalo_l.zip` 会按下载到的压缩包同样解压。`--force` 会重新下载。`--with-gfpgan` 是可选项。`doctor` 打印执行提供者、CUDA/cuDNN 是否预加载成功、本地文件的 sha256，以及同时安装了 `onnxruntime` 和 `onnxruntime-gpu` 时的警告。CI 不会运行这两个命令。
 
 命令核对的哈希：
 
