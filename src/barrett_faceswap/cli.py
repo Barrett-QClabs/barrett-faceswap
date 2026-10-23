@@ -241,6 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_argument("--lang", default=None, help=t("cli.lang"))
     download.add_argument("--with-gfpgan", action="store_true", help=t("cli.download_with_gfpgan"))
     download.add_argument("--with-masks", action="store_true", help=t("cli.download_with_masks"))
+    download.add_argument("--with-landmarks", action="store_true", help=t("cli.download_with_landmarks"))
     download.add_argument(
         "--swapper",
         action="append",
@@ -288,6 +289,7 @@ def _dispatch(namespace: argparse.Namespace) -> int:
             swappers=namespace.swapper,
             enhancers=namespace.enhancer,
             occluders=namespace.occluder,
+            with_landmarks=namespace.with_landmarks,
         ):
             print(line)
         return 0
@@ -299,7 +301,13 @@ def _dispatch(namespace: argparse.Namespace) -> int:
     if namespace.command == "ui":
         from barrett_faceswap.ui.app import launch_ui
 
-        launch_ui(Path(namespace.config), host=namespace.host, port=namespace.port, share=namespace.share)
+        launch_ui(
+            Path(namespace.config),
+            host=namespace.host,
+            port=namespace.port,
+            share=namespace.share,
+            language=namespace.lang,
+        )
         return 0
     if namespace.command == "jobs":
         return _dispatch_jobs(namespace)

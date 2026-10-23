@@ -1,8 +1,9 @@
 """Tile a large aligned crop into native-size swapper inferences.
 
 The crop is already aligned at the boosted resolution. Each tile is a
-contiguous square of the network's native size. Tiles are inferred
-independently with the same identity vector and stitched back in order.
+full-face subsample, ``crop[row::count, col::count]``, not a quadrant.
+Tiles are inferred independently with the same identity vector and written
+back on the same lattice.
 """
 
 from __future__ import annotations
@@ -35,14 +36,12 @@ def run_tiled(crop_bgr: np.ndarray, native: int, infer: Callable[[np.ndarray], n
     count = side // native
     canvas = np.empty_like(crop_bgr)
     for row in range(count):
-        y0 = row * native
         for col in range(count):
-            x0 = col * native
-            tile = crop_bgr[y0 : y0 + native, x0 : x0 + native]
+            tile = np.ascontiguousarray(crop_bgr[row::count, col::count])
             restored = infer(tile)
-            if restored.shape[0] != native or restored.shape[1] != native:
+            if restored.shape[0] != tile.shape[0] or restored.shape[1] != tile.shape[1]:
                 raise SwapError(
                     t("swap.tile_output", expected=native, shape=tuple(int(dim) for dim in restored.shape))
                 )
-            canvas[y0 : y0 + native, x0 : x0 + native] = restored
+            canvas[row::count, col::count] = restored
     return canvas

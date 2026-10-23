@@ -53,7 +53,7 @@ ffprobe
 
 ## 换脸器
 
-`swap_catalog.py` 为每个可选模型写出 ONNX 约定。`--swapper-model` 和界面下拉框设置 `swap.model`。默认仍是 `inswapper_128`，角色仍是 `swapper`，因此已有的 `ensure_present()` 调用继续有效。其他图是可选角色。一次运行会打开检测器、识别器、选中的换脸器，以及该换脸器声明的 crossface 文件。`CORE_ROLES` 没有变，所以缺少可选权重不会挡住 inswapper 换脸。
+`swap_catalog.py` 为每个可选模型写出 ONNX 约定。`--swapper-model` 和界面下拉框设置 `swap.model`。默认是 `hyperswap_1a_256`。`inswapper_128` 仍然可用，角色仍是 `swapper`，因此 inswapper 运行里已有的 `ensure_present()` 调用继续有效。其他图是可选角色。一次运行会打开检测器、识别器、选中的换脸器，以及该换脸器声明的 crossface 文件。`CORE_ROLES` 没有变，所以缺少可选权重不会挡住 inswapper 换脸。hyperswap 运行需要 `models/hyperswap_1a_256.onnx`，它不在默认的 buffalo 下载里。
 
 | 名称 | 原生尺寸 | 模板 | 归一化 | 隐向量 | Crossface |
 | --- | --- | --- | --- | --- | --- |
@@ -68,7 +68,7 @@ ffprobe
 
 ## 像素提升
 
-`pixel_boost` 先按提升后的边长对齐裁剪，再切成连续的原生尺寸方块，用同一个隐向量逐块推理，然后拼回去。允许的边长是 128、256、512、768、1024，且边长不小于原生尺寸并能整除。`0` 表示原生尺寸。inswapper 在 boost 为 `0` 时仍遵守 `swap.resolution`，因此测试可以把模拟图指到一个不是整块倍数的尺寸。边长不能整除原生尺寸时，只做一次推理。视频使用同一个换脸器，因此 `--pixel-boost 256` 或 `512` 在视频里同样切块。`256` 是四块 128 像素。
+`pixel_boost` 先按提升后的边长对齐裁剪，再取交错的整脸子采样 `crop[row::count, col::count]`。每一块用同一个隐向量推理，并写回同一组格子。这些块不是四个象限。允许的边长是 128、256、512、768、1024，且边长不小于原生尺寸并能整除。`0` 表示原生尺寸。inswapper 在 boost 为 `0` 时仍遵守 `swap.resolution`，因此测试可以把模拟图指到一个不是整块倍数的尺寸。边长不能整除原生尺寸时，只做一次推理。视频使用同一个换脸器，因此 `--pixel-boost 256` 或 `512` 同样切块。256 网络上的 512 裁剪是整张脸的四路交错视图。inswapper（原生 128）上的 `256` 仍然是四块 128 像素。
 
 `--eye-mode` 决定 inswapper 之后眼睛怎么处理。128 的裁剪经常带上源脸的眼睑，直接替换会看起来窄、或者半闭。
 
@@ -79,6 +79,12 @@ ffprobe
 | `target` | 原来的目标眼睛。 |
 
 五点关键点变成两个椭圆。106 点集合使用上半脸左右两簇的凸包。加载了 `models/bisenet_face_parsing.onnx` 时，左右眼和左右眉的类别会在换脸上替换这个几何蒙版。`blend.eye_sharpen`（默认 0.6）只在这个区域内做反锐化。`--with-enhancer` 在列表里还没有 `face_enhancer` 时把它追加进去。眼睛张开时，`enhancer.eye_blend`（默认 0.35）会再降低，避免修复重画眼睑。`enhancer.blend`（默认 0.6）覆盖脸的其余部分。
+
+## 关键点与表情
+
+`landmarks.refine` 是 `auto`（默认）、`always` 或 `off`。`auto` 和 `always` 在 `models/2dfan4.onnx` 存在时打开它。裁剪把人脸框的长边缩放到 256 画布里的 195 像素。网络返回 68 个点。五个对齐点是 36:42 与 42:48 的均值、第 30 点，以及第 48 和第 54 点。`auto` 只在侧脸（`profile_ratio`，默认 0.22）或检测分数低于 `min_score`（默认 0.65）时替换检测器的五个点。正面脸保留检测器的点。`always` 替换每一张脸。`off` 不打开文件。文件缺失，或热图分数低于 0.05，都保留检测器关键点。68 个点放在 `Face.landmarks_68`，不会追加到五点数组上。`commercial_use` 保持 false。`--with-landmarks` 下载这个文件。哈希写在 `scripts/download_models.zh-CN.md`。
+
+`expression.enabled`（默认 true）用这 68 个点把目标眼睛和抿起的嘴贴回去。眼睛的量是 `0.05 + 0.85 * closedness`，嘴的量是 `0.55 * pursedness`，使用 `ear_open` 0.24、`ear_closed` 0.15、`mar_open` 0.045、`mar_closed` 0.012。凸包是眼与眉、以及嘴，画在对齐后的裁剪里。这条路径运行时会跳过 `blend.eye_mode`，因为那个混合会在张开的五点脸上把大部分目标眼睛贴回去。没有 68 个点时，`blend.eye_mode` 仍然运行。增强器把 `1 - closedness` 当作 `eye_openness`。视频默认仍然不跑 `face_enhancer`，除非 `--with-enhancer` 或处理器列表把它加进去。
 
 ## 选脸
 
@@ -103,7 +109,7 @@ ffprobe
 ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本：
 
 - 输入是 NCHW RGB float32，用 `(pixel / 255 - 0.5) / 0.5` 归一化（范围 [-1, 1]）。
-- 图里若有非 4 维输入，则送入 CodeFormer 权重。
+- 图里若有非 4 维输入，则送入 CodeFormer 权重。类型为 `tensor(double)` 的输入会转成 float64。浮点输入仍是 float32。
 - 输出里若有值低于 `-0.01`，按 [-1, 1] 解码；最大值高于 `1.5` 时按 0..255 解码；其余按 0..1。
 - 空间尺寸跟随会话。注册表的后备尺寸是 512。
 
@@ -133,7 +139,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 执行
 
-`execution.precision` 是 `fp32`（默认）或 `fp16`。fp16 会在配置文件旁边查找 `{stem}_fp16.onnx`，找不到就退回 fp32。`execution.cuda_graph` 给 CUDA 提供者加上 `enable_cuda_graph`。只要会话报告 `CUDAExecutionProvider`，就会复用一个 IO binding；失败时退回 `session.run`。CPU 会话（包括 CI）仍走 `session.run`。TensorRT 选项（引擎缓存、计时缓存、fp16、构建优化级别 0–5）只在安装了 `TensorrtExecutionProvider` 时挂上。`--execution-provider tensorrt` 会选中该提供者，然后再退回 CPU。引擎缓存的前缀是模型角色，因此 inswapper（`swapper`）和 xseg（`occluder`）不会共用同一个引擎名。同时列出 CUDA 和 TensorRT 时，`prefer_cuda` 仍然把 CUDA 放在前面。CPU 的 CI 会跳过两者，也不会创建缓存目录。基础包不依赖某个 ONNX Runtime 轮子。安装 `[cpu]` 或 `[gpu]` 附加项，不要两个都装。`doctor` 在两个发行名都存在时会警告。
+`execution.precision` 是 `fp32`（默认）或 `fp16`。fp16 会在配置文件旁边查找 `{stem}_fp16.onnx`，找不到就退回 fp32。`execution.cuda_graph` 给 CUDA 提供者加上 `enable_cuda_graph`。只要会话报告 `CUDAExecutionProvider`，就会复用一个 IO binding；失败时退回 `session.run`。CPU 会话（包括 CI）仍走 `session.run`。TensorRT 选项（引擎缓存、计时缓存、构建优化级别 0–5）只在安装了 `TensorrtExecutionProvider` 时挂上。`tensorrt.fp16` 默认是 false，因为 fp16 会改变身份。`--execution-provider tensorrt` 会选中该提供者，然后再退回 CPU。引擎缓存的前缀是模型角色，因此 inswapper（`swapper`）和 xseg（`occluder`）不会共用同一个引擎名。同时列出 CUDA 和 TensorRT 时，`prefer_cuda` 仍然把 CUDA 放在前面。CPU 的 CI 会跳过两者，也不会创建缓存目录。基础包不依赖某个 ONNX Runtime 轮子。安装 `[cpu]` 或 `[gpu]` 附加项，不要两个都装。`doctor` 在两个发行名都存在时会警告。
 
 ## 商业路线
 

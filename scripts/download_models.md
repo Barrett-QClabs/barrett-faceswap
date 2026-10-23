@@ -23,8 +23,26 @@ Pins checked by the command:
 | `gfpgan_1.4.onnx` | `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385` |
 | `xseg_1.onnx` (stored as `occlusion_xseg.onnx`) | `c4d1498b8a03b5fe2a3a5d2ef2a0402ab03bd51edaf5b2d8d5fb764702a97dd3` |
 | `bisenet_resnet_34.onnx` (stored as `bisenet_face_parsing.onnx`) | `4a0b8c958a3c938913bd06a8365dbb3c8761afba6ecbf0d14b3b1f77eb230c96` |
+| `2dfan4.onnx` | `678c6fa539d52335a31c980feefdf4a6e02d781d83dce00af8a894f114557285` |
 
 The buffalo archive itself is not pinned. The command hashes the two ONNX members after extraction, so a valid re-pack is accepted. You can still copy files by hand and pin them with `barrett-faceswap inspect-models`.
+
+`--with-landmarks` is not part of the default download. The quality set, matching the shipped config, is:
+
+```bash
+barrett-faceswap download-models --swapper hyperswap_1a_256 --with-masks --with-landmarks
+```
+
+The default command still fetches only `buffalo_l.zip` and `inswapper_128.onnx`. `swap.model` is `hyperswap_1a_256`, so that file has to be downloaded before a real run. Occlusion stays `xseg_1`. Providers stay CUDA, then CPU. `tensorrt.fp16` is false. Video does not run the enhancer unless `--with-enhancer` adds it.
+
+## 2dfan4.onnx
+
+Optional 68-point landmark refiner. `--with-landmarks` stores it at `models/2dfan4.onnx`. The only accepted sha256 is `678c6fa539d52335a31c980feefdf4a6e02d781d83dce00af8a894f114557285`.
+
+- <https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/2dfan4.onnx>
+- <https://huggingface.co/facefusion/models-3.0.0/resolve/main/2dfan4.onnx>
+
+The weight is the 2018 FAN model by Adrian Bulat (breadbread1984), MIT, redistributed via facefusion-assets. `commercial_use` stays false. A missing file leaves the detector landmarks in place. `compliance.enabled` stays false.
 
 Expected names:
 
@@ -32,6 +50,7 @@ Expected names:
 | --- | --- | --- | --- |
 | detector | `models/det_10g.onnx` | `scrfd` | 640 |
 | recognizer | `models/w600k_r50.onnx` | `arcface_112` | 112 |
+| landmark | `models/2dfan4.onnx` | `fan_68` | 256 |
 | swapper | `models/inswapper_128.onnx` | `inswapper_128` | 128 |
 | gfpgan | `models/gfpgan_1.4.onnx` | `ffhq_512` | 512 |
 | codeformer | `models/codeformer.onnx` | `ffhq_512` | 512 |

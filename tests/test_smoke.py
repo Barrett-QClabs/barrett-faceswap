@@ -33,7 +33,7 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.processors == ["face_swapper"]
     assert config.video.encoder == "libx264"
     assert config.enhancer.model == "gfpgan_1.4"
-    assert config.swap.model == "inswapper_128"
+    assert config.swap.model == "hyperswap_1a_256"
     assert config.video.mode == "disk"
     assert config.blend.mode == "alpha"
     assert config.blend.color == "lab"
@@ -56,6 +56,21 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.live.queue_size == 1
     assert config.live.detect_every == 3
     assert config.compliance.watermark.font_path is None
+    assert config.execution.tensorrt.fp16 is False
+    assert config.execution.providers[0] == "cuda"
+    assert config.masks.occluder_model == "xseg_1"
+    assert "face_enhancer" not in config.processors
+    assert config.landmarks.refine == "auto"
+    assert config.landmarks.min_score == pytest.approx(0.65)
+    assert config.expression.enabled is True
+    assert config.expression.eye_base == pytest.approx(0.05)
+    assert config.expression.eye_boost == pytest.approx(0.85)
+    assert config.expression.mouth_base == pytest.approx(0.0)
+    assert config.expression.mouth_boost == pytest.approx(0.55)
+    assert config.expression.mar_open == pytest.approx(0.045)
+    assert config.expression.mar_closed == pytest.approx(0.012)
+    assert config.models.landmark.path.name == "2dfan4.onnx"
+    assert config.compliance.enabled is False
 
 
 def test_dry_run_without_models_or_consent(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

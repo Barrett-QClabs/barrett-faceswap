@@ -53,7 +53,7 @@ Pipe mode (`--video-mode pipe`) decodes raw BGR24 on ffmpeg stdout, runs the sam
 
 ## Swappers
 
-`swap_catalog.py` names the ONNX contract for each selectable model. `--swapper-model` and the UI dropdown set `swap.model`. The default remains `inswapper_128`, whose role is still `swapper` so existing `ensure_present()` calls keep working. The other graphs are optional roles. A run opens the detector, the recognizer, the selected swapper, and that swapper's crossface file when it has one. `CORE_ROLES` is unchanged, so missing optional weights do not block an inswapper swap.
+`swap_catalog.py` names the ONNX contract for each selectable model. `--swapper-model` and the UI dropdown set `swap.model`. The default is `hyperswap_1a_256`. `inswapper_128` remains available and its role is still `swapper`, so an inswapper run's `ensure_present()` calls keep working. The other graphs are optional roles. A run opens the detector, the recognizer, the selected swapper, and that swapper's crossface file when it has one. `CORE_ROLES` is unchanged, so missing optional weights do not block an inswapper swap. A hyperswap run needs `models/hyperswap_1a_256.onnx`, which is not part of the default buffalo download.
 
 | Name | Native | Template | Normalize | Latent | Crossface |
 | --- | --- | --- | --- | --- | --- |
@@ -68,7 +68,7 @@ Image and latent inputs are bound by rank (4-D image, 2-D latent), not by a hard
 
 ## Pixel boost
 
-`pixel_boost` aligns the crop at the boosted side, splits it into contiguous native-size squares, runs the same latent on each tile, and stitches the tiles. Allowed sides are 128, 256, 512, 768, and 1024 when the side is at least the native size and divides evenly. `0` means native size. Inswapper with boost `0` still honors `swap.resolution`, so a test can point a mock graph at a size that is not a tile multiple. A side that is not a multiple of native is one inference. Video uses the same swapper, so `--pixel-boost 256` or `512` tiles inswapper there too. `256` is four 128-pixel tiles.
+`pixel_boost` aligns the crop at the boosted side, then takes interleaved full-face subsamples `crop[row::count, col::count]`. Each tile is inferred with the same latent and written back on that lattice. The tiles are not quadrants. Allowed sides are 128, 256, 512, 768, and 1024 when the side is at least the native size and divides evenly. `0` means native size. Inswapper with boost `0` still honors `swap.resolution`, so a test can point a mock graph at a size that is not a tile multiple. A side that is not a multiple of native is one inference. Video uses the same swapper, so `--pixel-boost 256` or `512` tiles there too. A 512 crop on a 256 network is four interleaved views of the whole face. `256` on inswapper (native 128) is still four 128-pixel tiles.
 
 `--eye-mode` chooses the eyes after inswapper. The 128 crop often draws the source eyelids, so a plain swap looks narrow or half-closed.
 
@@ -79,6 +79,12 @@ Image and latent inputs are bound by rank (4-D image, 2-D latent), not by a hard
 | `target` | The original target eyes. |
 
 Five-point landmarks become two ellipses. A 106-point set uses the convex hull of the upper-face clusters, split left and right. When `models/bisenet_face_parsing.onnx` is loaded, the left and right eye and brow classes replace that geometric mask on the swap. `blend.eye_sharpen` (default 0.6) is an unsharp mask limited to that region. `--with-enhancer` appends `face_enhancer` when it is not already listed. `enhancer.eye_blend` (default 0.35) is scaled down again while the eyes are open, so the restoration does not redraw the lids. `enhancer.blend` (default 0.6) covers the rest of the face.
+
+## Landmarks and expression
+
+`landmarks.refine` is `auto` (default), `always`, or `off`. `auto` and `always` open `models/2dfan4.onnx` when that file exists. The crop scales the face box so its longer side is 195 pixels inside a 256 canvas. The network returns 68 points. Five alignment points are the means of indices 36:42 and 42:48, point 30, and points 48 and 54. `auto` replaces the detector's five points only when the face is a profile (`profile_ratio`, default 0.22) or the detector score is below `min_score` (default 0.65). Frontal faces keep the detector points. `always` replaces every face. `off` does not open the file. A missing file, or a heatmap score below 0.05, keeps the detector landmarks. The 68 points stay on `Face.landmarks_68` and are not appended to the five-point array. `commercial_use` stays false. `--with-landmarks` downloads the file. The pin is in `scripts/download_models.md`.
+
+`expression.enabled` (default true) pastes target eyes and a pursed mouth from those 68 points. The eye amount is `0.05 + 0.85 * closedness` and the mouth amount is `0.55 * pursedness`, using `ear_open` 0.24, `ear_closed` 0.15, `mar_open` 0.045, and `mar_closed` 0.012. Hulls are the eye-and-brow rings and the mouth ring, drawn in the aligned crop. When this path runs, `blend.eye_mode` is skipped, because that blend would put most of the target eye back on an open five-point face. Without 68 points, `blend.eye_mode` still runs. The enhancer sees `1 - closedness` as `eye_openness`. Video still leaves `face_enhancer` off unless `--with-enhancer` or the processor list adds it.
 
 ## Face selection
 
@@ -103,7 +109,7 @@ The crop is aligned with the FFHQ 5-point template scaled by `size / 512`, then 
 The ONNX contract is local code, not a copy of the GFPGAN or CodeFormer training projects:
 
 - Input is NCHW RGB float32, normalized with `(pixel / 255 - 0.5) / 0.5` (range [-1, 1]).
-- A non-4-D input, when the graph has one, receives the CodeFormer weight.
+- A non-4-D input, when the graph has one, receives the CodeFormer weight. An input typed `tensor(double)` is cast to float64. Float inputs stay float32.
 - Output is decoded as [-1, 1] when any value is below `-0.01`, as 0..255 when the max is above `1.5`, and as 0..1 otherwise.
 - Spatial size follows the session. The registry fallback is 512.
 
@@ -133,7 +139,7 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 
 ## Execution
 
-`execution.precision` is `fp32` (the default) or `fp16`. fp16 looks beside the configured file for `{stem}_fp16.onnx` and falls back to the fp32 path when that sibling is absent. `execution.cuda_graph` sets `enable_cuda_graph` on the CUDA provider. Any session that reports `CUDAExecutionProvider` reuses one IO binding; a failure falls back to `session.run`. CPU sessions, including CI, stay on `session.run`. TensorRT options (engine cache, timing cache, fp16, builder optimization level 0–5) are attached only when `TensorrtExecutionProvider` is installed. `--execution-provider tensorrt` selects that provider and then CPU. The engine-cache prefix is the model role, so inswapper (`swapper`) and xseg (`occluder`) do not share one engine name. `prefer_cuda` still puts CUDA first when both CUDA and TensorRT are listed. CPU CI skips both and does not create the cache directories. The base package does not depend on an ONNX Runtime wheel. Install the `[cpu]` extra or the `[gpu]` extra, not both. `doctor` warns when both distribution names are installed.
+`execution.precision` is `fp32` (the default) or `fp16`. fp16 looks beside the configured file for `{stem}_fp16.onnx` and falls back to the fp32 path when that sibling is absent. `execution.cuda_graph` sets `enable_cuda_graph` on the CUDA provider. Any session that reports `CUDAExecutionProvider` reuses one IO binding; a failure falls back to `session.run`. CPU sessions, including CI, stay on `session.run`. TensorRT options (engine cache, timing cache, builder optimization level 0–5) are attached only when `TensorrtExecutionProvider` is installed. `tensorrt.fp16` defaults to false because fp16 changes identity. `--execution-provider tensorrt` selects that provider and then CPU. The engine-cache prefix is the model role, so inswapper (`swapper`) and xseg (`occluder`) do not share one engine name. `prefer_cuda` still puts CUDA first when both CUDA and TensorRT are listed. CPU CI skips both and does not create the cache directories. The base package does not depend on an ONNX Runtime wheel. Install the `[cpu]` extra or the `[gpu]` extra, not both. `doctor` warns when both distribution names are installed.
 
 ## Commercial route
 

@@ -60,6 +60,8 @@ models:
   swapper:
     path: {models / "inswapper_128.onnx"}
     sha256: null
+swap:
+  model: inswapper_128
 compliance:
   enabled: {"true" if enabled else "false"}
   content_filter:

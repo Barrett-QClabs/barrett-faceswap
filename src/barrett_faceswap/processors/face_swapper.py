@@ -13,7 +13,9 @@ from barrett_faceswap.blend import apply_color, paste_back, paste_poisson
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.detect import FaceDetector, select_face
 from barrett_faceswap.errors import NoFaceError
+from barrett_faceswap.expression import preserve_expression
 from barrett_faceswap.eyes import eye_openness, restore_eyes
+from barrett_faceswap.landmarks import LandmarkRefiner
 from barrett_faceswap.facesel import FaceMapEntry, FaceTracker, assign_slots, load_face_map
 from barrett_faceswap.i18n import t
 from barrett_faceswap.masking import MaskStack
@@ -51,6 +53,7 @@ class FaceSwapper:
         self._spec = swapper_by_name(config.swap.model)
         self._detector_obj: FaceDetector | None = None
         self._backend_impl = None
+        self._landmarker: LandmarkRefiner | None = None
         self.stage_seconds = {
             "detect": 0.0,
             "align": 0.0,
@@ -139,6 +142,13 @@ class FaceSwapper:
             return search_faces(self._detector(), image)
         finally:
             self.stage_seconds["detect"] += time.perf_counter() - started
+
+    def _refine(self, frame: np.ndarray, face: Face) -> Face:
+        if self.config.landmarks.refine == "off" or self.store is None:
+            return face
+        if self._landmarker is None:
+            self._landmarker = LandmarkRefiner(self.store, self.config)
+        return self._landmarker.refine(frame, face)
 
     def _detector(self) -> FaceDetector:
         if self._detector_obj is None:
@@ -288,8 +298,9 @@ class FaceSwapper:
             resolution=self.config.swap.resolution,
         )
         template = swap_template(self._spec.template, side)
-        points = np.asarray(face.landmarks, dtype=np.float32).reshape(-1, 2)
         started = time.perf_counter()
+        face = self._refine(frame, face)
+        points = np.asarray(face.landmarks, dtype=np.float32).reshape(-1, 2)
         crop, matrix = align_face(frame, points[:5], side, template=template)
         self.stage_seconds["align"] += time.perf_counter() - started
         backend = self._backend()
@@ -318,19 +329,26 @@ class FaceSwapper:
         self.stage_seconds["mask"] += time.perf_counter() - started
         started = time.perf_counter()
         colored = apply_color(self.config.blend.color, swapped, crop, mask)
-        eye_points = map_points(points, matrix) if points.shape[0] >= 106 else template
-        openness = eye_openness(eye_points)
-        ctx.eye_openness = openness
-        colored = restore_eyes(
-            self.config.blend.eye_mode,
-            colored,
-            crop,
-            eye_points,
-            self.config.blend.mask_blur,
-            self.config.blend.eye_sharpen,
-            mask=getattr(self.masks, "eye_mask", None),
-            openness=openness,
-        )
+        expressed = None
+        if self.config.expression.enabled and face.landmarks_68 is not None:
+            expressed = preserve_expression(colored, crop, face.landmarks_68, matrix, self.config.expression)
+        if expressed is None:
+            eye_points = map_points(points, matrix) if points.shape[0] >= 106 else template
+            openness = eye_openness(eye_points)
+            ctx.eye_openness = openness
+            colored = restore_eyes(
+                self.config.blend.eye_mode,
+                colored,
+                crop,
+                eye_points,
+                self.config.blend.mask_blur,
+                self.config.blend.eye_sharpen,
+                mask=getattr(self.masks, "eye_mask", None),
+                openness=openness,
+            )
+        else:
+            colored, openness = expressed
+            ctx.eye_openness = openness
         self.stage_seconds["color"] += time.perf_counter() - started
         started = time.perf_counter()
         if self.config.blend.mode == "poisson":

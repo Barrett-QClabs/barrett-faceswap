@@ -19,6 +19,10 @@ models:
   recognizer:
     path: models/w600k_r50.onnx
     sha256: null
+  # Optional 68-point refiner. A missing file keeps the detector landmarks.
+  landmark:
+    path: models/2dfan4.onnx
+    sha256: null
   swapper:
     path: models/inswapper_128.onnx
     sha256: null
@@ -140,7 +144,8 @@ execution:
   tensorrt:
     engine_cache: .cache/tensorrt/engines
     timing_cache: .cache/tensorrt/timing
-    fp16: true
+    # fp16 changes identity. Leave this false unless a still has been checked.
+    fp16: false
     builder_optimization_level: 3
 
 live:
@@ -156,10 +161,11 @@ detect:
   nms_threshold: 0.4
 
 swap:
-  # inswapper_128 | hyperswap_1a_256 | hyperswap_1b_256 | hyperswap_1c_256
+  # hyperswap_1a_256 is the quality default. inswapper_128 remains available.
+  # | hyperswap_1b_256 | hyperswap_1c_256
   # | simswap_256 | simswap_unofficial_512 | blendswap_256
-  # | ghost_1_256 | ghost_2_256 | ghost_3_256
-  model: inswapper_128
+  # | ghost_1_256 | ghost_2_256 | ghost_3_256 | inswapper_128
+  model: hyperswap_1a_256
   resolution: 128
   # 0 keeps the native size (inswapper also honors resolution).
   pixel_boost: 0
@@ -182,11 +188,42 @@ blend:
   # Unsharp amount inside the eye mask. 0 disables it.
   eye_sharpen: 0.6
 
+landmarks:
+  # auto runs 2dfan4 when models/2dfan4.onnx exists. The five alignment points
+  # are replaced only for a profile or a low-score face. always replaces every
+  # face. off does not open the file. 68 points are kept either way so
+  # expression can read the eyes and the mouth.
+  # auto | always | off
+  refine: auto
+  min_score: 0.65
+  profile_ratio: 0.22
+
+expression:
+  # Paste target eyes, and a pursed mouth, from the 68-point hull.
+  # Closed eyes use more of the target. Open eyes stay on the swap.
+  # When this is on and 68 points exist, blend.eye_mode is not applied.
+  enabled: true
+  eye_base: 0.05
+  eye_boost: 0.85
+  mouth_base: 0.0
+  mouth_boost: 0.55
+  eye_dilate: 3
+  mouth_dilate: 1
+  eye_expand: 1.35
+  mouth_expand: 1.15
+  ear_open: 0.24
+  ear_closed: 0.15
+  mar_open: 0.045
+  mar_closed: 0.012
+  blur: 9
+
 jobs:
   root: jobs
 
-# face_enhancer is registered. It is not in the default chain, so a swap does not
-# require GFPGAN or CodeFormer weights. Add it when you want restoration.
+# face_enhancer is registered and stays out of this list, including for video.
+# Add it, or pass --with-enhancer, when a still needs restoration. CodeFormer
+# at weight 0.7 with a parser file keeps eyes and brows. GFPGAN narrows eyes
+# and oversmooths skin, so it is not the video default.
 processors:
   - face_swapper
 

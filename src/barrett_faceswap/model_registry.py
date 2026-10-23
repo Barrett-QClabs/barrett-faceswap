@@ -65,6 +65,7 @@ _EXTRA_RECORDS = _swapper_records()
 ROLE_ORDER = (
     "detector",
     "recognizer",
+    "landmark",
     "swapper",
     "hyperswap_1a",
     "hyperswap_1b",
@@ -111,6 +112,16 @@ BUILTIN: dict[str, ModelRecord] = {
         alignment="arcface_112",
         input_size=(112, 112),
         download_url="https://github.com/deepinsight/insightface/releases/tag/model-zoo",
+    ),
+    "landmark": ModelRecord(
+        role="landmark",
+        filename="2dfan4.onnx",
+        sha256=None,
+        license_key="models.license.fan",
+        commercial_use=False,
+        alignment="fan_68",
+        input_size=(256, 256),
+        download_url="https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/2dfan4.onnx",
     ),
     "swapper": ModelRecord(
         role="swapper",

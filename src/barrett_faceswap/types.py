@@ -16,11 +16,14 @@ class Face:
     ``bbox`` is ``x1, y1, x2, y2``. ``landmarks`` holds at least five points.
     The first five stay in ArcFace order: left eye, right eye, nose, left
     mouth corner, right mouth corner. A 106-point set may follow them.
+    ``landmarks_68`` is the optional 2DFAN4 set. It is not appended to
+    ``landmarks``, because eye openness treats a long array as 106 points.
     """
 
     bbox: np.ndarray
     score: float
     landmarks: np.ndarray
+    landmarks_68: np.ndarray | None = None
 
 
 @dataclass

@@ -23,8 +23,26 @@ barrett-faceswap doctor
 | `gfpgan_1.4.onnx` | `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385` |
 | `xseg_1.onnx`（存为 `occlusion_xseg.onnx`） | `c4d1498b8a03b5fe2a3a5d2ef2a0402ab03bd51edaf5b2d8d5fb764702a97dd3` |
 | `bisenet_resnet_34.onnx`（存为 `bisenet_face_parsing.onnx`） | `4a0b8c958a3c938913bd06a8365dbb3c8761afba6ecbf0d14b3b1f77eb230c96` |
+| `2dfan4.onnx` | `678c6fa539d52335a31c980feefdf4a6e02d781d83dce00af8a894f114557285` |
 
 buffalo 压缩包本身不锁定哈希。命令在解压后核对两个 ONNX 成员，因此一份有效的重新打包也会被接受。你仍然可以手动复制文件，再用 `barrett-faceswap inspect-models` 锁定。
+
+`--with-landmarks` 不属于默认下载。与发行配置一致的质量组合是：
+
+```bash
+barrett-faceswap download-models --swapper hyperswap_1a_256 --with-masks --with-landmarks
+```
+
+默认命令仍然只取 `buffalo_l.zip` 和 `inswapper_128.onnx`。`swap.model` 是 `hyperswap_1a_256`，真正运行前需要先下载那个文件。遮挡保持 `xseg_1`。提供者保持 CUDA，然后是 CPU。`tensorrt.fp16` 是 false。视频不会跑增强器，除非 `--with-enhancer` 把它加进去。
+
+## 2dfan4.onnx
+
+可选的 68 点关键点细化。`--with-landmarks` 把它存到 `models/2dfan4.onnx`。唯一接受的 sha256 是 `678c6fa539d52335a31c980feefdf4a6e02d781d83dce00af8a894f114557285`。
+
+- <https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/2dfan4.onnx>
+- <https://huggingface.co/facefusion/models-3.0.0/resolve/main/2dfan4.onnx>
+
+这份权重是 Adrian Bulat（breadbread1984）2018 年的 FAN 模型，MIT 许可，经 facefusion-assets 再分发。`commercial_use` 保持 false。文件缺失时保留检测器关键点。`compliance.enabled` 保持 false。
 
 期望的文件名：
 
@@ -32,6 +50,7 @@ buffalo 压缩包本身不锁定哈希。命令在解压后核对两个 ONNX 成
 | --- | --- | --- | --- |
 | 检测 | `models/det_10g.onnx` | `scrfd` | 640 |
 | 识别 | `models/w600k_r50.onnx` | `arcface_112` | 112 |
+| 关键点 | `models/2dfan4.onnx` | `fan_68` | 256 |
 | 换脸 | `models/inswapper_128.onnx` | `inswapper_128` | 128 |
 | gfpgan | `models/gfpgan_1.4.onnx` | `ffhq_512` | 512 |
 | codeformer | `models/codeformer.onnx` | `ffhq_512` | 512 |
