@@ -17,6 +17,7 @@ from barrett_faceswap.config import load_config
 from barrett_faceswap.errors import MediaToolError
 from barrett_faceswap.media.ffmpeg import (
     build_encode_command,
+    build_encode_pipe_command,
     build_extract_command,
     probe,
     read_first_frame,
@@ -49,6 +50,14 @@ def _make_clip(path: Path, *, seconds: float = 0.4, size: str = "160x120", audio
     subprocess.run(command, check=True, capture_output=True, text=True)
 
 
+def _moov_precedes_mdat(path: Path) -> None:
+    data = path.read_bytes()
+    moov = data.find(b"moov")
+    mdat = data.find(b"mdat")
+    assert moov >= 0 and mdat >= 0
+    assert moov < mdat
+
+
 def test_sample_indexes_include_the_last_frame() -> None:
     assert sample_indexes(6, 3) == [0, 3, 5]
     assert sample_indexes(4, 1) == [0, 1, 2, 3]
@@ -73,9 +82,53 @@ def test_nvenc_command_selects_that_encoder(tmp_path: Path) -> None:
     assert "libx264" not in command
     assert "-c:a" in command and "aac" in command
     assert "-ss" in command and "-to" in command
+    assert command[-3:] == ["-movflags", "+faststart", str(tmp_path / "out.mp4")]
     extract = build_extract_command(tmp_path / "in.mp4", frames, trim_start=0.5, trim_end=None)
     assert extract[0].endswith("ffmpeg") or "ffmpeg" in extract[0]
     assert "-ss" in extract
+
+
+def test_disk_and_pipe_encodes_put_moov_before_mdat(tmp_path: Path) -> None:
+    _ffmpeg_or_skip()
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    for index in range(1, 4):
+        write_png(frames / f"frame_{index:06d}.png", (0, 0, 255), size=(64, 48))
+    disk = tmp_path / "disk.mp4"
+    command = build_encode_command(
+        frames,
+        disk,
+        fps=10,
+        encoder="libx264",
+        crf=23,
+        audio_source=None,
+        audio_mode="none",
+        trim_start=None,
+        trim_end=None,
+    )
+    assert command[-3:] == ["-movflags", "+faststart", str(disk)]
+    subprocess.run(command, check=True, capture_output=True)
+    _moov_precedes_mdat(disk)
+
+    pipe_out = tmp_path / "pipe.mp4"
+    width, height = 64, 48
+    frame = np.zeros((height, width, 3), dtype=np.uint8)
+    frame[:, :, 2] = 180
+    pipe = build_encode_pipe_command(
+        pipe_out,
+        width=width,
+        height=height,
+        fps=10,
+        encoder="libx264",
+        crf=23,
+        audio_source=None,
+        audio_mode="none",
+        trim_start=None,
+        trim_end=None,
+    )
+    assert pipe[-3:] == ["-movflags", "+faststart", str(pipe_out)]
+    subprocess.run(pipe, input=frame.tobytes() * 3, check=True, capture_output=True)
+    _moov_precedes_mdat(pipe_out)
 
 
 def test_missing_ffprobe_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,6 +157,7 @@ def test_dry_run_video_keeps_audio_and_skips_audit(tmp_path: Path) -> None:
     info = probe(output)
     assert info.has_audio is True
     assert info.width > 0
+    _moov_precedes_mdat(output)
 
 
 def test_trim_shortens_the_clip(tmp_path: Path) -> None:
@@ -200,6 +254,7 @@ def test_compliance_samples_frames_and_watermarks_every_frame(
     assert len(targets) == len(outputs)
     frame = read_first_frame(output)
     assert int(frame[-4, frame.shape[1] // 2].mean()) < 80
+    _moov_precedes_mdat(output)
 
 
 def test_blocked_output_sample_is_audited_and_not_encoded(

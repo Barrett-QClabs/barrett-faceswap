@@ -587,6 +587,7 @@ def test_pipe_commands_keep_the_named_encoder(tmp_path: Path) -> None:
     assert "h264_nvenc" in encode
     assert "libx264" not in encode
     assert "pipe:0" in encode
+    assert encode[-3:] == ["-movflags", "+faststart", str(tmp_path / "out.mp4")]
     assert even_size(161, 119) == (160, 118)
 
 

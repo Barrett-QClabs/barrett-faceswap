@@ -195,7 +195,8 @@ def build_encode_command(
         command += ["-c:a", "aac", "-b:a", "192k"]
     if audio_mode != "none":
         command += ["-shortest"]
-    command += [str(output)]
+    # Output option: relocate the moov atom so browsers can play before the download finishes.
+    command += ["-movflags", "+faststart", str(output)]
     return command
 
 
@@ -356,7 +357,7 @@ def build_encode_pipe_command(
         command += ["-c:a", "aac", "-b:a", "192k"]
     if audio_mode != "none":
         command += ["-shortest"]
-    command += [str(output)]
+    command += ["-movflags", "+faststart", str(output)]
     return command
 
 
