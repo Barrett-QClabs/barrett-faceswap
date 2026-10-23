@@ -48,7 +48,10 @@ class FaceSwapper:
         self.providers = providers
         self.store: ModelStore | None = None
         self.masks: MaskStack | None = None
-        self.tracker = FaceTracker(iou_threshold=float(config.swap.track_iou))
+        self.tracker = FaceTracker(
+            iou_threshold=float(config.swap.track_iou),
+            max_missed=int(config.video.max_face_gap),
+        )
         self._slots: list[_Slot] | None = None
         self._spec = swapper_by_name(config.swap.model)
         self._detector_obj: FaceDetector | None = None
@@ -85,7 +88,10 @@ class FaceSwapper:
             faces = list(ctx.known_faces)
         else:
             faces = self._detect(frame)
+        faces = [face for face in faces if float(face.score) >= float(self.config.detect.score_threshold)]
         if not faces:
+            if self.config.swap.track:
+                self.tracker.update([])
             if ctx.allow_missing_face:
                 return frame
             raise NoFaceError(t("detect.no_face"))

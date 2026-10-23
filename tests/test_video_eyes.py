@@ -35,7 +35,7 @@ def _face(origin: float) -> Face:
     )
 
 
-def test_face_stream_interpolates_inside_the_gap() -> None:
+def test_face_stream_does_not_paste_a_miss_or_slide_the_box() -> None:
     stream = FaceStream(max_gap=10, smooth="none")
     blank = np.zeros((4, 4, 3), dtype=np.uint8)
     ready = []
@@ -43,12 +43,18 @@ def test_face_stream_interpolates_inside_the_gap() -> None:
     for index in range(1, 4):
         ready.extend(stream.push(index, blank, [], "miss"))
     ready.extend(stream.push(4, blank, [_face(40)], "hit"))
-    filled = [item for item in ready if item.tag == "filled"]
-    assert [item.index for item in filled] == [1, 2, 3]
-    assert filled[1].faces[0].landmarks[0, 0] == pytest.approx(20.0)
+    ready.extend(stream.finish())
+    by_index = {item.index: item for item in ready}
+    assert by_index[0].tag == "detected"
+    assert by_index[0].faces[0].bbox[0] == pytest.approx(0.0)
+    for index in (1, 2, 3):
+        assert by_index[index].tag == "passthrough"
+        assert by_index[index].faces == []
+    assert by_index[4].tag == "detected"
+    assert by_index[4].faces[0].bbox[0] == pytest.approx(40.0)
     assert stream.counts["detected"] == 2
-    assert stream.counts["filled"] == 3
-    assert stream.counts["passthrough"] == 0
+    assert stream.counts["filled"] == 0
+    assert stream.counts["passthrough"] == 3
 
 
 def test_face_stream_passthrough_beyond_the_gap_and_at_the_end() -> None:
@@ -58,13 +64,13 @@ def test_face_stream_passthrough_beyond_the_gap_and_at_the_end() -> None:
     ready.extend(stream.push(0, blank, [_face(0)], "hit"))
     for index in range(1, 6):
         ready.extend(stream.push(index, blank, [], "miss"))
-    ready.extend(stream.finish())
+    assert stream.finish() == []
     by_index = {item.index: item for item in ready}
-    assert by_index[1].tag == "filled"
-    assert by_index[2].tag == "filled"
-    assert by_index[3].tag == "passthrough"
-    assert by_index[5].tag == "passthrough"
-    assert stream.counts["passthrough"] >= 2
+    assert by_index[0].faces
+    for index in range(1, 6):
+        assert by_index[index].tag == "passthrough"
+        assert by_index[index].faces == []
+    assert stream.counts["passthrough"] == 5
 
     tight = FaceStream(max_gap=0, smooth="none")
     missed = tight.push(1, blank, [], "miss")
@@ -121,7 +127,7 @@ def test_rotation_round_trip_and_retry_tag() -> None:
                 return [
                     Face(
                         bbox=np.array([center[0] - 2, center[1] - 2, center[0] + 2, center[1] + 2], np.float32),
-                        score=0.4,
+                        score=0.8,
                         landmarks=landmarks,
                     )
                 ]
@@ -131,6 +137,60 @@ def test_rotation_round_trip_and_retry_tag() -> None:
     assert retry == "retry"
     assert found
     assert float(found[0].landmarks[0, 0]) == pytest.approx(15.5, abs=2.0)
+    assert float(found[0].score) >= 0.5
+
+
+def test_search_ignores_faces_below_the_configured_score() -> None:
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+
+    class _Quiet:
+        score_threshold = 0.5
+
+        def __init__(self) -> None:
+            self.thresholds: list[float | None] = []
+
+        def try_detect(self, image_bgr, threshold=None):
+            del image_bgr
+            self.thresholds.append(float(threshold))
+            return [
+                Face(
+                    bbox=np.array([1, 1, 8, 8], dtype=np.float32),
+                    score=0.2,
+                    landmarks=np.zeros((5, 2), dtype=np.float32),
+                )
+            ]
+
+    detector = _Quiet()
+    faces, tag = search_faces(detector, image)
+    assert tag == "miss"
+    assert faces == []
+    assert detector.thresholds
+    assert min(detector.thresholds) >= detector.score_threshold
+
+
+def test_low_score_known_face_is_not_swapped_and_the_track_expires(tmp_path: Path) -> None:
+    config = load_config(write_config(tmp_path, enabled=False))
+    config = config.model_copy(update={"video": config.video.model_copy(update={"max_face_gap": 1})})
+    swapper = FaceSwapper(config, ["cpu"])
+    swapper.store = object()
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    low = Face(
+        bbox=np.array([0, 0, 10, 10], dtype=np.float32),
+        score=0.1,
+        landmarks=_face(0).landmarks,
+    )
+    swapper.tracker.update([low.bbox])
+    ctx = ProcessContext(
+        source_bgr=frame,
+        dry_run=False,
+        allow_missing_face=True,
+        known_faces=[low],
+        log_every_frame=False,
+    )
+    assert np.array_equal(swapper.process_frame(frame, ctx), frame)
+    assert swapper.tracker.tracks and swapper.tracker.tracks[0].missed == 1
+    assert np.array_equal(swapper.process_frame(frame, ctx), frame)
+    assert swapper.tracker.tracks == []
 
 
 def test_eye_mask_and_restore() -> None:

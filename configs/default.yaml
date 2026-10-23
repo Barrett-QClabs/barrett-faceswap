@@ -126,8 +126,8 @@ video:
   filter_every_n_frames: 30
   keep_audio: true
   crf: 18
-  # Frames with no face are retried, then filled from neighbors inside this gap.
-  # Beyond the gap the frame is left unchanged. Still images still fail loudly.
+  # A frame with no face is left unchanged. This is how many missed frames the
+  # identity tracker remembers before it drops the track. It does not paste the last box.
   max_face_gap: 10
   # one_euro | ema | none
   smooth: one_euro

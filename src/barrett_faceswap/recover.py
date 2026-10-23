@@ -1,7 +1,8 @@
-"""Video face recovery: a harder detect, gap fill, and temporal smoothing.
+"""Video face recovery: a same-threshold retry, then temporal smoothing.
 
 A still image does not use this module. Video calls it so one frame with no
-detection does not abort the job. Beyond ``max_gap`` the frame is left unchanged.
+detection does not abort the job. A miss leaves that frame unchanged. The last
+box is not pasted onto later empty frames.
 """
 
 from __future__ import annotations
@@ -32,75 +33,29 @@ class Recovered:
 
 @dataclass
 class FaceStream:
-    """Look ahead up to ``max_gap`` frames so a hole can use both neighbors."""
+    """Emit a detected face, and leave a miss unchanged.
+
+    ``max_gap`` is accepted so callers can keep passing ``video.max_face_gap``.
+    This stream does not copy the last box across that gap. The identity
+    tracker uses the same count to forget a lost face.
+    """
 
     max_gap: int
     smooth: str = "one_euro"
     counts: dict[str, int] = field(
         default_factory=lambda: {"detected": 0, "retried": 0, "filled": 0, "passthrough": 0}
     )
-    _pending: list[tuple[int, np.ndarray]] = field(default_factory=list)
-    _last: tuple[int, list[Face]] | None = field(default=None)
     _box: object | None = None
     _landmarks: object | None = None
 
     def push(self, index: int, frame: np.ndarray, faces: list[Face], tag: str) -> list[Recovered]:
-        primary = _primary(faces)
-        ready: list[Recovered] = []
-        if primary is not None and tag != "miss":
-            ready.extend(self._flush(index, faces, tag))
-            ready.append(self._emit(index, frame, faces, "retry" if tag == "retry" else "detected"))
-            self._last = (index, [_copy_face(face) for face in faces])
-            return ready
-        self._pending.append((index, frame))
-        while self._pending and index - self._pending[0][0] >= self.max_gap:
-            old_index, old_frame = self._pending.pop(0)
-            ready.append(self._from_past(old_index, old_frame))
-        return ready
+        if tag == "miss" or not faces:
+            return [self._emit(index, frame, [], "passthrough")]
+        kind = "retry" if tag == "retry" else "detected"
+        return [self._emit(index, frame, faces, kind)]
 
     def finish(self) -> list[Recovered]:
-        ready: list[Recovered] = []
-        while self._pending:
-            index, frame = self._pending.pop(0)
-            ready.append(self._from_past(index, frame))
-        return ready
-
-    def _flush(self, right_index: int, right_faces: list[Face], tag: str) -> list[Recovered]:
-        del tag
-        left = self._last
-        pending = self._pending
-        self._pending = []
-        ready: list[Recovered] = []
-        right_primary = _primary(right_faces)
-        left_face = _primary(left[1]) if left is not None else None
-        for index, frame in pending:
-            dist_left = index - left[0] if left is not None else 10**9
-            dist_right = right_index - index
-            if (
-                dist_left <= self.max_gap
-                and dist_right <= self.max_gap
-                and left is not None
-                and left_face is not None
-                and right_primary is not None
-            ):
-                span = max(1, right_index - left[0])
-                alpha = (index - left[0]) / span
-                face = _lerp(left_face, right_primary, alpha)
-                ready.append(self._emit(index, frame, [face], "filled"))
-            elif dist_left <= dist_right and left_face is not None and dist_left <= self.max_gap:
-                ready.append(self._emit(index, frame, [_copy_face(left_face)], "filled"))
-            elif right_primary is not None and dist_right <= self.max_gap:
-                ready.append(self._emit(index, frame, [_copy_face(right_primary)], "filled"))
-            else:
-                ready.append(self._emit(index, frame, [], "passthrough"))
-        return ready
-
-    def _from_past(self, index: int, frame: np.ndarray) -> Recovered:
-        if self._last is not None and index - self._last[0] <= self.max_gap:
-            primary = _primary(self._last[1])
-            if primary is not None:
-                return self._emit(index, frame, [_copy_face(primary)], "filled")
-        return self._emit(index, frame, [], "passthrough")
+        return []
 
     def _emit(self, index: int, frame: np.ndarray, faces: list[Face], tag: str) -> Recovered:
         if tag == "passthrough" or not faces:
@@ -125,33 +80,39 @@ class FaceStream:
 
 
 def search_faces(detector, image: np.ndarray) -> tuple[list[Face], str]:
-    """Ordinary detect, then a lower threshold, rotations, and an upscale.
+    """Detect at ``score_threshold``, then rotate and upscale at that same score.
 
+    A box below the configured score is not a face. The threshold is not
+    lowered on a miss, so noise on an empty frame is not swapped.
     Returns ``(faces, tag)`` with tag ``hit``, ``retry``, or ``miss``.
     """
 
-    found = detector.try_detect(image)
+    threshold = float(detector.score_threshold)
+    found = _accepted(detector.try_detect(image, threshold), threshold)
     if found:
         return found, "hit"
-    low = max(0.2, float(detector.score_threshold) * 0.5)
-    if low < float(detector.score_threshold) - 1e-6:
-        found = detector.try_detect(image, low)
-        if found:
-            return found, "retry"
-    else:
-        low = float(detector.score_threshold)
     for angle in RETRY_ANGLES:
-        found = _attempt(detector, image, low, angle=angle, scale=1.0)
+        found = _accepted(_attempt(detector, image, threshold, angle=angle, scale=1.0), threshold)
         if found:
             return found, "retry"
-    found = _attempt(detector, image, low, angle=0.0, scale=RETRY_SCALE)
+    found = _accepted(_attempt(detector, image, threshold, angle=0.0, scale=RETRY_SCALE), threshold)
     if found:
         return found, "retry"
     for angle in (90.0, -90.0):
-        found = _attempt(detector, image, low, angle=angle, scale=RETRY_SCALE)
+        found = _accepted(_attempt(detector, image, threshold, angle=angle, scale=RETRY_SCALE), threshold)
         if found:
             return found, "retry"
     return [], "miss"
+
+
+def _accepted(faces: list[Face], threshold: float) -> list[Face]:
+    """Keep faces that clear ``threshold``. A missing score does not pass."""
+
+    kept: list[Face] = []
+    for face in faces:
+        if float(face.score) >= float(threshold):
+            kept.append(face)
+    return kept
 
 
 def rotate_bgr(image: np.ndarray, angle: float) -> tuple[np.ndarray, np.ndarray]:
@@ -244,12 +205,6 @@ def _clip_points(points: np.ndarray, width: int, height: int) -> np.ndarray:
     return values
 
 
-def _primary(faces: list[Face]) -> Face | None:
-    if not faces:
-        return None
-    return max(faces, key=lambda face: _area(face))
-
-
 def _order(faces: list[Face]) -> list[Face]:
     return sorted(faces, key=lambda face: _area(face), reverse=True)
 
@@ -257,19 +212,6 @@ def _order(faces: list[Face]) -> list[Face]:
 def _area(face: Face) -> float:
     x1, y1, x2, y2 = [float(value) for value in face.bbox]
     return max(0.0, x2 - x1) * max(0.0, y2 - y1)
-
-
-def _copy_face(face: Face) -> Face:
-    return Face(bbox=np.array(face.bbox, dtype=np.float32, copy=True), score=float(face.score), landmarks=np.array(face.landmarks, dtype=np.float32, copy=True))
-
-
-def _lerp(left: Face, right: Face, alpha: float) -> Face:
-    weight = float(alpha)
-    return Face(
-        bbox=((1.0 - weight) * left.bbox + weight * right.bbox).astype(np.float32),
-        score=(1.0 - weight) * float(left.score) + weight * float(right.score),
-        landmarks=((1.0 - weight) * left.landmarks + weight * right.landmarks).astype(np.float32),
-    )
 
 
 def _smooth_face(stream: FaceStream, face: Face) -> Face:

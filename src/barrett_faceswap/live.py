@@ -147,6 +147,7 @@ class LiveSession:
             log_every_frame=False,
             source_face=self._hint_source,
             reuse_masks=True,
+            allow_missing_face=True,
         )
         for processor in self._processors:
             processor.pre_check(self._shared)
@@ -175,12 +176,10 @@ class LiveSession:
                 try:
                     detected = _detect_with(self._processors, frame)
                 except NoFaceError:
-                    if self._hint_target is None:
-                        raise
                     detected = []
                 if not detected and self._hint_target is not None:
                     detected = [self._hint_target]
-                faces = self._cache.observe(detected)
+                faces = self._cache.observe(detected if detected else [])
             else:
                 faces = self._cache.observe(None)
             self.stats.stage_s["detect"] += time.perf_counter() - detect_started

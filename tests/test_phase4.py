@@ -18,7 +18,7 @@ from barrett_faceswap.commercial import guard_commercial
 from barrett_faceswap.compliance.policy import CompliancePolicy
 from barrett_faceswap.compliance.watermark import apply_visible_watermark
 from barrett_faceswap.config import TensorRTConfig, load_config
-from barrett_faceswap.errors import ConfigError
+from barrett_faceswap.errors import ConfigError, NoFaceError
 from barrett_faceswap.execution import resolve_providers, tensorrt_options
 from barrett_faceswap.face_cache import DetectionCache
 from barrett_faceswap.i18n import t
@@ -54,6 +54,8 @@ def test_detection_cache_interpolates_between_detections() -> None:
     advanced = cache.observe(None)
     assert advanced[0].bbox[0] == pytest.approx(18)
     assert advanced[0].bbox[2] == pytest.approx(48)
+    assert cache.observe([]) == []
+    assert cache.observe(None) == []
 
 
 class _FakeSwapper:
@@ -144,6 +146,36 @@ def test_source_is_prepared_once_and_detection_is_strided(tmp_path: Path) -> Non
     assert fake.frames == 6
     assert stats.frames_out == 6
     assert stats.prepared == 1
+
+
+def test_live_miss_leaves_the_frame_and_clears_the_cache(tmp_path: Path) -> None:
+    config = _live_config(tmp_path, enabled=False, detect_every=1)
+
+    class _Miss(_FakeSwapper):
+        def detect_faces(self, frame):
+            del frame
+            self.detected += 1
+            raise NoFaceError("none")
+
+        def process_frame(self, frame, ctx):
+            self.frames += 1
+            assert list(ctx.known_faces) == []
+            return frame
+
+    fake = _Miss()
+    frames = [np.full((16, 16, 3), 30, np.uint8) for _ in range(3)]
+    seen: list[np.ndarray] = []
+    _result, stats = LivePipeline(config, admin_path=tmp_path / "missing.toml").run(
+        _request(tmp_path, dry_run=False, live_frames=3),
+        frames,
+        writer=seen.append,
+        preview=False,
+        processors=[fake],
+    )
+    assert stats.frames_out == 3
+    assert fake.detected == 3
+    assert len(seen) == 3
+    assert all(np.array_equal(out, src) for out, src in zip(seen, frames, strict=True))
 
 
 def test_slow_processor_drops_stale_frames(tmp_path: Path) -> None:

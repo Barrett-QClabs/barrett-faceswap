@@ -43,7 +43,7 @@ ffprobe
 
 磁盘模式（`video.mode: disk`，默认）把帧写在临时目录里，编码结束后删除。带任务编号时，这些帧留在 `jobs/<id>/{raw,processed}`，续跑可以复用。`video.threads` 默认是 4。干跑使用这个线程池。真实运行把人脸补全留在一条线程上，并让 PNG 的读取和写入重叠。逐帧分数笔记被关掉（`log_every_frame` 为 false），长视频不会每帧追加一行。一条汇总笔记记录处理了多少帧，以及检测到、重试后找到、补上和原样通过的数量。多人脸、参考脸、映射，以及任何任务都会强制单线程，这样跟踪器和 `next_frame` 保持顺序。
 
-检测把画面按比例放进方形网络输入，空余边补黑，再按这个缩放和左上角边距把框和五个关键点映回原图。画面不会被拉成正方形。真实视频在检测失败时不会中止。第一次没找到时，会降低阈值，再试旋转（含 ±90°），然后把输入放大 1.5 倍。`video.max_face_gap`（默认 10）以内的空洞会用相邻帧插值，或者沿用较近一侧。超出这个间隔的帧保持原样。`video.smooth` 是 `one_euro`（默认）、`ema` 或 `none`，原样通过后会重置。静态图像仍然抛出 `NoFaceError`。干跑不做检测。管道模式用队列让 ffmpeg 的解码和编码重叠（解码端带 `-thread_queue_size 32`）。换脸器在一次任务里保持同一个检测器和同一个换脸后端，因此 inswapper 矩阵只读一次。贴回只变换裁剪的包围盒，而不是整帧。Lab 和 mean/std 色彩匹配使用带蒙版的均值和标准差。
+检测把画面按比例放进方形网络输入，空余边补黑，再按这个缩放和左上角边距把框和五个关键点映回原图。画面不会被拉成正方形。真实视频在检测失败时不会中止。没找到时可以旋转或放大画面再试一次，这次重试仍使用 `detect.score_threshold`。低于这个分数的结果会被丢掉。没有通过检测的帧保持原样：不会把上一帧的框贴上去，也不会把框滑向后面某一帧的检测结果。`video.max_face_gap`（默认 10）是身份跟踪在丢掉这条轨迹之前，允许连续丢失的帧数。`video.smooth` 是 `one_euro`（默认）、`ema` 或 `none`，原样通过后会重置。静态图像仍然抛出 `NoFaceError`。干跑不做检测。管道模式用队列让 ffmpeg 的解码和编码重叠（解码端带 `-thread_queue_size 32`）。换脸器在一次任务里保持同一个检测器和同一个换脸后端，因此 inswapper 矩阵只读一次。贴回只变换裁剪的包围盒，而不是整帧。Lab 和 mean/std 色彩匹配使用带蒙版的均值和标准差。
 
 驱动无法编码时，`h264_nvenc` 不会退回 `libx264`。`video.keep_audio` 为 true 时保留音轨。完整文件先尝试流复制，失败再试 AAC。裁剪过的片段总会把音频重编码为 AAC。`--no-audio` 丢掉音轨。两条编码路径都在输出路径前加上 `-movflags +faststart`，因此 MP4 的 moov 原子留在文件开头，浏览器不用等整文件下完就能开始播放。
 
@@ -133,7 +133,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 实时
 
-`barrett-faceswap live` 用三条线程做采集、处理和输出。每一跳是一个 `LatestQueue`。队列满时 `put_latest` 丢掉最旧的帧（`live.queue_size`，默认 1）。检测每隔 `live.detect_every` 帧做一次（默认 3）。中间帧由 `DetectionCache` 按上次匹配到的速度移动框和关键点。缓存更新之后，One-Euro 滤波（`video.smooth`，与文件路径相同）会在处理器对齐之前平滑关键点。第一个样本保持原样。视频已经在 `FaceStream` 里、对齐之前做过平滑，因此实时滤波不会在那条路径上再做一次。`prepare_source` 只对源脸做一次向量。设置了 `DISPLAY` 时打开预览窗口。`--no-preview` 跳过预览。`--virtual-camera /dev/video2` 经 ffmpeg 把原始 BGR 写到 v4l2loopback 设备。设备不存在时记一条日志，预览继续。
+`barrett-faceswap live` 用三条线程做采集、处理和输出。每一跳是一个 `LatestQueue`。队列满时 `put_latest` 丢掉最旧的帧（`live.queue_size`，默认 1）。检测每隔 `live.detect_every` 帧做一次（默认 3）。中间帧由 `DetectionCache` 按上次匹配到的速度移动框和关键点。一次空检测会清掉这份缓存，丢失的人脸不会留在后面的帧上。这一帧本身保持原样。缓存更新之后，One-Euro 滤波（`video.smooth`，与文件路径相同）会在处理器对齐之前平滑关键点。第一个样本保持原样。视频已经在 `FaceStream` 里、对齐之前做过平滑，因此实时滤波不会在那条路径上再做一次。`prepare_source` 只对源脸做一次向量。设置了 `DISPLAY` 时打开预览窗口。`--no-preview` 跳过预览。`--virtual-camera /dev/video2` 经 ffmpeg 把原始 BGR 写到 v4l2loopback 设备。设备不存在时记一条日志，预览继续。
 
 合规包住这条路径。`before_process` 检查源图和第一帧摄像头画面。强制打开时，每一帧输出在内存里加水印。`complete_output` 追加一行审计，不给容器文件打标签。
 
