@@ -92,10 +92,12 @@ def test_quality_presets_do_not_collapse_fast_into_balanced() -> None:
     assert hq["enhancer"] is True
     assert hq["blend"] == 0.35
     assert "#0B0D10" in APP_CSS
-    assert "#2563EB" in APP_CSS
+    assert "#1E40AF" in APP_CSS
     assert "#14181F" in APP_CSS
-    assert "#E8ECF1" in APP_CSS
     assert "#FFFFFF" in APP_CSS
+    assert "font-size: 18px" in APP_CSS
+    assert "font-size: 17px" in APP_CSS
+    assert "font-weight: 700" in APP_CSS
     assert "button.secondary" in APP_CSS
     assert "label.float" in APP_CSS
     assert 'input[type="radio"]' in APP_CSS

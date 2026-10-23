@@ -41,71 +41,131 @@ _BG = "#0B0D10"
 _CARD = "#14181F"
 _LINE = "#1E2430"
 _TEXT = "#E8ECF1"
+_INK = "#0B0D10"
+_PAPER = "#FFFFFF"
 _MUTED = "#9AA3B2"
-_CTA = "#2563EB"
-_CTA_HOVER = "#3B82F6"
+# Darker than #2563EB so white labels stay solid (about 8.7:1) instead of looking washed out.
+_CTA = "#1E40AF"
+_CTA_HOVER = "#1D4ED8"
 
 APP_CSS = f"""
 .gradio-container {{
   background: {_BG} !important;
   color: {_TEXT};
+  font-size: 17px !important;
   font-family: "PingFang SC", "Noto Sans SC", system-ui, sans-serif !important;
 }}
 .gradio-container .block {{
   background: {_CARD};
   border-color: {_LINE};
 }}
+.gradio-container .prose,
+.gradio-container .prose p,
+.gradio-container .md {{
+  font-size: 17px !important;
+  line-height: 1.5 !important;
+  color: {_TEXT} !important;
+}}
+.gradio-container .tab-container button {{
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: {_TEXT} !important;
+}}
+.gradio-container .tab-container button.selected {{
+  color: {_PAPER} !important;
+}}
+.gradio-container button.label-wrap {{
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: {_PAPER} !important;
+}}
 footer {{ display: none !important; }}
 .bf-layout {{ align-items: stretch; gap: 16px; }}
 .bf-preview {{ min-height: 420px; }}
-/* Primary stays blue with white text. Secondary was a light fill with light text. */
 .gradio-container button.primary,
 .gradio-container .bf-cta {{
-  min-height: 44px;
+  min-height: 48px;
   background: {_CTA} !important;
-  color: #FFFFFF !important;
+  color: {_PAPER} !important;
   border-color: {_CTA} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
 }}
 .gradio-container button.primary:hover,
 .gradio-container .bf-cta:hover {{
   background: {_CTA_HOVER} !important;
-  color: #FFFFFF !important;
+  color: {_PAPER} !important;
 }}
 .gradio-container button.primary *,
 .gradio-container .bf-cta * {{
-  color: #FFFFFF !important;
+  color: {_PAPER} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
 }}
 .gradio-container button.secondary {{
-  background: {_CARD} !important;
-  color: {_TEXT} !important;
-  border: 1px solid {_CTA_HOVER} !important;
+  min-height: 48px;
+  background: {_PAPER} !important;
+  color: {_INK} !important;
+  border: 1px solid {_INK} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
 }}
 .gradio-container button.secondary:hover {{
-  background: {_LINE} !important;
-  color: #FFFFFF !important;
+  background: {_TEXT} !important;
+  color: {_INK} !important;
 }}
 .gradio-container button.secondary * {{
-  color: inherit !important;
+  color: {_INK} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
 }}
-/* File and image titles were light-blue chips with light text. */
 .gradio-container label.float {{
-  background: {_CARD} !important;
-  color: {_TEXT} !important;
+  background: {_PAPER} !important;
+  color: {_INK} !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
 }}
 .gradio-container button.boundedheight,
 .gradio-container button.boundedheight * {{
-  color: {_TEXT} !important;
+  color: {_PAPER} !important;
+  font-size: 17px !important;
+  font-weight: 650 !important;
 }}
-/* Quality and language radios: selected pill is the CTA blue with white text. */
 .gradio-container label:has(input[type="radio"]) {{
-  color: {_TEXT} !important;
+  background: {_PAPER} !important;
+  color: {_INK} !important;
+  border: 1px solid {_INK} !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  padding: 8px 14px !important;
+}}
+.gradio-container label:has(input[type="radio"]) * {{
+  color: {_INK} !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
 }}
 .gradio-container label:has(input[type="radio"]):has(input:checked) {{
   background: {_CTA} !important;
-  color: #FFFFFF !important;
+  color: {_PAPER} !important;
+  border-color: {_CTA} !important;
 }}
 .gradio-container label:has(input[type="radio"]):has(input:checked) * {{
-  color: #FFFFFF !important;
+  color: {_PAPER} !important;
+}}
+.gradio-container label:has(input[type="checkbox"]) {{
+  background: transparent !important;
+  color: {_PAPER} !important;
+  border-color: transparent !important;
+  font-size: 16px !important;
+  font-weight: 650 !important;
+}}
+.gradio-container textarea,
+.gradio-container input[type="text"],
+.gradio-container input[type="number"],
+.gradio-container select {{
+  background: {_BG} !important;
+  color: {_PAPER} !important;
+  font-size: 17px !important;
 }}
 .bf-actions button:disabled {{ opacity: 0.4; }}
 @media (max-width: 959px) {{
@@ -333,26 +393,60 @@ def _dark_theme(gr):
             body_text_color_dark=_TEXT,
             body_text_color_subdued=_MUTED,
             body_text_color_subdued_dark=_MUTED,
+            body_text_size="17px",
+            body_text_weight="600",
+            block_label_text_size="16px",
+            block_label_text_weight="700",
+            block_title_text_size="17px",
+            block_title_text_weight="700",
+            section_header_text_size="17px",
+            section_header_text_weight="700",
+            prose_text_size="17px",
+            input_text_size="17px",
+            button_large_text_size="18px",
+            button_large_text_weight="700",
+            button_large_padding="12px 18px",
+            button_medium_text_size="17px",
+            button_medium_text_weight="700",
+            button_small_text_size="16px",
+            button_small_text_weight="700",
+            checkbox_label_background_fill=_PAPER,
+            checkbox_label_background_fill_dark=_PAPER,
+            checkbox_label_background_fill_hover=_TEXT,
+            checkbox_label_background_fill_hover_dark=_TEXT,
+            checkbox_label_background_fill_selected=_CTA,
+            checkbox_label_background_fill_selected_dark=_CTA,
+            checkbox_label_border_color=_INK,
+            checkbox_label_border_color_dark=_INK,
+            checkbox_label_border_color_selected=_CTA,
+            checkbox_label_border_color_selected_dark=_CTA,
+            checkbox_label_text_color=_INK,
+            checkbox_label_text_color_dark=_INK,
+            checkbox_label_text_color_selected=_PAPER,
+            checkbox_label_text_color_selected_dark=_PAPER,
+            checkbox_label_text_size="16px",
+            checkbox_label_text_weight="700",
+            checkbox_label_padding="8px 14px",
             button_primary_background_fill=_CTA,
             button_primary_background_fill_dark=_CTA,
             button_primary_background_fill_hover=_CTA_HOVER,
             button_primary_background_fill_hover_dark=_CTA_HOVER,
-            button_primary_text_color="#FFFFFF",
-            button_primary_text_color_dark="#FFFFFF",
-            button_primary_text_color_hover="#FFFFFF",
-            button_primary_text_color_hover_dark="#FFFFFF",
-            button_secondary_background_fill=_CARD,
-            button_secondary_background_fill_dark=_CARD,
-            button_secondary_background_fill_hover=_LINE,
-            button_secondary_background_fill_hover_dark=_LINE,
-            button_secondary_border_color=_CTA_HOVER,
-            button_secondary_border_color_dark=_CTA_HOVER,
-            button_secondary_border_color_hover=_CTA_HOVER,
-            button_secondary_border_color_hover_dark=_CTA_HOVER,
-            button_secondary_text_color=_TEXT,
-            button_secondary_text_color_dark=_TEXT,
-            button_secondary_text_color_hover="#FFFFFF",
-            button_secondary_text_color_hover_dark="#FFFFFF",
+            button_primary_text_color=_PAPER,
+            button_primary_text_color_dark=_PAPER,
+            button_primary_text_color_hover=_PAPER,
+            button_primary_text_color_hover_dark=_PAPER,
+            button_secondary_background_fill=_PAPER,
+            button_secondary_background_fill_dark=_PAPER,
+            button_secondary_background_fill_hover=_TEXT,
+            button_secondary_background_fill_hover_dark=_TEXT,
+            button_secondary_border_color=_INK,
+            button_secondary_border_color_dark=_INK,
+            button_secondary_border_color_hover=_INK,
+            button_secondary_border_color_hover_dark=_INK,
+            button_secondary_text_color=_INK,
+            button_secondary_text_color_dark=_INK,
+            button_secondary_text_color_hover=_INK,
+            button_secondary_text_color_hover_dark=_INK,
             block_label_background_fill=_CARD,
             block_label_background_fill_dark=_CARD,
             color_accent=_CTA,
