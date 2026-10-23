@@ -130,7 +130,10 @@ def feed_session(session, image_nchw: np.ndarray, weight: float | None = None):
         if len(shape) == 4:
             feeds[item.name] = image_nchw
         else:
-            feeds[item.name] = fit_scalar(0.5 if weight is None else weight, shape)
+            value = fit_scalar(0.5 if weight is None else weight, shape)
+            if getattr(item, "type", "") == "tensor(double)":
+                value = value.astype(np.float64)
+            feeds[item.name] = value
     return session.run(None, feeds)
 
 

@@ -91,6 +91,7 @@ _EXTRA_SHA256 = {
     "restoreformer_plus_plus.onnx": "164818b70d1745da4108a45c9263b05452236d14ac0ffab2202af0ac4a438195",
     "xseg_2.onnx": "cd9a0879eaf43841d765472cf1f8c330dbf9dcb03da0eace93e95f3bcc399042",
     "xseg_3.onnx": "48ccd7e8541e159a5a754ec9e62df2f12065f7df8f9af842c1750342c6533559",
+    "2dfan4.onnx": "678c6fa539d52335a31c980feefdf4a6e02d781d83dce00af8a894f114557285",
 }
 KNOWN_SHA256.update(_EXTRA_SHA256)
 
@@ -152,6 +153,7 @@ def download_models(
     swappers: list[str] | None = None,
     enhancers: list[str] | None = None,
     occluders: list[str] | None = None,
+    with_landmarks: bool = False,
 ) -> list[str]:
     """Fetch buffalo_l and inswapper. GFPGAN and the mask graphs are optional.
 
@@ -175,6 +177,7 @@ def download_models(
             swappers=swappers,
             enhancers=enhancers,
             occluders=occluders,
+            with_landmarks=with_landmarks,
         )
     )
     detector = config.models.detector.path
@@ -216,6 +219,18 @@ def download_models(
                 opener=opener,
                 attempts=attempts,
                 name="gfpgan_1.4.onnx",
+            )
+        )
+    if with_landmarks:
+        notes.extend(
+            _download_file(
+                _assets("models-3.0.0", "2dfan4.onnx"),
+                config.models.landmark.path,
+                expected["2dfan4.onnx"],
+                force=force,
+                opener=opener,
+                attempts=attempts,
+                name="2dfan4.onnx",
             )
         )
     if with_masks:
@@ -514,6 +529,7 @@ def _import_from_dir(
     swappers: list[str] | None = None,
     enhancers: list[str] | None = None,
     occluders: list[str] | None = None,
+    with_landmarks: bool = False,
 ) -> list[str]:
     """Copy matching files by basename. A bad hash fails before any download."""
 
@@ -529,6 +545,8 @@ def _import_from_dir(
     if with_masks:
         wanted["occlusion_xseg.onnx"] = (config.models.occluder.path, expected["occlusion_xseg.onnx"])
         wanted["bisenet_face_parsing.onnx"] = (config.models.parser.path, expected["bisenet_face_parsing.onnx"])
+    if with_landmarks:
+        wanted["2dfan4.onnx"] = (config.models.landmark.path, expected["2dfan4.onnx"])
     for name in swappers or []:
         if name == "inswapper_128":
             continue

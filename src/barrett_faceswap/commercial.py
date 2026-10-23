@@ -28,6 +28,8 @@ def roles_for_config(config: AppConfig, processors: list[str] | None = None) -> 
         roles.append("occluder")
     if config.masks.parser:
         roles.append("parser")
+    if config.landmarks.refine != "off":
+        roles.append("landmark")
     return roles
 
 

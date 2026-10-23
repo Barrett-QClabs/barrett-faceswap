@@ -87,8 +87,8 @@ options:
                         Comma-separated processor names. Defaults to the config list.
   --execution-provider EXECUTION_PROVIDER
                         Execution provider to prefer. Repeat the flag to set the order. CUDA is
-                        preferred when both are listed. tensorrt alone builds an fp16 engine cache
-                        for inswapper and xseg.
+                        preferred when both are listed. tensorrt builds an engine cache.
+                        tensorrt.fp16 defaults to false.
   --target-face-index TARGET_FACE_INDEX
                         Which target face to replace. 0 is the largest face.
   --trim-start TRIM_START
@@ -113,8 +113,8 @@ options:
                         CodeFormer fidelity from 0 to 1. Default 0.7. Ignored when the graph has
                         no weight input.
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
-                        Swapper graph. inswapper_128 is the default. Other names need their ONNX
-                        file and the matching embedding or source crop.
+                        Swapper graph. hyperswap_1a_256 is the default. Other names need their
+                        ONNX file and the matching embedding or source crop.
   --pixel-boost PIXEL_BOOST
                         Aligned crop size. 0 uses the model native size (or swap.resolution for
                         inswapper).
@@ -181,11 +181,11 @@ options:
                         Comma-separated processor names. Defaults to the config list.
   --execution-provider EXECUTION_PROVIDER
                         Execution provider to prefer. Repeat the flag to set the order. CUDA is
-                        preferred when both are listed. tensorrt alone builds an fp16 engine cache
-                        for inswapper and xseg.
+                        preferred when both are listed. tensorrt builds an engine cache.
+                        tensorrt.fp16 defaults to false.
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
-                        Swapper graph. inswapper_128 is the default. Other names need their ONNX
-                        file and the matching embedding or source crop.
+                        Swapper graph. hyperswap_1a_256 is the default. Other names need their
+                        ONNX file and the matching embedding or source crop.
   --pixel-boost PIXEL_BOOST
                         Aligned crop size. 0 uses the model native size (or swap.resolution for
                         inswapper).
@@ -277,14 +277,14 @@ options:
   --commercial          Refuse any model the registry marks commercial_use false.
   --execution-provider EXECUTION_PROVIDER
                         Execution provider to prefer. Repeat the flag to set the order. CUDA is
-                        preferred when both are listed. tensorrt alone builds an fp16 engine cache
-                        for inswapper and xseg.
+                        preferred when both are listed. tensorrt builds an engine cache.
+                        tensorrt.fp16 defaults to false.
   --occluder-model {xseg_1,xseg_2,xseg_3,sam2_refine}
                         Occlusion graph: xseg_1, xseg_2, xseg_3, or sam2_refine. sam2_refine needs
                         a local ONNX.
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
-                        Swapper graph. inswapper_128 is the default. Other names need their ONNX
-                        file and the matching embedding or source crop.
+                        Swapper graph. hyperswap_1a_256 is the default. Other names need their
+                        ONNX file and the matching embedding or source crop.
   --pixel-boost PIXEL_BOOST
                         Aligned crop size. 0 uses the model native size (or swap.resolution for
                         inswapper).
@@ -322,8 +322,8 @@ options:
   --frames FRAMES       How many frames of a video target to time. Images use one frame.
   --execution-provider EXECUTION_PROVIDER
                         Execution provider to prefer. Repeat the flag to set the order. CUDA is
-                        preferred when both are listed. tensorrt alone builds an fp16 engine cache
-                        for inswapper and xseg.
+                        preferred when both are listed. tensorrt builds an engine cache.
+                        tensorrt.fp16 defaults to false.
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
                         Swapper to include. Repeat the flag. The default is every registered
                         swapper.
@@ -381,8 +381,8 @@ options:
   --dry-run             Skip ONNX inference. Useful when weights are not downloaded yet.
   --execution-provider EXECUTION_PROVIDER
                         Execution provider to prefer. Repeat the flag to set the order. CUDA is
-                        preferred when both are listed. tensorrt alone builds an fp16 engine cache
-                        for inswapper and xseg.
+                        preferred when both are listed. tensorrt builds an engine cache.
+                        tensorrt.fp16 defaults to false.
   --live                Time a live session and print per-stage latency. Does not open a webcam.
 
 usage: barrett-faceswap doctor [-h] [--config CONFIG] [--lang LANG]
@@ -395,7 +395,7 @@ options:
                    ui.language.
 
 usage: barrett-faceswap download-models [-h] [--config CONFIG] [--lang LANG] [--with-gfpgan]
-                                        [--with-masks]
+                                        [--with-masks] [--with-landmarks]
                                         [--swapper {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}]
                                         [--enhancer {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}]
                                         [--occluder {xseg_1,xseg_2,xseg_3,sam2_refine}] [--force]
@@ -410,6 +410,9 @@ options:
   --with-gfpgan         Also download the optional GFPGAN 1.4 ONNX.
   --with-masks          Also download xseg_1.onnx and bisenet_resnet_34.onnx into the mask paths.
                         Their licenses are unverified and likely non-commercial.
+  --with-landmarks      Also download 2dfan4.onnx into models/2dfan4.onnx. It refines 68
+                        landmarks. The weight is MIT and this registry does not mark it
+                        commercially cleared.
   --swapper {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
                         Also download this swapper and its embedding converter. Repeat the flag.
   --enhancer {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}

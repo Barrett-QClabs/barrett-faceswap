@@ -22,6 +22,31 @@ def test_language_dropdown_updates_every_control() -> None:
     assert english[intro]["value"] != chinese[intro]["value"]
     run = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.run")
     assert chinese[run]["value"] == "运行"
+    occluder = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.occluder_model")
+    assert english[occluder]["label"] == "Occluder"
+    assert chinese[occluder]["label"] == "遮挡模型"
+
+
+def test_ui_language_prefers_the_cli_flag() -> None:
+    from barrett_faceswap.ui.app import ui_language
+
+    assert ui_language("zh-CN", "en") == "zh-CN"
+    assert ui_language("en", "zh-CN") == "en"
+    assert ui_language(None, "zh-CN") == "zh-CN"
+    assert ui_language(None, "en") == "en"
+
+
+def test_ui_command_forwards_lang(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_launch(*_args, **kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr("barrett_faceswap.ui.app.launch_ui", fake_launch)
+    from barrett_faceswap.cli import main
+
+    assert main(["ui", "--lang", "zh-CN", "--port", "1"]) == 0
+    assert captured["language"] == "zh-CN"
 
 
 def test_still_image_run_does_not_send_the_encoder_dropdown() -> None:

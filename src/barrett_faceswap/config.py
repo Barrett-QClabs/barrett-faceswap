@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, ValidationInfo, field_validator, model_validator
 
 from barrett_faceswap.errors import ConfigError
 from barrett_faceswap.i18n import t
@@ -106,6 +106,7 @@ class ModelsConfig(_Model):
     xseg_2: ModelFile = Field(default_factory=lambda: _optional_model("models/xseg_2.onnx"))
     xseg_3: ModelFile = Field(default_factory=lambda: _optional_model("models/xseg_3.onnx"))
     sam2_refine: ModelFile = Field(default_factory=lambda: _optional_model("models/sam2_refine.onnx"))
+    landmark: ModelFile = Field(default_factory=lambda: _optional_model("models/2dfan4.onnx"))
 
 
 class TensorRTConfig(_Model):
@@ -113,7 +114,7 @@ class TensorRTConfig(_Model):
 
     engine_cache: Path = Field(default_factory=lambda: resolve_config_path(".cache/tensorrt/engines"))
     timing_cache: Path = Field(default_factory=lambda: resolve_config_path(".cache/tensorrt/timing"))
-    fp16: bool = True
+    fp16: bool = False
     builder_optimization_level: int = 3
 
     @field_validator("engine_cache", "timing_cache", mode="before")
@@ -177,7 +178,7 @@ class DetectConfig(_Model):
 class SwapConfig(_Model):
     """``model`` selects the registry swapper. ``pixel_boost`` 0 keeps ``resolution`` for inswapper."""
 
-    model: str = "inswapper_128"
+    model: str = "hyperswap_1a_256"
     resolution: int = 128
     pixel_boost: int = 0
     selector: str = "index"
@@ -365,6 +366,73 @@ class MasksConfig(_Model):
         return [str(item) for item in value]
 
 
+class LandmarkConfig(_Model):
+    """``auto`` runs 2DFAN4 when the file exists and replaces five points on profile or low-score faces."""
+
+    refine: str = "auto"
+    min_score: float = 0.65
+    profile_ratio: float = 0.22
+
+    @field_validator("refine")
+    @classmethod
+    def _refine(cls, value: str) -> str:
+        allowed = ("auto", "always", "off")
+        if value not in allowed:
+            raise ValueError(t("config.landmark_refine", mode=value, allowed=", ".join(allowed)))
+        return value
+
+    @field_validator("min_score", "profile_ratio")
+    @classmethod
+    def _positive_ratio(cls, value: float) -> float:
+        if float(value) < 0.0:
+            raise ValueError(t("config.expression_range", field="landmarks"))
+        return float(value)
+
+
+class ExpressionConfig(_Model):
+    """EAR/MAR-gated paste. Closed eyes take more of the target. An open mouth stays on the swap."""
+
+    enabled: bool = True
+    eye_base: float = 0.05
+    eye_boost: float = 0.85
+    mouth_base: float = 0.0
+    mouth_boost: float = 0.55
+    eye_dilate: int = 3
+    mouth_dilate: int = 1
+    eye_expand: float = 1.35
+    mouth_expand: float = 1.15
+    ear_open: float = 0.24
+    ear_closed: float = 0.15
+    mar_open: float = 0.045
+    mar_closed: float = 0.012
+    blur: int = 9
+
+    @field_validator(
+        "eye_base",
+        "eye_boost",
+        "mouth_base",
+        "mouth_boost",
+        "eye_expand",
+        "mouth_expand",
+        "ear_open",
+        "ear_closed",
+        "mar_open",
+        "mar_closed",
+    )
+    @classmethod
+    def _nonneg(cls, value: float, info: ValidationInfo) -> float:
+        if float(value) < 0.0:
+            raise ValueError(t("config.expression_range", field=info.field_name))
+        return float(value)
+
+    @field_validator("eye_dilate", "mouth_dilate", "blur")
+    @classmethod
+    def _nonneg_int(cls, value: int, info: ValidationInfo) -> int:
+        if int(value) < 0:
+            raise ValueError(t("config.expression_range", field=info.field_name))
+        return int(value)
+
+
 class VideoConfig(_Model):
     """Disk frame pipeline by default. ``mode: pipe`` keeps frames off disk."""
 
@@ -537,6 +605,8 @@ class AppConfig(_Model):
     blend: BlendConfig = Field(default_factory=BlendConfig)
     enhancer: EnhancerConfig = Field(default_factory=EnhancerConfig)
     masks: MasksConfig = Field(default_factory=MasksConfig)
+    landmarks: LandmarkConfig = Field(default_factory=LandmarkConfig)
+    expression: ExpressionConfig = Field(default_factory=ExpressionConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
     live: LiveConfig = Field(default_factory=LiveConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)

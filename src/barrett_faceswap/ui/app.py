@@ -20,7 +20,7 @@ from barrett_faceswap.config import (
     apply_request_overrides,
     load_config,
 )
-from barrett_faceswap.swap_catalog import BLEND_MODES, COLOR_TRANSFERS, SWAPPER_NAMES, VIDEO_MODES
+from barrett_faceswap.swap_catalog import BLEND_MODES, COLOR_TRANSFERS, OCCLUDER_MODELS, SWAPPER_NAMES, VIDEO_MODES
 from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import LanguageError, get_language, normalize_language, set_language, t
 from barrett_faceswap.media.ffmpeg import VIDEO_OUTPUT_SUFFIXES, read_first_frame
@@ -51,6 +51,7 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.enhancer_blend", "label"),
     ControlSpec("ui.enhancer_weight", "label"),
     ControlSpec("ui.swapper_model", "label"),
+    ControlSpec("ui.occluder_model", "label"),
     ControlSpec("ui.pixel_boost", "label"),
     ControlSpec("ui.many_faces", "label"),
     ControlSpec("ui.reference", "label"),
@@ -106,14 +107,31 @@ def language_updates(language: str) -> list[dict[str, str]]:
     return [{spec.prop: t(spec.key)} for spec in CONTROLS]
 
 
-def launch_ui(config_path: str | Path, *, host: str, port: int, share: bool = False) -> None:
+def ui_language(cli: str | None, config_language: str) -> str:
+    """Prefer ``--lang`` over the config language for the first set of labels."""
+
+    if cli:
+        normalized = normalize_language(cli)
+        if normalized:
+            return normalized
+    return normalize_language(config_language) or "en"
+
+
+def launch_ui(
+    config_path: str | Path,
+    *,
+    host: str,
+    port: int,
+    share: bool = False,
+    language: str | None = None,
+) -> None:
     """Build the Blocks app and serve it."""
 
-    demo = build_demo(config_path)
+    demo = build_demo(config_path, language=language)
     demo.launch(server_name=host, server_port=int(port), share=share)
 
 
-def build_demo(config_path: str | Path):
+def build_demo(config_path: str | Path, language: str | None = None):
     """Construct the Gradio Blocks app. Gradio is imported here."""
 
     try:
@@ -123,7 +141,8 @@ def build_demo(config_path: str | Path):
 
     config_file = Path(config_path)
     initial = load_config(config_file)
-    set_language(initial.ui.language)
+    active_language = ui_language(language, initial.ui.language)
+    set_language(active_language)
 
     def on_language(language: str):
         updates = language_updates(language)
@@ -146,6 +165,7 @@ def build_demo(config_path: str | Path):
         blend: float,
         weight: float,
         swapper_model: str,
+        occluder_model: str,
         pixel_boost: int,
         many_faces: bool,
         reference: object,
@@ -215,6 +235,7 @@ def build_demo(config_path: str | Path):
                     enhancer_blend=float(blend),
                     enhancer_weight=float(weight),
                     swapper_model=swapper_model,
+                    occluder_model=occluder_model,
                     pixel_boost=int(pixel_boost) if int(pixel_boost) else None,
                     many_faces=bool(many_faces),
                     reference_path=_as_path(reference),
@@ -240,7 +261,7 @@ def build_demo(config_path: str | Path):
         intro = gr.Markdown(t("ui.intro"))
         language = gr.Dropdown(
             choices=[(t("ui.lang_en"), "en"), (t("ui.lang_zh"), "zh-CN")],
-            value=initial.ui.language,
+            value=active_language,
             label=t("ui.language"),
         )
         source = gr.Image(type="filepath", label=t("ui.source"))
@@ -268,6 +289,11 @@ def build_demo(config_path: str | Path):
             choices=list(SWAPPER_NAMES),
             value=initial.swap.model,
             label=t("ui.swapper_model"),
+        )
+        occluder_model = gr.Dropdown(
+            choices=list(OCCLUDER_MODELS),
+            value=initial.masks.occluder_model,
+            label=t("ui.occluder_model"),
         )
         pixel_boost = gr.Dropdown(
             choices=[0, 128, 256, 512, 768, 1024],
@@ -321,6 +347,7 @@ def build_demo(config_path: str | Path):
             blend,
             weight,
             swapper_model,
+            occluder_model,
             pixel_boost,
             many_faces,
             reference,
@@ -353,6 +380,7 @@ def build_demo(config_path: str | Path):
             blend,
             weight,
             swapper_model,
+            occluder_model,
             pixel_boost,
             many_faces,
             reference,

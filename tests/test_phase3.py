@@ -148,19 +148,19 @@ def test_catalog_licenses_and_boost_sizes() -> None:
 
 def test_pixel_boost_stitches_native_tiles() -> None:
     crop = np.zeros((16, 16, 3), dtype=np.uint8)
-    crop[:8, :8] = 10
-    crop[:8, 8:] = 20
-    crop[8:, :8] = 30
-    crop[8:, 8:] = 40
+    crop[0::2, 0::2] = 10
+    crop[0::2, 1::2] = 20
+    crop[1::2, 0::2] = 30
+    crop[1::2, 1::2] = 40
 
     def infer(tile: np.ndarray) -> np.ndarray:
         return np.full_like(tile, int(tile[0, 0, 0]) + 1)
 
     out = run_tiled(crop, 8, infer)
     assert out[0, 0, 0] == 11
-    assert out[0, 8, 0] == 21
-    assert out[8, 0, 0] == 31
-    assert out[8, 8, 0] == 41
+    assert out[0, 1, 0] == 21
+    assert out[1, 0, 0] == 31
+    assert out[1, 1, 0] == 41
     assert run_tiled(crop[:8, :8], 8, infer)[0, 0, 0] == 11
 
 

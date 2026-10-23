@@ -31,6 +31,7 @@ UI_KEYS = (
     "ui.enhancer_blend",
     "ui.enhancer_weight",
     "ui.swapper_model",
+    "ui.occluder_model",
     "ui.pixel_boost",
     "ui.many_faces",
     "ui.reference",

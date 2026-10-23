@@ -79,8 +79,8 @@ options:
   --processors PROCESSORS
                         逗号分隔的处理器名称。默认使用配置里的列表。
   --execution-provider EXECUTION_PROVIDER
-                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。单独使用 tensorrt 会为 inswapper 和 xseg 建立
-                        fp16 引擎缓存。
+                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。tensorrt 会建立引擎缓存。tensorrt.fp16 默认是
+                        false。
   --target-face-index TARGET_FACE_INDEX
                         要替换的目标人脸序号。0 表示最大的一张脸。
   --trim-start TRIM_START
@@ -101,7 +101,7 @@ options:
   --enhancer-weight ENHANCER_WEIGHT
                         CodeFormer 保真，0 到 1。默认 0.7。图里没有该输入时会被忽略。
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
-                        换脸图。默认是 inswapper_128。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
+                        换脸图。默认是 hyperswap_1a_256。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
   --pixel-boost PIXEL_BOOST
                         对齐裁剪的边长。0 表示模型原生尺寸（inswapper 则用 swap.resolution）。
   --many-faces          用源身份替换每一张检测到的脸。
@@ -160,10 +160,10 @@ options:
   --processors PROCESSORS
                         逗号分隔的处理器名称。默认使用配置里的列表。
   --execution-provider EXECUTION_PROVIDER
-                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。单独使用 tensorrt 会为 inswapper 和 xseg 建立
-                        fp16 引擎缓存。
+                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。tensorrt 会建立引擎缓存。tensorrt.fp16 默认是
+                        false。
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
-                        换脸图。默认是 inswapper_128。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
+                        换脸图。默认是 hyperswap_1a_256。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
   --pixel-boost PIXEL_BOOST
                         对齐裁剪的边长。0 表示模型原生尺寸（inswapper 则用 swap.resolution）。
   --many-faces          用源身份替换每一张检测到的脸。
@@ -243,12 +243,12 @@ options:
   --no-watermark        跳过可见标识和内嵌元数据。这次跳过会写入审计日志。
   --commercial          拒绝注册表里 commercial_use 为 false 的模型。
   --execution-provider EXECUTION_PROVIDER
-                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。单独使用 tensorrt 会为 inswapper 和 xseg 建立
-                        fp16 引擎缓存。
+                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。tensorrt 会建立引擎缓存。tensorrt.fp16 默认是
+                        false。
   --occluder-model {xseg_1,xseg_2,xseg_3,sam2_refine}
                         遮挡图：xseg_1、xseg_2、xseg_3 或 sam2_refine。sam2_refine 需要本地 ONNX。
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
-                        换脸图。默认是 inswapper_128。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
+                        换脸图。默认是 hyperswap_1a_256。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
   --pixel-boost PIXEL_BOOST
                         对齐裁剪的边长。0 表示模型原生尺寸（inswapper 则用 swap.resolution）。
   --many-faces          用源身份替换每一张检测到的脸。
@@ -281,8 +281,8 @@ options:
   --dry-run             跳过 ONNX 推理。权重还没下载时可以用它走通命令。
   --frames FRAMES       视频目标要计时的帧数。图像只用一帧。
   --execution-provider EXECUTION_PROVIDER
-                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。单独使用 tensorrt 会为 inswapper 和 xseg 建立
-                        fp16 引擎缓存。
+                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。tensorrt 会建立引擎缓存。tensorrt.fp16 默认是
+                        false。
   --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
                         要包含的换脸器。可重复。默认是已注册的每一个。
   --face-enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}
@@ -328,8 +328,8 @@ options:
   --target TARGET       按 --frames 重复的静态图像。需要和 --source 一起传入，检测才会跑在真实人脸上。
   --dry-run             跳过 ONNX 推理。权重还没下载时可以用它走通命令。
   --execution-provider EXECUTION_PROVIDER
-                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。单独使用 tensorrt 会为 inswapper 和 xseg 建立
-                        fp16 引擎缓存。
+                        优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。tensorrt 会建立引擎缓存。tensorrt.fp16 默认是
+                        false。
   --live                为一次实时会话计时，并打印各阶段延迟。不会打开摄像头。
 
 usage: barrett-faceswap doctor [-h] [--config CONFIG] [--lang LANG]
@@ -340,7 +340,7 @@ options:
   --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
 usage: barrett-faceswap download-models [-h] [--config CONFIG] [--lang LANG] [--with-gfpgan]
-                                        [--with-masks]
+                                        [--with-masks] [--with-landmarks]
                                         [--swapper {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}]
                                         [--enhancer {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}]
                                         [--occluder {xseg_1,xseg_2,xseg_3,sam2_refine}] [--force]
@@ -352,6 +352,8 @@ options:
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
   --with-gfpgan         同时下载可选的 GFPGAN 1.4 ONNX。
   --with-masks          同时把 xseg_1.onnx 和 bisenet_resnet_34.onnx 下载到蒙版路径。这两份文件的许可未经核实，很可能不能用于商业用途。
+  --with-landmarks      同时把 2dfan4.onnx 下载到 models/2dfan4.onnx。它细化 68 个关键点。权重是
+                        MIT，本注册表不把它标成已获商业授权。
   --swapper {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
                         同时下载这个换脸器及其向量转换器。可重复。
   --enhancer {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}
