@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Local tooling
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Model weights are downloaded by the operator. Never commit them.
+*.onnx
+*.ort
+*.pth
+*.pt
+*.ckpt
+*.caffemodel
+*.pb
+models/**
+!models/README.md
+
+# Run outputs and audit logs
+outputs/**
+!outputs/.gitkeep
+
+# Generated local samples (no real faces; recreate with examples/make_synthetic.py)
+examples/synthetic/
+
+# Local permission switch. Absence means "not granted".
+configs/admin.toml

@@ -1,0 +1,65 @@
+# Barrett FaceSwap defaults.
+# Relative paths resolve from the current working directory.
+# Run commands from the repository root.
+
+ui:
+  # en | zh-CN. Overridden by BARRETT_FACESWAP_LANG and by --lang.
+  language: en
+
+paths:
+  models_dir: models
+  outputs_dir: outputs
+
+# Paths and optional sha256 pins. License, commercial flag, alignment template,
+# and input size live in the model registry (see inspect-models).
+models:
+  detector:
+    path: models/det_10g.onnx
+    sha256: null
+  recognizer:
+    path: models/w600k_r50.onnx
+    sha256: null
+  swapper:
+    path: models/inswapper_128.onnx
+    sha256: null
+
+execution:
+  # First available provider wins; CPU is the portable fallback.
+  providers: [cuda, cpu]
+  device_id: 0
+
+detect:
+  det_size: 640
+  score_threshold: 0.5
+  nms_threshold: 0.4
+
+swap:
+  resolution: 128
+
+blend:
+  mask_blur: 15
+
+processors:
+  - face_swapper
+
+# The nested block is the production profile. It stays dormant while the
+# master switch is false, so local dry-runs are not blocked.
+compliance:
+  enabled: false
+  consent:
+    required: true
+  watermark:
+    enabled: true
+    # null uses the active locale label (AI-generated / 人工智能生成).
+    text: null
+  content_filter:
+    # none | stub | nudenet | custom
+    # stub is a no-op that allows the frame and logs that no detector is loaded.
+    enabled: true
+    provider: stub
+    threshold: 0.6
+    block_on_minor: true
+    custom_entrypoint: null
+  audit:
+    enabled: true
+    path: outputs/audit/audit.jsonl
