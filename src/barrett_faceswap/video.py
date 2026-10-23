@@ -12,6 +12,7 @@ from __future__ import annotations
 import queue
 import tempfile
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -58,16 +59,31 @@ class VideoPipeline:
     def __init__(self, config: AppConfig, admin_path: Path | None = None) -> None:
         self.config = config
         self.policy = CompliancePolicy(config, admin_path=admin_path)
+        self._on_progress = None
 
     def run(
         self,
         request: SwapRequest,
         job: JobState | None = None,
         store: JobStore | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> SwapResult:
+        self._on_progress = on_progress
         if self.config.video.mode == "pipe":
             return self._run_pipe(request, job, store)
         return self._run_disk(request, job, store)
+
+    def _note_progress(self, done: int, total: int) -> None:
+        """Report ``done/total`` frames. A missing callback is a no-op."""
+
+        callback = self._on_progress
+        if callback is None:
+            return
+        total_i = int(total)
+        if total_i <= 0:
+            return
+        done_i = min(max(0, int(done)), total_i)
+        callback(done_i, total_i)
 
     def _run_disk(
         self,
@@ -328,16 +344,22 @@ class VideoPipeline:
             for index, frame_path in enumerate(frames)
             if index >= start_index or not (processed_dir / frame_path.name).is_file()
         ]
+        total = len(frames)
+        already = total - len(pending)
+        self._note_progress(already, total)
         if not request.dry_run:
-            self._drive_disk(processors, shared, pending, processed_dir, job, store)
+            self._drive_disk(processors, shared, pending, processed_dir, job, store, total)
             for processor in processors:
                 processor.post_process()
             return
         workers = max(1, min(int(self.config.video.threads), len(pending) or 1))
         if self.config.swap.selector != "index" or job is not None:
             workers = 1
+        done_count = 0
+        done_lock = threading.Lock()
 
         def _one(item: tuple[int, Path]) -> None:
+            nonlocal done_count
             index, frame_path = item
             frame = read_image(frame_path)
             frame = _dry_run_banner(frame, t("processor.dry_run_banner"))
@@ -347,6 +369,10 @@ class VideoPipeline:
             if job is not None and store is not None:
                 job.next_frame = index + 1
                 store.save(job)
+            with done_lock:
+                done_count += 1
+                done = already + done_count
+            self._note_progress(done, total)
 
         if workers == 1:
             for item in tqdm(pending, desc=t("video.progress"), disable=None):
@@ -367,6 +393,7 @@ class VideoPipeline:
         processed_dir: Path,
         job: JobState | None,
         store: JobStore | None,
+        total: int,
     ) -> None:
         read_q: queue.Queue = queue.Queue(maxsize=2)
         write_q: queue.Queue = queue.Queue(maxsize=2)
@@ -436,6 +463,7 @@ class VideoPipeline:
             if job is not None and store is not None:
                 job.next_frame = index + 1
                 store.save(job)
+            self._note_progress(index + 1, total or (index + 1))
 
         try:
             self._drive(processors, shared, frames(), publish)
@@ -532,6 +560,7 @@ class VideoPipeline:
                 job.next_frame = index + 1
                 job.total_frames = max(estimated, index + 1)
                 store.save(job)
+            self._note_progress(index + 1, max(estimated, index + 1))
 
         try:
             self._drive(processors, shared, frames(), publish)

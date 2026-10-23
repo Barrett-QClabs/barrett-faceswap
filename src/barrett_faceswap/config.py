@@ -38,7 +38,7 @@ class _Model(BaseModel):
 
 
 class UiConfig(_Model):
-    language: str = "en"
+    language: str = "zh-CN"
 
     @field_validator("language", mode="before")
     @classmethod
@@ -666,7 +666,8 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
     if swap_model:
         swap = swap.model_copy(update={"model": swap_model})
     pixel_boost = getattr(request, "pixel_boost", None)
-    if pixel_boost:
+    # 0 is the native size. A truthy check would ignore that and keep a larger config.
+    if pixel_boost is not None:
         swap = swap.model_copy(update={"pixel_boost": int(pixel_boost)})
     if getattr(request, "face_map", None):
         swap = swap.model_copy(update={"selector": "map", "face_map": request.face_map})

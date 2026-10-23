@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import cv2
 import numpy as np
 from tqdm import tqdm
@@ -23,7 +25,11 @@ class FaceSwapPipeline:
         self.config = config
         self.policy = CompliancePolicy(config, admin_path=admin_path)
 
-    def run(self, request: SwapRequest) -> SwapResult:
+    def run(
+        self,
+        request: SwapRequest,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> SwapResult:
         self.config = apply_request_overrides(self.config, request)
         from barrett_faceswap.commercial import guard_commercial
 
@@ -34,7 +40,12 @@ class FaceSwapPipeline:
             if is_video(request.target_path):
                 from barrett_faceswap.video import VideoPipeline
 
-                return VideoPipeline(self.config, admin_path=self.policy.admin_path).run(request, job=job, store=store)
+                return VideoPipeline(self.config, admin_path=self.policy.admin_path).run(
+                    request,
+                    job=job,
+                    store=store,
+                    on_progress=on_progress,
+                )
             if request.trim_start is not None or request.trim_end is not None or request.video_encoder is not None:
                 raise ConfigError(t("video.flags_need_video"))
             if request.video_mode == "pipe":
