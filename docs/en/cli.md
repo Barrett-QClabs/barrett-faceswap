@@ -43,6 +43,8 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
                              [--target-face-index TARGET_FACE_INDEX] [--trim-start TRIM_START]
                              [--trim-end TRIM_END] [--video-encoder {libx264,h264_nvenc}]
                              [--video-threads VIDEO_THREADS] [--no-audio]
+                             [--voice-reference VOICE_REFERENCE] [--no-voice]
+                             [--voice-strength VOICE_STRENGTH] [--voice-tau VOICE_TAU]
                              [--filter-every FILTER_EVERY]
                              [--face-enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}]
                              [--enhancer-blend ENHANCER_BLEND] [--enhancer-weight ENHANCER_WEIGHT]
@@ -99,6 +101,16 @@ options:
   --video-threads VIDEO_THREADS
                         How many frames to process at once.
   --no-audio            Drop the source audio instead of muxing it back.
+  --voice-reference VOICE_REFERENCE
+                        Reference voice clip (wav, mp3, or m4a). When the target video has audio,
+                        convert its timbre to this speaker.
+  --no-voice            Do not convert voice, even if a reference clip and the config would.
+  --voice-strength VOICE_STRENGTH
+                        Clone strength from 0 to 1. 1 replaces the timbre. 0 keeps the original
+                        track. Default 1.
+  --voice-tau VOICE_TAU
+                        OpenVoice variation (tau) from 0 to 1. Default 0.3. Higher is more random,
+                        not a stronger clone.
   --filter-every FILTER_EVERY
                         When compliance is on, filter every Nth video frame. The last frame is
                         always included.

@@ -259,6 +259,170 @@ def encode_video(
     return mode
 
 
+def media_duration(path: Path) -> float:
+    """Container duration in seconds. Works for audio files as well as video."""
+
+    if not path.is_file():
+        raise MediaToolError(t("vision.missing", path=path))
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        raise MediaToolError(t("video.ffprobe_missing"))
+    completed = _run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            str(path),
+        ]
+    )
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise MediaToolError(t("video.probe_parse", path=path)) from exc
+    duration = _float((payload.get("format") or {}).get("duration"))
+    if duration <= 0:
+        raise MediaToolError(t("video.bad_duration", path=path))
+    return duration
+
+
+def extract_audio(
+    source: Path,
+    dest: Path,
+    *,
+    trim_start: float | None,
+    trim_end: float | None,
+) -> None:
+    """Write the first audio stream as mono 16-bit PCM WAV."""
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    command = [_ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
+    if trim_start is not None:
+        command += ["-ss", _seconds(trim_start)]
+    if trim_end is not None:
+        command += ["-to", _seconds(trim_end)]
+    command += ["-i", str(source), "-map", "0:a:0", "-ac", "1", "-c:a", "pcm_s16le", str(dest)]
+    _run(command)
+    if not dest.is_file():
+        raise MediaToolError(t("video.ffmpeg_failed", detail="audio missing"))
+
+
+def render_wav(source: Path, dest: Path, *, audio_filter: str) -> None:
+    """Run one audio filter and write mono PCM WAV."""
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        _ffmpeg_bin(),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(source),
+        "-af",
+        audio_filter,
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        str(dest),
+    ]
+    _run(command)
+    if not dest.is_file():
+        raise MediaToolError(t("video.ffmpeg_failed", detail="audio missing"))
+
+
+def mix_wavs(
+    original: Path,
+    converted: Path,
+    dest: Path,
+    *,
+    original_weight: float,
+    converted_weight: float,
+) -> None:
+    """Mix two mono WAV files. Weights should already sum to about 1."""
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # Scale each clip, then mix at equal gain. A space inside amix weights is easy to split wrong.
+    command = [
+        _ffmpeg_bin(),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(original),
+        "-i",
+        str(converted),
+        "-filter_complex",
+        (
+            f"[0:a]volume={float(original_weight):.6f}[a0];"
+            f"[1:a]volume={float(converted_weight):.6f}[a1];"
+            "[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0"
+        ),
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        str(dest),
+    ]
+    _run(command)
+    if not dest.is_file():
+        raise MediaToolError(t("video.ffmpeg_failed", detail="audio missing"))
+
+
+def build_replace_audio_command(video: Path, audio: Path, output: Path) -> list[str]:
+    """ffmpeg argv that copies the video stream and muxes a new AAC track.
+
+    The audio clip is fitted to the picture before this command runs, so the
+    video stream is not trimmed with ``-shortest``. ``+faststart`` matches the
+    frame encoder.
+    """
+
+    return [
+        _ffmpeg_bin(),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(video),
+        "-i",
+        str(audio),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+
+
+def replace_video_audio(video: Path, audio: Path) -> None:
+    """Replace ``video``'s audio in place and keep the picture bitstream."""
+
+    if not video.is_file():
+        raise MediaToolError(t("vision.missing", path=video))
+    temp = video.with_name(f"{video.stem}.voice-tmp{video.suffix}")
+    try:
+        _run(build_replace_audio_command(video, audio, temp))
+        if not temp.is_file():
+            raise MediaToolError(t("video.ffmpeg_failed", detail="output missing"))
+        temp.replace(video)
+    except Exception:
+        temp.unlink(missing_ok=True)
+        raise
+
+
 def even_size(width: int, height: int) -> tuple[int, int]:
     """yuv420p wants even dimensions."""
 

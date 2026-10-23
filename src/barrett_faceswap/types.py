@@ -97,6 +97,11 @@ class SwapRequest(BaseModel):
     detect_score: float | None = None
     live_session: bool = False
     live_frames: int = 0
+    # None follows config.voice.enabled, and still needs a reference clip.
+    voice_enabled: bool | None = None
+    voice_reference: Path | None = None
+    voice_strength: float | None = None
+    voice_tau: float | None = None
 
 
 @dataclass
@@ -107,3 +112,5 @@ class SwapResult:
     dry_run: bool
     compliance_enabled: bool
     notes: list[str] = field(default_factory=list)
+    # off | converted | no_audio | no_reference | dry_run | strength_zero
+    voice_status: str = "off"

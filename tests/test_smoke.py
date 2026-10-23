@@ -81,6 +81,13 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.landmarks.profile_ratio == pytest.approx(0.22)
     assert config.models.landmark.path.name == "2dfan4.onnx"
     assert config.compliance.enabled is False
+    assert config.voice.enabled is True
+    assert config.voice.engine == "openvoice"
+    assert config.voice.strength == pytest.approx(1.0)
+    assert config.voice.tau == pytest.approx(0.3)
+    assert config.voice.device == "auto"
+    assert config.voice.watermark is False
+    assert config.voice.checkpoint_dir.name == "openvoice_v2"
 
 
 def test_dry_run_without_models_or_consent(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

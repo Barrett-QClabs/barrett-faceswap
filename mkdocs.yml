@@ -31,6 +31,7 @@ nav:
   - Commercial: commercial.md
   - Compliance: compliance.md
   - CLI: cli.md
+  - Voice: voice.md
 exclude_docs: |
   ARCHITECTURE.md
   ARCHITECTURE.zh-CN.md

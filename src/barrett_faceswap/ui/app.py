@@ -25,6 +25,7 @@ from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import LanguageError, get_language, normalize_language, set_language, t
 from barrett_faceswap.media.ffmpeg import VIDEO_OUTPUT_SUFFIXES, read_first_frame
 from barrett_faceswap.pipeline import FaceSwapPipeline
+from barrett_faceswap.voice import target_has_audio, voice_toggle_for_target
 from barrett_faceswap.swap_catalog import (
     BLEND_MODES,
     COLOR_TRANSFERS,
@@ -129,7 +130,14 @@ ul.options li.selected {{
 }}
 footer {{ display: none !important; }}
 .bf-layout {{ align-items: stretch; gap: 16px; }}
+.bf-stage-split {{ align-items: stretch; gap: 16px; }}
 .bf-preview {{ min-height: 420px; }}
+.bf-voice {{
+  border: 1px solid {_LINE};
+  border-radius: 14px;
+  padding: 4px 8px 8px;
+  min-width: 260px;
+}}
 .gradio-container button.primary,
 .gradio-container .bf-cta {{
   min-height: 48px;
@@ -235,6 +243,7 @@ footer {{ display: none !important; }}
 .bf-actions button:disabled {{ opacity: 0.4; }}
 @media (max-width: 959px) {{
   .bf-layout {{ flex-direction: column !important; }}
+  .bf-stage-split {{ flex-direction: column !important; }}
   .bf-stage {{ order: -1; }}
   .bf-actions {{
     position: sticky;
@@ -363,6 +372,14 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.preview", "value"),
     ControlSpec("ui.run", "value"),
     ControlSpec("ui.preview_image", "label"),
+    ControlSpec("ui.voice_title", "value"),
+    ControlSpec("ui.voice_enable", "label"),
+    ControlSpec("ui.voice_reference", "label"),
+    ControlSpec("ui.voice_hint", "value"),
+    ControlSpec("ui.voice_advanced", "label"),
+    ControlSpec("ui.voice_strength", "label"),
+    ControlSpec("ui.voice_tau", "label"),
+    ControlSpec("ui.voice_status", "label"),
     ControlSpec("ui.progress_label", "label"),
     ControlSpec("ui.status", "label"),
     ControlSpec("ui.live_tab", "label"),
@@ -377,6 +394,20 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.live_camera", "label"),
     ControlSpec("ui.live_preview", "label"),
 )
+
+
+def outcome_text(result: object, fallback_key: str) -> str:
+    """Status line after a run. Voice outcomes replace the plain wrote-path line."""
+
+    status = str(getattr(result, "voice_status", "off") or "off")
+    key = {
+        "converted": "ui.done_voice",
+        "no_audio": "ui.done_no_audio",
+        "no_reference": "ui.done_no_reference",
+        "dry_run": "ui.done_dry_voice",
+        "strength_zero": "ui.done_strength_zero",
+    }.get(status, fallback_key)
+    return t(key, path=getattr(result, "output_path", ""))
 
 
 def video_encoder_for_run(target: Path, encoder: str | None, *, preview_only: bool) -> str | None:
@@ -613,38 +644,68 @@ def build_demo(config_path: str | Path, language: str | None = None):
         ready = _as_path(source) is not None and _as_path(target) is not None
         return gr.update(interactive=ready), gr.update(interactive=ready)
 
+    def _target_changed(source, target):
+        preview_button_update, run_button_update = _files_ready(source, target)
+        enabled, message = voice_toggle_for_target(
+            _as_path(target),
+            auto_enable=bool(initial.voice.enabled),
+        )
+        return preview_button_update, run_button_update, gr.update(value=enabled), message
+
     def _preview_array(path: Path):
         image = read_first_frame(path) if is_video(path) else read_image(path)
         return cv2.cvtColor(image, cv2.COLOR_BGR2RGB).copy()
 
-    def _stream_video(request: SwapRequest, status_key: str, progress):
-        box: dict[str, object] = {"done": 0, "total": 0, "result": None, "error": None}
+    def _stream_video(request: SwapRequest, status_key: str, progress, *, voice_planned: bool):
+        box: dict[str, object] = {"done": 0, "total": 0, "result": None, "error": None, "stage": "face"}
 
         def hook(done: int, total: int) -> None:
             box["done"] = int(done)
             box["total"] = int(total)
+            if box.get("stage") in {None, "", "face"}:
+                box["stage"] = "face"
+
+        def stage(name: str) -> None:
+            box["stage"] = name
 
         def worker() -> None:
             try:
                 config = apply_request_overrides(load_config(config_file), request)
-                box["result"] = FaceSwapPipeline(config).run(request, on_progress=hook)
+                box["result"] = FaceSwapPipeline(config).run(request, on_progress=hook, on_stage=stage)
             except Exception as exc:  # noqa: BLE001 - re-raised on the handler thread
                 box["error"] = exc
+
+        def lines(done: int, total: int, stage_name: str) -> tuple[str, float, str]:
+            if stage_name == "voice":
+                return t("ui.progress_voice"), 0.9, t("ui.progress_voice")
+            if stage_name == "mux":
+                return t("ui.progress_mux"), 0.97, t("ui.progress_mux")
+            if total and voice_planned:
+                message = t("ui.progress_face", done=done, total=total)
+                return message, 0.85 * (done / total), message
+            if total:
+                message = t("ui.progress", done=done, total=total)
+                return message, done / total, message
+            waiting = t("ui.waiting")
+            return waiting, 0, waiting if voice_planned else ""
 
         thread = threading.Thread(target=worker, name="barrett-ui-video", daemon=True)
         thread.start()
         while thread.is_alive():
             done = int(box["done"])
             total = int(box["total"])
-            if total:
-                progress((done, total), desc=t("ui.progress", done=done, total=total))
-                message = t("ui.progress", done=done, total=total)
-                fraction = done / total
+            stage_name = str(box.get("stage") or "face")
+            message, fraction, voice_line = lines(done, total, stage_name)
+            if stage_name == "voice":
+                progress(0.9, desc=message)
+            elif stage_name == "mux":
+                progress(0.97, desc=message)
+            elif total:
+                progress((done, total), desc=message)
             else:
-                progress(0, desc=t("ui.waiting"))
-                message = t("ui.waiting")
-                fraction = 0
-            yield gr.skip(), message, fraction
+                progress(0, desc=message)
+            voice_update = voice_line if voice_planned or stage_name in {"voice", "mux"} else gr.skip()
+            yield gr.skip(), message, fraction, voice_update
             thread.join(0.4)
         error = box["error"]
         if error is not None:
@@ -652,8 +713,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
         result = box["result"]
         done = int(box["done"]) or 1
         total = int(box["total"]) or 1
-        progress((total, total), desc=t("ui.progress", done=total, total=total))
-        yield _preview_array(result.output_path), t(status_key, path=result.output_path), 1
+        finished = outcome_text(result, status_key)
+        voice_final = finished if getattr(result, "voice_status", "off") != "off" else gr.skip()
+        progress((total, total), desc=finished)
+        yield _preview_array(result.output_path), finished, 1, voice_final
 
     def on_execute(
         selected_language: str,
@@ -686,6 +749,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
         commercial: bool,
         consent: object,
         subject: str,
+        voice_on: bool,
+        voice_clip: object,
+        voice_strength_value: float,
+        voice_tau_value: float,
         preview_only: bool,
         progress=gr.Progress(track_tqdm=False),
     ):
@@ -694,13 +761,13 @@ def build_demo(config_path: str | Path, language: str | None = None):
             source_path = _as_path(source)
             target_path = _as_path(target)
             if source_path is None or target_path is None:
-                yield None, t("ui.need_files"), 0
+                yield None, t("ui.need_files"), 0, t("ui.voice_idle")
                 return
             processors = ["face_swapper"]
             if enhancer_on:
                 processors.append("face_enhancer")
             if not processors:
-                yield None, t("ui.need_processor"), 0
+                yield None, t("ui.need_processor"), 0, t("ui.voice_idle")
                 return
             with tempfile.TemporaryDirectory(prefix="barrett-faceswap-ui-") as directory:
                 temp = Path(directory)
@@ -758,18 +825,31 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     target_face_index=int(target_index or 0),
                     with_enhancer=bool(enhancer_on),
                     detect_score=float(detect_score),
+                    voice_enabled=bool(voice_on) and not preview_only,
+                    voice_reference=None if preview_only else _as_path(voice_clip),
+                    voice_strength=float(voice_strength_value),
+                    voice_tau=float(voice_tau_value),
                 )
                 full_video = is_video(target_path) and not preview_only
+                voice_planned = (
+                    full_video
+                    and bool(voice_on)
+                    and request.voice_reference is not None
+                    and not dry_run
+                    and target_has_audio(target_path)
+                )
                 if full_video:
-                    yield from _stream_video(request, status_key, progress)
+                    yield from _stream_video(request, status_key, progress, voice_planned=voice_planned)
                     return
                 progress(0, desc=t("ui.progress_running"))
                 config = apply_request_overrides(load_config(config_file), request)
                 result = FaceSwapPipeline(config).run(request)
                 progress(1, desc=t("ui.progress_running"))
-                yield _preview_array(result.output_path), t(status_key, path=result.output_path), 1
+                text = t(status_key, path=result.output_path) if preview_only else outcome_text(result, status_key)
+                voice_final = gr.skip() if preview_only or result.voice_status == "off" else text
+                yield _preview_array(result.output_path), text, 1, voice_final
         except (BarrettFaceswapError, ValidationError, LanguageError) as exc:
-            yield None, str(exc), 0
+            yield None, str(exc), 0, str(exc)
 
     def on_preview(*args, progress=gr.Progress(track_tqdm=False)):
         yield from on_execute(*args, True, progress)
@@ -917,12 +997,43 @@ def build_demo(config_path: str | Path, language: str | None = None):
                                 interactive=False,
                             )
                     with gr.Column(scale=62, elem_classes=["bf-stage"]):
-                        preview = gr.Image(
-                            type="numpy",
-                            label=t("ui.preview_image"),
-                            height=520,
-                            elem_classes=["bf-preview"],
-                        )
+                        with gr.Row(elem_classes=["bf-stage-split"]):
+                            with gr.Column(scale=3):
+                                preview = gr.Image(
+                                    type="numpy",
+                                    label=t("ui.preview_image"),
+                                    height=520,
+                                    elem_classes=["bf-preview"],
+                                )
+                            with gr.Column(scale=2, elem_classes=["bf-voice"]):
+                                voice_title = gr.Markdown(t("ui.voice_title"))
+                                voice_enable = gr.Checkbox(value=False, label=t("ui.voice_enable"))
+                                voice_reference = gr.Audio(
+                                    type="filepath",
+                                    sources=["upload"],
+                                    label=t("ui.voice_reference"),
+                                )
+                                voice_hint = gr.Markdown(t("ui.voice_hint"))
+                                with gr.Accordion(t("ui.voice_advanced"), open=False) as voice_advanced:
+                                    voice_strength = gr.Slider(
+                                        0,
+                                        1,
+                                        value=float(initial.voice.strength),
+                                        step=0.05,
+                                        label=t("ui.voice_strength"),
+                                    )
+                                    voice_tau = gr.Slider(
+                                        0,
+                                        1,
+                                        value=float(initial.voice.tau),
+                                        step=0.05,
+                                        label=t("ui.voice_tau"),
+                                    )
+                                voice_status = gr.Textbox(
+                                    value=t("ui.voice_idle"),
+                                    label=t("ui.voice_status"),
+                                    interactive=False,
+                                )
                         progress_bar = gr.Slider(
                             0,
                             1,
@@ -1010,6 +1121,14 @@ def build_demo(config_path: str | Path, language: str | None = None):
             preview_button,
             run_button,
             preview,
+            voice_title,
+            voice_enable,
+            voice_reference,
+            voice_hint,
+            voice_advanced,
+            voice_strength,
+            voice_tau,
+            voice_status,
             progress_bar,
             status,
             live_tab,
@@ -1055,6 +1174,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
             commercial,
             consent,
             subject,
+            voice_enable,
+            voice_reference,
+            voice_strength,
+            voice_tau,
         ]
         if len(labeled) != len(CONTROLS):
             raise BarrettFaceswapError(t("ui.control_mismatch", found=len(labeled), expected=len(CONTROLS)))
@@ -1070,9 +1193,13 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 outputs=quality,
             )
         source.change(_files_ready, inputs=[source, target], outputs=[preview_button, run_button])
-        target.change(_files_ready, inputs=[source, target], outputs=[preview_button, run_button])
-        preview_button.click(on_preview, inputs=form, outputs=[preview, status, progress_bar])
-        run_button.click(on_run, inputs=form, outputs=[preview, status, progress_bar])
+        target.change(
+            _target_changed,
+            inputs=[source, target],
+            outputs=[preview_button, run_button, voice_enable, voice_status],
+        )
+        preview_button.click(on_preview, inputs=form, outputs=[preview, status, progress_bar, voice_status])
+        run_button.click(on_run, inputs=form, outputs=[preview, status, progress_bar, voice_status])
     return demo
 
 

@@ -43,6 +43,10 @@ class MediaToolError(BarrettFaceswapError):
     """ffmpeg or ffprobe is missing, or a media command failed."""
 
 
+class VoiceError(BarrettFaceswapError):
+    """Voice conversion was requested and could not run."""
+
+
 class ProcessorError(BarrettFaceswapError):
     """The named processor is unknown or not implemented in this phase."""
 

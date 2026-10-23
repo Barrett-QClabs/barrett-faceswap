@@ -40,6 +40,8 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
                              [--target-face-index TARGET_FACE_INDEX] [--trim-start TRIM_START]
                              [--trim-end TRIM_END] [--video-encoder {libx264,h264_nvenc}]
                              [--video-threads VIDEO_THREADS] [--no-audio]
+                             [--voice-reference VOICE_REFERENCE] [--no-voice]
+                             [--voice-strength VOICE_STRENGTH] [--voice-tau VOICE_TAU]
                              [--filter-every FILTER_EVERY]
                              [--face-enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}]
                              [--enhancer-blend ENHANCER_BLEND] [--enhancer-weight ENHANCER_WEIGHT]
@@ -91,6 +93,13 @@ options:
   --video-threads VIDEO_THREADS
                         同时处理的帧数。
   --no-audio            丢弃源音轨，不再混回输出。
+  --voice-reference VOICE_REFERENCE
+                        参考音色（wav、mp3 或 m4a）。目标视频有音轨时，把说话人音色换成这段声音。
+  --no-voice            不要做声音转换，即使提供了参考音色、配置也打开了。
+  --voice-strength VOICE_STRENGTH
+                        克隆强度，0 到 1。1 替换音色。0 保留原音轨。默认 1。
+  --voice-tau VOICE_TAU
+                        OpenVoice 随机度 tau，0 到 1。默认 0.3。更高更随机，不是更强的克隆。
   --filter-every FILTER_EVERY
                         合规打开时，每隔 N 帧过滤一次。最后一帧总会被检查。
   --face-enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}, --enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}

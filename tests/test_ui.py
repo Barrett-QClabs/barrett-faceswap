@@ -30,6 +30,9 @@ def test_language_dropdown_updates_every_control() -> None:
     live = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.live_tab")
     assert english[live]["label"] == "Camera"
     assert chinese[live]["label"] == "摄像头"
+    voice = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.voice_title")
+    assert english[voice]["value"] == "Voice clone"
+    assert chinese[voice]["value"] == "声音克隆"
 
 
 def test_ui_language_prefers_the_cli_flag() -> None:
@@ -111,6 +114,8 @@ def test_quality_presets_do_not_collapse_fast_into_balanced() -> None:
     assert "ul.options" in APP_CSS
     assert 'input[type="radio"]' in APP_CSS
     assert "sticky" in APP_CSS
+    assert "bf-voice" in APP_CSS
+    assert "bf-stage-split" in APP_CSS
 
 
 def test_video_progress_hook_ignores_an_unknown_total(tmp_path) -> None:
@@ -148,6 +153,8 @@ def test_gradio_blocks_build() -> None:
     labels = [getattr(block, "label", None) for block in demo.blocks.values()]
     values = [getattr(block, "value", None) for block in demo.blocks.values()]
     assert "检测阈值" in labels
+    assert "声音克隆" in values
+    assert "启用声音克隆" in labels
     assert any(isinstance(item, str) and "误检" in item for item in values)
     assert any(getattr(block, "value", None) == 0.5 for block in demo.blocks.values())
     english = build_demo(REPO / "configs" / "default.yaml", language="en")
@@ -156,4 +163,6 @@ def test_gradio_blocks_build() -> None:
     english_labels = [getattr(block, "label", None) for block in english.blocks.values()]
     english_values = [getattr(block, "value", None) for block in english.blocks.values()]
     assert "Detect score threshold" in english_labels
+    assert "Voice clone" in english_values
+    assert "Enable voice clone" in english_labels
     assert any(isinstance(item, str) and "false positives" in item for item in english_values)

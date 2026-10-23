@@ -223,6 +223,24 @@ expression:
 jobs:
   root: jobs
 
+# Zero-shot voice conversion for a video that already has speech.
+# The Gradio toggle starts off and turns on when the uploaded target has an
+# audio stream. Conversion runs only when the toggle is on, a reference clip
+# is set, and that audio stream exists. A silent target stays face-only.
+# Weights are not downloaded. See docs/zh-CN/voice.md.
+voice:
+  enabled: true
+  engine: openvoice
+  checkpoint_dir: models/openvoice_v2
+  # 1 replaces the timbre. 0 keeps the original track and does not load the model.
+  strength: 1.0
+  # OpenVoice posterior noise. 0.3 is the upstream default.
+  tau: 0.3
+  # auto | cuda | cpu. auto uses CUDA when this PyTorch build can see the GPU.
+  device: auto
+  # OpenVoice can embed its own watermark. Leave false so compliance stays the only one.
+  watermark: false
+
 # face_enhancer is registered and stays out of this list, including for video.
 # The page opens on this stack: hyperswap_1a_256, landmarks.refine auto,
 # occluder xseg_1, expression paste on, pixel_boost 0, providers cuda then cpu,

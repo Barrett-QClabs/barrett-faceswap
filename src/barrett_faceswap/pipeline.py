@@ -21,14 +21,17 @@ from barrett_faceswap.vision import is_video, read_image
 class FaceSwapPipeline:
     """Detect, align, swap, and paste, with the compliance policy around it."""
 
-    def __init__(self, config: AppConfig, admin_path=None) -> None:
+    def __init__(self, config: AppConfig, admin_path=None, voice_converter=None) -> None:
         self.config = config
         self.policy = CompliancePolicy(config, admin_path=admin_path)
+        # Tests pass a stand-in. None loads OpenVoice when a real conversion runs.
+        self.voice_converter = voice_converter
 
     def run(
         self,
         request: SwapRequest,
         on_progress: Callable[[int, int], None] | None = None,
+        on_stage: Callable[[str], None] | None = None,
     ) -> SwapResult:
         self.config = apply_request_overrides(self.config, request)
         from barrett_faceswap.commercial import guard_commercial
@@ -39,18 +42,30 @@ class FaceSwapPipeline:
         try:
             if is_video(request.target_path):
                 from barrett_faceswap.video import VideoPipeline
+                from barrett_faceswap.voice import apply_voice, check_voice
 
-                return VideoPipeline(self.config, admin_path=self.policy.admin_path).run(
+                check_voice(self.config, request, converter=self.voice_converter)
+                result = VideoPipeline(self.config, admin_path=self.policy.admin_path).run(
                     request,
                     job=job,
                     store=store,
                     on_progress=on_progress,
                 )
+                return apply_voice(
+                    self.config,
+                    request,
+                    result,
+                    converter=self.voice_converter,
+                    on_stage=on_stage,
+                )
             if request.trim_start is not None or request.trim_end is not None or request.video_encoder is not None:
                 raise ConfigError(t("video.flags_need_video"))
             if request.video_mode == "pipe":
                 raise ConfigError(t("video.pipe_needs_video"))
-            return self._run_image(request, job, store)
+            result = self._run_image(request, job, store)
+            from barrett_faceswap.voice import apply_voice
+
+            return apply_voice(self.config, request, result, converter=self.voice_converter)
         except Exception as exc:
             if job is not None and job.state != "done":
                 job.state = "interrupted"

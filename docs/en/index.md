@@ -9,5 +9,6 @@ Barrett FaceSwap swaps a face in a still image, a video, or a webcam preview. Th
 - [Commercial route](commercial.md)
 - [Compliance](compliance.md)
 - [CLI](cli.md)
+- [Voice clone](voice.md)
 
 The longer narrative lives in `docs/ARCHITECTURE.md` and `docs/COMPLIANCE.md` beside this site. This site is built in CI and is not deployed.

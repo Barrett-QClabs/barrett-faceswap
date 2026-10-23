@@ -107,6 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
     swap.add_argument("--video-encoder", default=None, choices=list(VIDEO_ENCODERS), help=t("cli.video_encoder"))
     swap.add_argument("--video-threads", type=int, default=None, help=t("cli.video_threads"))
     swap.add_argument("--no-audio", action="store_true", help=t("cli.no_audio"))
+    swap.add_argument("--voice-reference", type=Path, default=None, help=t("cli.voice_reference"))
+    swap.add_argument("--no-voice", action="store_true", help=t("cli.no_voice"))
+    swap.add_argument("--voice-strength", type=float, default=None, help=t("cli.voice_strength"))
+    swap.add_argument("--voice-tau", type=float, default=None, help=t("cli.voice_tau"))
     swap.add_argument("--filter-every", type=int, default=None, help=t("cli.filter_every"))
     swap.add_argument(
         "--face-enhancer-model",
@@ -377,6 +381,10 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         video_encoder=namespace.video_encoder,
         video_threads=namespace.video_threads,
         keep_audio=False if namespace.no_audio else None,
+        voice_reference=namespace.voice_reference,
+        voice_enabled=False if namespace.no_voice else (True if namespace.voice_reference else None),
+        voice_strength=namespace.voice_strength,
+        voice_tau=namespace.voice_tau,
         filter_every_n_frames=namespace.filter_every,
         enhancer_model=namespace.enhancer_model,
         enhancer_blend=namespace.enhancer_blend,

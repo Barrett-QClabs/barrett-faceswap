@@ -9,5 +9,6 @@ Barrett FaceSwap 可以对静态图像、视频或摄像头预览换脸。代码
 - [商业路线](commercial.md)
 - [合规](compliance.md)
 - [命令行](cli.md)
+- [声音克隆](voice.md)
 
 更长的叙述在站点旁边的 `docs/ARCHITECTURE.zh-CN.md` 和 `docs/COMPLIANCE.zh-CN.md`。这个站点在 CI 里构建，不会部署。

@@ -590,6 +590,55 @@ class LiveConfig(_Model):
         return int(value)
 
 
+class VoiceConfig(_Model):
+    """Optional zero-shot voice conversion after a video face swap.
+
+    ``enabled`` is the product default. The Gradio toggle still starts off and
+    turns on only after the uploaded target video has an audio stream. A run
+    converts speech only when that toggle (or ``--voice-reference``) is on, a
+    reference clip is present, and the target has audio. A silent target stays
+    face-only.
+    """
+
+    enabled: bool = True
+    engine: str = "openvoice"
+    checkpoint_dir: Path = Field(default_factory=lambda: resolve_config_path("models/openvoice_v2"))
+    # 1 replaces the target timbre. 0 keeps the original track and skips the model.
+    strength: float = 1.0
+    # OpenVoice posterior noise. 0.3 is the upstream default. Higher is more random.
+    tau: float = 0.3
+    # auto uses CUDA when PyTorch can see a GPU, including an RTX 5090 on a cu128 build.
+    device: str = "auto"
+    # Upstream can embed a wavmark payload. Leave this off so compliance stays the only watermark.
+    watermark: bool = False
+
+    @field_validator("checkpoint_dir", mode="before")
+    @classmethod
+    def _checkpoint_dir(cls, value: object) -> Path:
+        return resolve_config_path(value)
+
+    @field_validator("engine")
+    @classmethod
+    def _engine(cls, value: str) -> str:
+        if value != "openvoice":
+            raise ValueError(t("config.voice_engine", value=value, allowed="openvoice"))
+        return value
+
+    @field_validator("device")
+    @classmethod
+    def _device(cls, value: str) -> str:
+        if value not in {"auto", "cuda", "cpu"}:
+            raise ValueError(t("config.voice_device", value=value))
+        return value
+
+    @field_validator("strength", "tau")
+    @classmethod
+    def _unit(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
+
+
 class JobsConfig(_Model):
     """Directory that stores job specs and in-progress frames."""
 
@@ -615,6 +664,7 @@ class AppConfig(_Model):
     landmarks: LandmarkConfig = Field(default_factory=LandmarkConfig)
     expression: ExpressionConfig = Field(default_factory=ExpressionConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
     live: LiveConfig = Field(default_factory=LiveConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     processors: list[str] = Field(default_factory=lambda: ["face_swapper"])
