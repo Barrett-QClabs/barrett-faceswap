@@ -222,9 +222,10 @@ jobs:
   root: jobs
 
 # face_enhancer is registered and stays out of this list, including for video.
-# Add it, or pass --with-enhancer, when a still needs restoration. CodeFormer
-# at weight 0.7 with a parser file keeps eyes and brows. GFPGAN narrows eyes
-# and oversmooths skin, so it is not the video default.
+# The page opens on this stack: hyperswap_1a_256, landmarks.refine auto,
+# occluder xseg_1, expression paste on, pixel_boost 0, providers cuda then cpu,
+# tensorrt.fp16 false. Fast, Balanced, and High in the UI keep the enhancer off.
+# Add face_enhancer, or pass --with-enhancer, only when a still needs restoration.
 processors:
   - face_swapper
 

@@ -40,26 +40,198 @@ from barrett_faceswap.vision import is_video, read_image, write_image
 _BG = "#0B0D10"
 _CARD = "#14181F"
 _LINE = "#1E2430"
-_TEXT = "#E8ECF1"
-_MUTED = "#9AA3B2"
-_CTA = "#2563EB"
-_CTA_HOVER = "#3B82F6"
+_TEXT = "#FFFFFF"
+_INK = "#0B0D10"
+_PAPER = "#FFFFFF"
+# Darker than #2563EB so white labels stay solid (about 8.7:1) instead of looking washed out.
+_CTA = "#1E40AF"
+_CTA_HOVER = "#1D4ED8"
 
 APP_CSS = f"""
 .gradio-container {{
   background: {_BG} !important;
   color: {_TEXT};
+  font-size: 17px !important;
   font-family: "PingFang SC", "Noto Sans SC", system-ui, sans-serif !important;
 }}
 .gradio-container .block {{
   background: {_CARD};
   border-color: {_LINE};
 }}
+.gradio-container .prose,
+.gradio-container .prose p,
+.gradio-container .md {{
+  font-size: 17px !important;
+  line-height: 1.5 !important;
+  color: {_TEXT} !important;
+}}
+.gradio-container [data-testid="block-info"],
+.gradio-container [data-testid="block-label"] {{
+  color: {_TEXT} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  background: transparent !important;
+}}
+.gradio-container .min_value,
+.gradio-container .max_value {{
+  color: {_TEXT} !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container .secondary-wrap input,
+.gradio-container .secondary-wrap input:disabled {{
+  color: {_TEXT} !important;
+  -webkit-text-fill-color: {_TEXT} !important;
+  opacity: 1 !important;
+  font-size: 17px !important;
+  font-weight: 650 !important;
+  background: transparent !important;
+}}
+.gradio-container .tab-like-container {{
+  height: auto !important;
+  min-height: 40px !important;
+}}
+.gradio-container .tab-like-container input[type="number"] {{
+  min-height: 40px !important;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container ul.options,
+.gradio-container ul.options li,
+ul.options,
+ul.options li {{
+  background: {_BG} !important;
+  color: {_TEXT} !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+}}
+.gradio-container ul.options li:hover,
+.gradio-container ul.options li.active,
+.gradio-container ul.options li.selected,
+ul.options li:hover,
+ul.options li.active,
+ul.options li.selected {{
+  background: {_CTA} !important;
+  color: {_PAPER} !important;
+}}
+.gradio-container .tab-container button {{
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: {_TEXT} !important;
+}}
+.gradio-container .tab-container button.selected {{
+  color: {_PAPER} !important;
+}}
+.gradio-container button.label-wrap {{
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: {_PAPER} !important;
+}}
 footer {{ display: none !important; }}
 .bf-layout {{ align-items: stretch; gap: 16px; }}
 .bf-preview {{ min-height: 420px; }}
-.bf-cta {{ min-height: 44px; background: {_CTA} !important; color: #ffffff !important; }}
-.bf-cta:hover {{ background: {_CTA_HOVER} !important; }}
+.gradio-container button.primary,
+.gradio-container .bf-cta {{
+  min-height: 48px;
+  background: {_CTA} !important;
+  color: {_PAPER} !important;
+  border-color: {_CTA} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container button.primary:hover,
+.gradio-container .bf-cta:hover {{
+  background: {_CTA_HOVER} !important;
+  color: {_PAPER} !important;
+}}
+.gradio-container button.primary *,
+.gradio-container .bf-cta * {{
+  color: {_PAPER} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container button.secondary {{
+  min-height: 48px;
+  background: {_PAPER} !important;
+  color: {_INK} !important;
+  border: 1px solid {_INK} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container button.secondary:hover {{
+  background: {_TEXT} !important;
+  color: {_INK} !important;
+}}
+.gradio-container button.secondary * {{
+  color: {_INK} !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container label.float,
+.gradio-container label.float * {{
+  background: transparent !important;
+  color: {_TEXT} !important;
+  -webkit-text-fill-color: {_TEXT} !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  opacity: 1 !important;
+}}
+.gradio-container button.boundedheight,
+.gradio-container button.boundedheight * {{
+  color: {_PAPER} !important;
+  font-size: 17px !important;
+  font-weight: 650 !important;
+}}
+.gradio-container label:has(input[type="radio"]) {{
+  background: {_PAPER} !important;
+  color: {_INK} !important;
+  -webkit-text-fill-color: {_INK} !important;
+  border: 1px solid {_INK} !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  padding: 8px 14px !important;
+}}
+.gradio-container label:has(input[type="radio"]) * {{
+  color: {_INK} !important;
+  -webkit-text-fill-color: {_INK} !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+}}
+.gradio-container label:has(input[type="radio"]):has(input:checked) {{
+  background: {_CTA} !important;
+  color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
+  border-color: {_CTA} !important;
+}}
+.gradio-container label:has(input[type="radio"]):has(input:checked) * {{
+  color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
+}}
+.gradio-container label:has(input[type="checkbox"]) {{
+  background: transparent !important;
+  color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
+  border-color: transparent !important;
+  font-size: 16px !important;
+  font-weight: 650 !important;
+}}
+.gradio-container label:has(input[type="checkbox"]) * {{
+  color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
+}}
+.gradio-container textarea,
+.gradio-container input[type="text"],
+.gradio-container input[type="number"],
+.gradio-container select {{
+  background: {_BG} !important;
+  color: {_PAPER} !important;
+  -webkit-text-fill-color: {_PAPER} !important;
+  font-size: 17px !important;
+  font-weight: 650 !important;
+  opacity: 1 !important;
+}}
 .bf-actions button:disabled {{ opacity: 0.4; }}
 @media (max-width: 959px) {{
   .bf-layout {{ flex-direction: column !important; }}
@@ -74,8 +246,11 @@ footer {{ display: none !important; }}
 }}
 """
 
-# Fast and Balanced share one field tuple. resolve_preset keeps the current
-# name when it is one of the matches, so the two radios do not collapse.
+# Fast, Balanced, and High share the open-app stack: HyperSwap, enhancer off,
+# xseg_1, pixel boost 0. resolve_preset keeps the current name when it is one
+# of the matches, so the radios do not collapse into each other. High must not
+# enable GFPGAN or CodeFormer. Expression and landmark refine stay on the
+# config, which the page loads before these widgets.
 PRESETS: dict[str, dict[str, object]] = {
     "fast": {
         "swapper": "hyperswap_1a_256",
@@ -91,12 +266,9 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "hq": {
         "swapper": "hyperswap_1a_256",
-        "pixel_boost": 512,
-        "enhancer": True,
+        "pixel_boost": 0,
+        "enhancer": False,
         "occluder": "xseg_1",
-        "enhancer_model": "gfpgan_1.4",
-        "blend": 0.35,
-        "weight": 0.7,
     },
 }
 
@@ -119,10 +291,10 @@ def resolve_preset(
 ) -> str:
     """Pick a preset name from the widgets.
 
-    The widgets stay the source of truth. Fast and Balanced are the same
-    numbers, so a current match is kept. Two matches that do not include the
-    current name become Custom instead of snapping to one of them. One match
-    selects that preset.
+    The widgets stay the source of truth. Fast, Balanced, and High are the
+    same numbers, so a current match is kept. Several matches that do not
+    include the current name become Custom instead of snapping to one of them.
+    One match selects that preset.
     """
 
     signature = (str(swapper), int(pixel_boost), bool(enhancer_on), str(occluder))
@@ -284,20 +456,71 @@ def _dark_theme(gr):
             block_title_text_color_dark=_TEXT,
             body_text_color=_TEXT,
             body_text_color_dark=_TEXT,
-            body_text_color_subdued=_MUTED,
-            body_text_color_subdued_dark=_MUTED,
+            body_text_color_subdued=_TEXT,
+            body_text_color_subdued_dark=_TEXT,
+            input_placeholder_color=_TEXT,
+            input_placeholder_color_dark=_TEXT,
+            block_title_background_fill="transparent",
+            block_title_background_fill_dark="transparent",
+            body_text_size="17px",
+            body_text_weight="600",
+            block_label_text_size="16px",
+            block_label_text_weight="700",
+            block_title_text_size="18px",
+            block_title_text_weight="700",
+            section_header_text_size="17px",
+            section_header_text_weight="700",
+            prose_text_size="17px",
+            input_text_size="17px",
+            button_large_text_size="18px",
+            button_large_text_weight="700",
+            button_large_padding="12px 18px",
+            button_medium_text_size="17px",
+            button_medium_text_weight="700",
+            button_small_text_size="16px",
+            button_small_text_weight="700",
+            checkbox_label_background_fill=_PAPER,
+            checkbox_label_background_fill_dark=_PAPER,
+            checkbox_label_background_fill_hover=_TEXT,
+            checkbox_label_background_fill_hover_dark=_TEXT,
+            checkbox_label_background_fill_selected=_CTA,
+            checkbox_label_background_fill_selected_dark=_CTA,
+            checkbox_label_border_color=_INK,
+            checkbox_label_border_color_dark=_INK,
+            checkbox_label_border_color_selected=_CTA,
+            checkbox_label_border_color_selected_dark=_CTA,
+            checkbox_label_text_color=_INK,
+            checkbox_label_text_color_dark=_INK,
+            checkbox_label_text_color_selected=_PAPER,
+            checkbox_label_text_color_selected_dark=_PAPER,
+            checkbox_label_text_size="16px",
+            checkbox_label_text_weight="700",
+            checkbox_label_padding="8px 14px",
             button_primary_background_fill=_CTA,
             button_primary_background_fill_dark=_CTA,
             button_primary_background_fill_hover=_CTA_HOVER,
             button_primary_background_fill_hover_dark=_CTA_HOVER,
-            button_primary_text_color="#FFFFFF",
-            button_primary_text_color_dark="#FFFFFF",
-            button_secondary_background_fill="transparent",
-            button_secondary_background_fill_dark="transparent",
-            button_secondary_border_color=_CTA_HOVER,
-            button_secondary_border_color_dark=_CTA_HOVER,
-            button_secondary_text_color=_TEXT,
-            button_secondary_text_color_dark=_TEXT,
+            button_primary_text_color=_PAPER,
+            button_primary_text_color_dark=_PAPER,
+            button_primary_text_color_hover=_PAPER,
+            button_primary_text_color_hover_dark=_PAPER,
+            button_secondary_background_fill=_PAPER,
+            button_secondary_background_fill_dark=_PAPER,
+            button_secondary_background_fill_hover=_TEXT,
+            button_secondary_background_fill_hover_dark=_TEXT,
+            button_secondary_border_color=_INK,
+            button_secondary_border_color_dark=_INK,
+            button_secondary_border_color_hover=_INK,
+            button_secondary_border_color_hover_dark=_INK,
+            button_secondary_text_color=_INK,
+            button_secondary_text_color_dark=_INK,
+            button_secondary_text_color_hover=_INK,
+            button_secondary_text_color_hover_dark=_INK,
+            block_label_background_fill=_CARD,
+            block_label_background_fill_dark=_CARD,
+            color_accent=_CTA,
+            color_accent_soft=_LINE,
+            color_accent_soft_dark=_LINE,
             input_background_fill=_BG,
             input_background_fill_dark=_BG,
             input_border_color=_LINE,

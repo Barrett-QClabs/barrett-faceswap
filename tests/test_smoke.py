@@ -69,6 +69,15 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.expression.mouth_boost == pytest.approx(0.55)
     assert config.expression.mar_open == pytest.approx(0.045)
     assert config.expression.mar_closed == pytest.approx(0.012)
+    assert config.expression.eye_dilate == 3
+    assert config.expression.mouth_dilate == 1
+    assert config.expression.eye_expand == pytest.approx(1.35)
+    assert config.expression.mouth_expand == pytest.approx(1.15)
+    assert config.expression.ear_open == pytest.approx(0.24)
+    assert config.expression.ear_closed == pytest.approx(0.15)
+    assert config.expression.blur == 9
+    assert config.swap.pixel_boost == 0
+    assert config.landmarks.profile_ratio == pytest.approx(0.22)
     assert config.models.landmark.path.name == "2dfan4.onnx"
     assert config.compliance.enabled is False
 

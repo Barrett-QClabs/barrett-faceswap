@@ -1,6 +1,6 @@
 # Architecture
 
-File swaps go through `FaceSwapPipeline`. Video goes through `VideoPipeline`. The webcam goes through `LivePipeline`, which runs capture, process, and output on three threads and shares `LiveSession` with the Gradio camera tab. The Gradio page ships in zh-CN with a dark theme, quality presets, and a progress bar for long video. The camera tab uses the same swapper, pixel boost, occluder, and enhancer settings. `compliance.enabled` stays false.
+File swaps go through `FaceSwapPipeline`. Video goes through `VideoPipeline`. The webcam goes through `LivePipeline`, which runs capture, process, and output on three threads and shares `LiveSession` with the Gradio camera tab. The Gradio page ships in zh-CN with a dark theme and a progress bar for long video. Balanced is selected on open. Fast, Balanced, and High keep HyperSwap, the enhancer off, occluder xseg_1, and pixel boost 0. The camera tab uses the same swapper, pixel boost, occluder, and enhancer settings. `compliance.enabled` stays false.
 
 Processors return frames. They do not write the output file. `CompliancePolicy` wraps the file path and the live path. `compliance.enabled` defaults to false, so a dry-run does not ask for consent, does not watermark, and does not write an audit line.
 

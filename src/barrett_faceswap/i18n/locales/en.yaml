@@ -319,7 +319,7 @@ ui:
   brand: "Barrett FaceSwap"
   media_tab: "Image · Video"
   steps: "Source face → target → model and quality → start."
-  swapper_hint: "Balanced uses HyperSwap, enhancer off, occluder xseg_1, and native resolution."
+  swapper_hint: "Fast, Balanced, and High use HyperSwap, enhancer off, occluder xseg_1, and native resolution. Balanced is selected when the page opens."
   quality: "Quality"
   quality_fast: "Fast"
   quality_balanced: "Balanced"
