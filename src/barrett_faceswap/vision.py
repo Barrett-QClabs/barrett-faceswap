@@ -14,6 +14,12 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
 
+def is_video(path: Path) -> bool:
+    """True when the suffix is one the video pipeline accepts."""
+
+    return path.suffix.lower() in VIDEO_SUFFIXES
+
+
 def read_image(path: Path) -> np.ndarray:
     """Load a still image as a BGR ``uint8`` array."""
 
@@ -30,3 +36,14 @@ def read_image(path: Path) -> np.ndarray:
     if image is None:
         raise BarrettFaceswapError(t("vision.decode", path=path))
     return image
+
+
+def write_image(path: Path, image_bgr: np.ndarray) -> None:
+    """Write a BGR image. The suffix selects the container."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    suffix = path.suffix.lower() if path.suffix else ".png"
+    ok, encoded = cv2.imencode(suffix, image_bgr)
+    if not ok:
+        raise BarrettFaceswapError(t("vision.encode", path=path))
+    path.write_bytes(encoded.tobytes())

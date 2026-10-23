@@ -14,14 +14,18 @@ from tests.conftest import REPO, write_config
 
 
 def test_registry_marks_insightface_weights_non_commercial() -> None:
-    for role in ("detector", "recognizer", "swapper"):
+    for role in ("detector", "recognizer", "swapper", "gfpgan", "codeformer", "occluder", "parser"):
         record = BUILTIN[role]
         assert record.commercial_use is False
         assert record.sha256 is None
         assert record.input_size[0] > 0
+        assert record.license_key
     assert BUILTIN["swapper"].alignment == "inswapper_128"
     assert BUILTIN["recognizer"].alignment == "arcface_112"
     assert BUILTIN["detector"].alignment == "scrfd"
+    assert BUILTIN["gfpgan"].alignment == "ffhq_512"
+    assert BUILTIN["gfpgan"].filename == "gfpgan_1.4.onnx"
+    assert BUILTIN["codeformer"].license_key == "models.license.codeformer"
 
 
 def test_hash_pin_accepts_a_match_and_rejects_a_mismatch(tmp_path: Path) -> None:
@@ -63,6 +67,8 @@ def test_session_cache_reuses_the_same_model_provider_and_device(tmp_path: Path)
 def test_inspect_lines_mention_the_license(tmp_path: Path) -> None:
     config = load_config(REPO / "configs" / "default.yaml")
     lines = describe_models(config)
-    assert len(lines) == 3
+    assert len(lines) == 7
     assert any("inswapper_128" in line for line in lines)
+    assert any("gfpgan_1.4" in line for line in lines)
+    assert any("Apache" in line or "S-Lab" in line for line in lines)
     assert any("non-commercial" in line or "非商业" in line for line in lines)

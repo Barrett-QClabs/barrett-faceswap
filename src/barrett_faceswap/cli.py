@@ -12,7 +12,9 @@ import yaml
 from pydantic import ValidationError
 
 from barrett_faceswap import __version__
-from barrett_faceswap.config import load_config
+from barrett_faceswap.benchmark import run_benchmark
+from barrett_faceswap.config import apply_request_overrides, load_config
+from barrett_faceswap.config import ENHANCER_MODELS, VIDEO_ENCODERS
 from barrett_faceswap.errors import (
     BarrettFaceswapError,
     ComplianceError,
@@ -93,6 +95,15 @@ def build_parser() -> argparse.ArgumentParser:
     swap.add_argument("--processors", default=None, help=t("cli.processors"))
     swap.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
     swap.add_argument("--target-face-index", type=int, default=0, help=t("cli.target_face_index"))
+    swap.add_argument("--trim-start", type=float, default=None, help=t("cli.trim_start"))
+    swap.add_argument("--trim-end", type=float, default=None, help=t("cli.trim_end"))
+    swap.add_argument("--video-encoder", default=None, choices=list(VIDEO_ENCODERS), help=t("cli.video_encoder"))
+    swap.add_argument("--video-threads", type=int, default=None, help=t("cli.video_threads"))
+    swap.add_argument("--no-audio", action="store_true", help=t("cli.no_audio"))
+    swap.add_argument("--filter-every", type=int, default=None, help=t("cli.filter_every"))
+    swap.add_argument("--enhancer-model", default=None, choices=list(ENHANCER_MODELS), help=t("cli.enhancer_model"))
+    swap.add_argument("--enhancer-blend", type=float, default=None, help=t("cli.enhancer_blend"))
+    swap.add_argument("--enhancer-weight", type=float, default=None, help=t("cli.enhancer_weight"))
 
     inspect = sub.add_parser("inspect-models", help=t("cli.inspect_help"))
     inspect.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
@@ -100,6 +111,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     listing = sub.add_parser("list-processors", help=t("cli.processors_help"))
     listing.add_argument("--lang", default=None, help=t("cli.lang"))
+
+    ui = sub.add_parser("ui", help=t("cli.ui_help"))
+    ui.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    ui.add_argument("--lang", default=None, help=t("cli.lang"))
+    ui.add_argument("--host", default="127.0.0.1", help=t("cli.host"))
+    ui.add_argument("--port", type=int, default=7860, help=t("cli.port"))
+    ui.add_argument("--share", action="store_true", help=t("cli.share"))
+
+    bench = sub.add_parser("benchmark", help=t("cli.benchmark_help"))
+    bench.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    bench.add_argument("--lang", default=None, help=t("cli.lang"))
+    bench.add_argument("--frames", type=int, default=32, help=t("cli.benchmark_frames"))
+    bench.add_argument("--width", type=int, default=256, help=t("cli.benchmark_width"))
+    bench.add_argument("--height", type=int, default=256, help=t("cli.benchmark_height"))
+    bench.add_argument("--dry-run", action="store_true", help=t("cli.dry_run"))
+    bench.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
     return parser
 
 
@@ -108,6 +135,23 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         print(t("cli.processors_header"))
         for name in list_processor_names():
             print(name)
+        return 0
+    if namespace.command == "ui":
+        from barrett_faceswap.ui.app import launch_ui
+
+        launch_ui(Path(namespace.config), host=namespace.host, port=namespace.port, share=namespace.share)
+        return 0
+    if namespace.command == "benchmark":
+        config = load_config(namespace.config)
+        report = run_benchmark(
+            config,
+            frames=namespace.frames,
+            width=namespace.width,
+            height=namespace.height,
+            dry_run=namespace.dry_run,
+            providers=namespace.execution_provider,
+        )
+        print(report.line())
         return 0
     config = load_config(namespace.config)
     if namespace.command == "inspect-models":
@@ -136,7 +180,17 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         processors=processors,
         execution_providers=namespace.execution_provider,
         target_face_index=namespace.target_face_index,
+        trim_start=namespace.trim_start,
+        trim_end=namespace.trim_end,
+        video_encoder=namespace.video_encoder,
+        video_threads=namespace.video_threads,
+        keep_audio=False if namespace.no_audio else None,
+        filter_every_n_frames=namespace.filter_every,
+        enhancer_model=namespace.enhancer_model,
+        enhancer_blend=namespace.enhancer_blend,
+        enhancer_weight=namespace.enhancer_weight,
     )
+    config = apply_request_overrides(config, request)
     result = FaceSwapPipeline(config).run(request)
     for note in result.notes:
         print(note, file=sys.stderr)

@@ -11,6 +11,12 @@
 | 检测 | `models/det_10g.onnx` | `scrfd` | 640 |
 | 识别 | `models/w600k_r50.onnx` | `arcface_112` | 112 |
 | 换脸 | `models/inswapper_128.onnx` | `inswapper_128` | 128 |
+| gfpgan | `models/gfpgan_1.4.onnx` | `ffhq_512` | 512 |
+| codeformer | `models/codeformer.onnx` | `ffhq_512` | 512 |
+| 遮挡 | `models/occlusion_xseg.onnx` | `xseg` | 256 |
+| 解析 | `models/bisenet_face_parsing.onnx` | `bisenet_19` | 512 |
+
+后四个文件是可选的。换脸不需要它们。`face_enhancer` 需要你选中的那一个增强文件。遮挡和解析蒙版在文件缺失时退回占位。
 
 ## InsightFace buffalo_l
 
@@ -32,6 +38,34 @@ InsightFace 记录了一个直接文件地址：
 
 放到 `models/inswapper_128.onnx`。他们的示例写明 128 的演示已不再维护，并建议更高分辨率的替换使用他们自己的产品。图中的 `emap` 初始值是必需的。本仓库从 ONNX 文件读取这个张量，不附带副本。
 
+## GFPGAN 1.4
+
+官方检查点（PyTorch，不是 ONNX）：
+
+<https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth>
+
+请自行导出到 `models/gfpgan_1.4.onnx`。本仓库不附带转换器，也不下载该文件。本流水线运行的图是 NCHW RGB float32，用 `(pixel / 255 - 0.5) / 0.5` 归一化，空间尺寸在 ONNX 输入未写明时是 512。一个 4 维输入就够了。GFPGAN 的代码和公开的 v1.4 权重是 Apache-2.0。网络里包含 NVIDIA Source Code License 下的 StyleGAN2。模型注册表把 `commercial_use` 设为 false，不把该文件当成已获商业许可。
+
+## CodeFormer
+
+项目和许可证：
+
+<https://github.com/sczhou/CodeFormer>
+
+权重是 S-Lab License 1.0（非商业研究）。请导出到 `models/codeformer.onnx`，约定同样是 512 的 NCHW RGB [-1, 1]。如果图有第二个非图像输入，本流水线会把 `--enhancer-weight`（默认 0.5）送进去。
+
+## 遮挡（xseg 风格）
+
+把操作者自行准备的文件放到 `models/occlusion_xseg.onnx`。没有指定的下载地址。期望的图在 256 上接收 0..1 的 RGB（或单通道灰度），并返回一个通道，数值越高表示该像素保持可见。最大值高于 1.5 时按 0..255 读取。如果图预测的是遮挡物而不是人脸，把 `masks.occlusion_invert` 设为 true。xseg 这个想法与 DeepFaceLab（<https://github.com/iperov/DeepFaceLab>）有关。那段代码是 GPL-3.0，不得复制进本仓库。`commercial_use` 为 false。
+
+## 人脸解析（BiSeNet）
+
+这种导出常被引用的训练代码：
+
+<https://github.com/zllrunning/face-parsing.PyTorch>
+
+该仓库的代码是 MIT。`79999_iter.pth` 这类权重通常在 CelebAMask-HQ 上训练，而该数据集是非商业研究用途。请核对你实际放到 `models/bisenet_face_parsing.onnx` 的文件。输入是 ImageNet 归一化的 RGB（均值 0.485、0.456、0.406；标准差 0.229、0.224、0.225）。输出是逐类分数或整数标签图。类别序号是 `src/barrett_faceswap/parsing.py` 里的 19 个 CelebAMask-HQ 标签（`background` 是 0，`hat` 是 18）。`commercial_use` 为 false。
+
 ## RetinaFace
 
 RetinaFace 的训练和导出说明在 <https://github.com/deepinsight/insightface/tree/master/detection/retinaface>。第一阶段不解码那种图。如果文件不是 SCRFD 的形状，检测器会报错，并指出期望的导出是 `det_10g.onnx`。以后的适配器可以注册另一个检测器，而不必改贴回。
@@ -45,7 +79,7 @@ InsightFace 声明预训练模型仅供非商业研究。2025-11-24 的更新要
 - inswapper 系列：`contact@insightface.ai`
 - `buffalo_l` 这类开放识别包：`recognition-oss-pack@insightface.ai`
 
-在依赖某个文件之前，请到 <https://github.com/deepinsight/insightface#license> 核对当前文本。商业使用需要他们的授权。SimSwap 的检查点是 CC BY-NC 4.0，不属于这个目录布局。
+在依赖某个文件之前，请到 <https://github.com/deepinsight/insightface#license> 核对当前文本。商业使用需要他们的授权。SimSwap 的检查点是 CC BY-NC 4.0，不属于这个目录布局。GFPGAN、CodeFormer、遮挡文件和解析文件的条款见上面各节。它们都不在本仓库的 MIT 许可之内。
 
 ## 锁定哈希
 

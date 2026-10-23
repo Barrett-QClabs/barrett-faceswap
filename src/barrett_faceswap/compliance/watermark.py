@@ -25,7 +25,7 @@ SOFTWARE_TAG = "barrett-faceswap"
 
 @dataclass(frozen=True)
 class VideoMarkResult:
-    """How a video file was labeled. Phase 1 does not emit video frames."""
+    """How a finished video file was labeled."""
 
     container_tagged: bool
     sidecar: Path | None
@@ -104,9 +104,8 @@ def write_metadata_sidecar(path: Path, text: str) -> Path:
 def apply_video_metadata(path: Path, text: str) -> VideoMarkResult:
     """Attach container comments when ffmpeg is on PATH, and always write a sidecar.
 
-    Phase 1 refuses to process video frames. This helper is the marking path a
-    later video stage will call. It does not invent a transcoder when ffmpeg
-    is absent: the sidecar still records the label.
+    The video pipeline calls this after frames are encoded. It does not invent
+    a transcoder when ffmpeg is absent: the sidecar still records the label.
     """
 
     sidecar = write_metadata_sidecar(path, text)

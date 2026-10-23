@@ -36,7 +36,11 @@ class NoFaceError(BarrettFaceswapError):
 
 
 class UnsupportedMediaError(BarrettFaceswapError):
-    """The file type is outside the Phase 1 still-image path."""
+    """The file type is not valid for the reader or pipeline that received it."""
+
+
+class MediaToolError(BarrettFaceswapError):
+    """ffmpeg or ffprobe is missing, or a media command failed."""
 
 
 class ProcessorError(BarrettFaceswapError):

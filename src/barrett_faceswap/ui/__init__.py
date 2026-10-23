@@ -1,8 +1,7 @@
-"""Labels for a future Gradio shell.
+"""Catalog labels for the Gradio shell.
 
-Phase 1 does not import Gradio. When a UI arrives, it should call
-:func:`gradio_labels` instead of hard-coding captions. The strings live in
-the ``ui.*`` catalog entries.
+:func:`gradio_labels` reads the active language. The app in ``ui.app`` uses
+the same keys and does not import Gradio until ``barrett-faceswap ui`` runs.
 """
 
 from __future__ import annotations
@@ -16,18 +15,38 @@ UI_KEYS = (
     "ui.processors",
     "ui.execution",
     "ui.preview",
+    "ui.preview_image",
     "ui.run",
     "ui.consent",
+    "ui.consent_subject",
     "ui.watermark",
     "ui.language",
+    "ui.lang_en",
+    "ui.lang_zh",
     "ui.dry_run",
     "ui.compliance",
     "ui.detector",
     "ui.swapper",
     "ui.enhancer",
+    "ui.enhancer_blend",
+    "ui.enhancer_weight",
+    "ui.video_encoder",
+    "ui.trim_start",
+    "ui.trim_end",
+    "ui.keep_audio",
     "ui.mask",
     "ui.audit",
     "ui.threshold",
+    "ui.title",
+    "ui.intro",
+    "ui.status",
+    "ui.need_files",
+    "ui.need_processor",
+    "ui.done",
+    "ui.preview_still",
+    "ui.preview_video",
+    "ui.gradio_missing",
+    "ui.control_mismatch",
 )
 
 

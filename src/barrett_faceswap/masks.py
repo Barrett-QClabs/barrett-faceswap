@@ -1,9 +1,9 @@
-"""Paste masks. Phase 1 ships geometry stubs and merges them with a minimum.
+"""Paste masks. Geometry stubs merge with optional model maps by a minimum.
 
-``box_feather`` is an inset rectangle. ``region`` is an ellipse over the crop.
-``occlusion`` is a stub of ones: no occlusion network is loaded, and the
-minimum merge therefore leaves the other two masks unchanged. A later model
-can return a real occlusion map without changing the paste path.
+``box_feather`` is an inset rectangle. ``region`` is an ellipse over the crop
+when no parsing graph is loaded. ``occlusion`` is a stub of ones when no
+occlusion graph is loaded, so the minimum leaves the other masks unchanged.
+Real maps are passed into :func:`composite_mask` and use the same merge.
 """
 
 from __future__ import annotations
@@ -37,13 +37,22 @@ def region_mask(size: int, blur: int) -> np.ndarray:
     return _blur(mask, blur)
 
 
-def occlusion_mask(size: int) -> np.ndarray:
+def occlusion_mask(size: int, path: str | None = None) -> np.ndarray:
     """Stub occlusion map. Every pixel is visible."""
 
     if not getattr(occlusion_mask, "_noted", False):
-        logger.info(t("masks.occlusion_stub"))
+        logger.info(t("masks.occlusion_stub", path=path or "-"))
         setattr(occlusion_mask, "_noted", True)
     return np.ones((size, size), dtype=np.float32)
+
+
+def parser_stub_mask(size: int, blur: int, path: str | None = None) -> np.ndarray:
+    """Elliptical region used when the parsing model file is absent."""
+
+    if not getattr(parser_stub_mask, "_noted", False):
+        logger.info(t("masks.parser_stub", path=path or "-"))
+        setattr(parser_stub_mask, "_noted", True)
+    return region_mask(size, blur)
 
 
 def merge_min(masks: list[np.ndarray]) -> np.ndarray:
@@ -55,14 +64,22 @@ def merge_min(masks: list[np.ndarray]) -> np.ndarray:
     return np.min(stacked, axis=0)
 
 
-def composite_mask(size: int, blur: int) -> np.ndarray:
-    """Box, region, and occlusion, combined with :func:`merge_min`."""
+def composite_mask(
+    size: int,
+    blur: int,
+    occlusion: np.ndarray | None = None,
+    region: np.ndarray | None = None,
+) -> np.ndarray:
+    """Box, region, and occlusion, combined with :func:`merge_min`.
+
+    ``occlusion`` and ``region`` replace the stubs when a model produced them.
+    """
 
     return merge_min(
         [
             box_feather_mask(size, blur),
-            region_mask(size, blur),
-            occlusion_mask(size),
+            region if region is not None else region_mask(size, blur),
+            occlusion if occlusion is not None else occlusion_mask(size),
         ]
     )
 

@@ -43,7 +43,9 @@ The audit stores a `consent_id` (`file:` or `ack:` plus a short hash). Passing b
 
 `compliance/watermark.py` draws a bottom bar with the active label. The default label comes from `watermark.label` in the catalog: `AI-generated` in English and `人工智能生成` in Chinese. Set `compliance.watermark.text` to override it.
 
-PNG output also gets a `tEXt` chunk (`barrett.faceswap.ai_generated=true` and a Description). JPEG output gets an EXIF ImageDescription. A `.meta.json` sidecar is written next to the file. `apply_video_metadata` can ask ffmpeg to set container comments; Phase 1 refuses to process video frames, so that helper is for a later stage. If ffmpeg is missing, the sidecar is still written.
+PNG output also gets a `tEXt` chunk (`barrett.faceswap.ai_generated=true` and a Description). JPEG output gets an EXIF ImageDescription. A `.meta.json` sidecar is written next to the file.
+
+A video run watermarks every output frame when enforcement and the watermark are on, then calls `apply_video_metadata` to set the container comment and write the sidecar. Filter checks use a sample (`video.filter_every_n_frames`, plus the last frame), not every frame. If the metadata ffmpeg call fails, the run still succeeds: the pixels are already marked and the sidecar is written. If ffmpeg is missing entirely, frame extraction fails before encode and the sidecar from a still-image run is still written. The visible bar uses the Latin catalog string. OpenCV's built-in font cannot draw `人工智能生成`. The Unicode label is what the container comment and the sidecar store.
 
 `--no-watermark` is the explicit, logged way to skip the label while enforcement is on. A config that sets `watermark.enabled: false` without that flag is refused, so a YAML edit alone cannot drop the label quietly.
 

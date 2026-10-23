@@ -2,7 +2,7 @@
 
 # Barrett FaceSwap
 
-Barrett FaceSwap 是一个静态图像换脸工具。它把常见的工程路径接起来：检测人脸、对齐、用 ONNX 做身份替换、再把脸贴回去。它不训练基础模型，也不附带模型权重。
+Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路径接起来：检测人脸、对齐、用 ONNX 做身份替换、可选地修复裁剪，再把脸贴回去。它不训练基础模型，也不附带模型权重。
 
 本仓库的代码使用 MIT 许可。它能够调用的 InsightFace 权重（包括 `inswapper_128.onnx`）不是 MIT。这些权重按非商业研究发布，商业使用需要 InsightFace 另行授权。把工具指向真实的人之前，请先阅读 [docs/COMPLIANCE.zh-CN.md](docs/COMPLIANCE.zh-CN.md)。
 
@@ -23,19 +23,18 @@ Barrett FaceSwap 是一个静态图像换脸工具。它把常见的工程路径
 
 ## 功能
 
-本仓库的第一阶段：
-
 - SCRFD 风格的 ONNX 检测（`det_10g`）、ArcFace 向量（`w600k_r50`）、inswapper 风格替换（`inswapper_128`）
 - 五点对齐模板和贴回
-- 蒙版占位（内缩方框、脸部区域、遮挡占位），按像素取最小值合并
-- 处理器注册表：`face_swapper` 会运行，`face_enhancer` 留给以后的 GFPGAN 或 CodeFormer
+- 蒙版按像素取最小值合并：内缩方框、xseg 风格的遮挡 ONNX、BiSeNet 人脸解析区域。蒙版文件缺失时仍使用椭圆或全 1 占位
+- `face_enhancer`：GFPGAN 1.4 或 CodeFormer ONNX，带混合系数。它已注册，但默认不在处理器列表里，因此换脸不强制要求这些文件
+- 视频：ffprobe、抽帧、线程池走同一套处理器、`libx264` 或 `h264_nvenc`，再把原音轨混回去。可以裁剪时间段
 - ONNX Runtime 会话按模型哈希、提供者列表和设备缓存。请求里包含 CUDA 时优先 CUDA。可以写出 TensorRT，引擎缓存以后再做
 - 模型注册表包含许可、商业标记、对齐名称、输入尺寸，以及加载时可选的 sha256 校验
-- CLI 与库共用的 Pydantic 配置
-- 中英文目录（`--lang`、`ui.language`、`BARRETT_FACESWAP_LANG`）
-- 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志
+- CLI、视频流水线和界面共用的 Pydantic 配置
+- 中英文目录（`--lang`、`ui.language`、`BARRETT_FACESWAP_LANG`）。Gradio 的语言下拉会切换全部标签
+- 可选合规包：同意、水印、可插拔内容过滤、只追加的审计日志。视频只在开始时走一次前置检查，按间隔抽样过滤，强制打开时给每一帧加水印，并写一行审计
 
-以后再做、不承诺日期：视频帧、真正的增强器、摄像头循环，以及一个 Gradio 界面。界面文案已经放在 `ui.*`。
+以后再做、不承诺日期：摄像头循环、TensorRT 引擎缓存、pixel boost，以及更多换脸后端。
 
 ## 安装
 
@@ -49,14 +48,20 @@ pip install -e ".[dev]"
 
 依赖使用无界面的 OpenCV 轮子（`opencv-python-headless`，导入名仍是 `cv2`），这样服务器和 CI 不需要显示器。默认安装 CPU 版 `onnxruntime`。
 
-在 NVIDIA 机器上（包括以后用 RTX 5090 本地跑），用 GPU 轮子**替换** CPU 轮子：
+在 NVIDIA 机器上，用 GPU 轮子**替换** CPU 轮子：
 
 ```bash
 pip uninstall -y onnxruntime
 pip install onnxruntime-gpu
 ```
 
-不要两个同时留着。选择和驱动匹配的当前 `onnxruntime-gpu` 构建。本阶段不做 TensorRT 选项调优。
+不要两个同时留着。RTX 5090 是 Blackwell（`sm_120`），需要链接 CUDA 12.8 或更新版本的 `onnxruntime-gpu`。CI 走 CPU 轮子。TensorRT 引擎缓存仍留到以后。
+
+Gradio 界面是可选项：
+
+```bash
+pip install -e ".[ui]"
+```
 
 ## 快速开始
 
@@ -73,6 +78,48 @@ barrett-faceswap swap \
 
 `python -m barrett_faceswap swap ...` 是同一个入口。合成图是色块，不是人脸。`--dry-run` 会跳过 ONNX。真正的替换需要 `scripts/download_models.zh-CN.md` 里的权重，以及你有权使用的照片。
 
+视频用同一条 `swap` 命令。目标文件的后缀决定走帧流水线。默认编码器是 `libx264`。`--video-encoder h264_nvenc` 选择 NVENC，驱动不能编码时不会悄悄退回。
+
+```bash
+barrett-faceswap swap \
+  --source examples/synthetic/source.png \
+  --target path/to/authorized-clip.mp4 \
+  --output outputs/clip.mp4 \
+  --dry-run \
+  --trim-start 1.0 \
+  --trim-end 4.0
+```
+
+磁盘上有 `models/gfpgan_1.4.onnx` 时可以加上修复：
+
+```bash
+barrett-faceswap swap \
+  --source path/to/authorized-source.png \
+  --target path/to/authorized-target.png \
+  --output outputs/swap.png \
+  --processors face_swapper,face_enhancer \
+  --enhancer-model gfpgan_1.4 \
+  --enhancer-blend 0.8
+```
+
+`--enhancer-model codeformer` 选择另一张图。`--enhancer-weight` 是 CodeFormer 的保真输入。
+
+Gradio：
+
+```bash
+barrett-faceswap ui
+```
+
+页面上有源、目标、输出、处理器、执行提供者、增强器、视频编码器和预览。语言下拉（`zh-CN` / `en`）会按目录重写全部标签，包括按钮。视频预览只处理第一帧。目标是视频时，运行会采用编码器下拉框的值。静态图像的运行会忽略它。除非勾选合规或配置里已经打开，否则合规保持关闭。
+
+不需要权重的基准测试：
+
+```bash
+barrett-faceswap benchmark --dry-run --frames 32
+```
+
+这一行会给出每秒帧数。PATH 里没有 `nvidia-smi` 时，`vram_mb` 是 `unavailable`。只有配置的权重都在时才去掉 `--dry-run`；没有人脸的合成帧仍然会让检测失败。
+
 接近生产的命令：
 
 ```bash
@@ -86,7 +133,7 @@ barrett-faceswap swap \
 
 `--lang zh-CN` 或 `BARRETT_FACESWAP_LANG=zh-CN` 会切换命令行、日志和错误文本。配置里的 `ui.language` 是兜底。优先级是 `--lang`，然后是环境变量，然后是 `ui.language`，最后是英语。
 
-其他命令：`barrett-faceswap inspect-models`、`barrett-faceswap list-processors`。
+其他命令：`barrett-faceswap inspect-models`、`barrett-faceswap list-processors`、`barrett-faceswap benchmark`、`barrett-faceswap ui`。
 
 ## 目录
 
