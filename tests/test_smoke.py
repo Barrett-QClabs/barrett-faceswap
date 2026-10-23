@@ -36,6 +36,7 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.swap.model == "inswapper_128"
     assert config.video.mode == "disk"
     assert config.blend.mode == "alpha"
+    assert config.blend.color == "lab"
     assert config.compliance.enabled is False
     assert config.models.gfpgan.path.name == "gfpgan_1.4.onnx"
     assert config.execution.commercial is False

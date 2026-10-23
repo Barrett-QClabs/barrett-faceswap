@@ -182,10 +182,38 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--dry-run", action="store_true", help=t("cli.dry_run"))
     bench.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
     bench.add_argument("--live", action="store_true", help=t("cli.benchmark_live"))
+
+    doctor = sub.add_parser("doctor", help=t("cli.doctor_help"))
+    doctor.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    doctor.add_argument("--lang", default=None, help=t("cli.lang"))
+
+    download = sub.add_parser("download-models", help=t("cli.download_help"))
+    download.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    download.add_argument("--lang", default=None, help=t("cli.lang"))
+    download.add_argument("--with-gfpgan", action="store_true", help=t("cli.download_with_gfpgan"))
+    download.add_argument("--force", action="store_true", help=t("cli.download_force"))
     return parser
 
 
 def _dispatch(namespace: argparse.Namespace) -> int:
+    if namespace.command == "doctor":
+        from barrett_faceswap.doctor import run_doctor
+
+        config = load_config(namespace.config)
+        for line in run_doctor(config):
+            print(line)
+        return 0
+    if namespace.command == "download-models":
+        from barrett_faceswap.fetch import download_models
+
+        config = load_config(namespace.config)
+        for line in download_models(
+            config,
+            with_gfpgan=namespace.with_gfpgan,
+            force=namespace.force,
+        ):
+            print(line)
+        return 0
     if namespace.command == "list-processors":
         print(t("cli.processors_header"))
         for name in list_processor_names():

@@ -37,7 +37,7 @@ OpenRAIL-AS 是带使用限制的许可证，不是 MIT。该仓库没有任何�
 
 - `buffalo_l` 包中的 `det_10g.onnx`：SCRFD-10GF，输入 640，五个人脸点
 - `w600k_r50.onnx`：在 WebFace600K 上训练的 ArcFace ResNet50，输入 112，512 维向量
-- `inswapper_128.onnx`：128 的裁剪图加上该向量，图内带有 `emap` 矩阵
+- `inswapper_128.onnx`：128 的裁剪图加上该向量。512×512 矩阵是最后一个初始值，官方文件里的名字是 `buff2fs`。本仓库优先使用名为 `emap` 的张量，否则使用最后一个初始值。
 
 模型库说明：无论手动下载还是通过他们的库下载，预训练模型都只供非商业研究。2025-11-24 的说明要求，inswapper 系列的授权联系 `contact@insightface.ai`，开放识别包联系 `recognition-oss-pack@insightface.ai`。见上游许可段落：<https://github.com/deepinsight/insightface#license>。
 

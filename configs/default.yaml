@@ -152,8 +152,9 @@ blend:
   mask_blur: 15
   # alpha | poisson
   mode: alpha
-  # none | mean_std | lab | histogram
-  color: mean_std
+  # none turns color match off. lab is the default mean/std match in Lab.
+  # mean_std | histogram remain available.
+  color: lab
 
 jobs:
   root: jobs

@@ -2,7 +2,26 @@
 
 # 下载模型权重
 
-不要把文件提交进仓库。不要在 CI 里下载它们。请自行复制到 `models/`，然后可以用 `barrett-faceswap inspect-models` 锁定 sha256。
+不要把文件提交进仓库。不要在 CI 里下载它们。在仓库根目录运行：
+
+```bash
+barrett-faceswap download-models
+barrett-faceswap download-models --with-gfpgan
+barrett-faceswap doctor
+```
+
+`download-models` 会下载 `buffalo_l.zip` 和 `inswapper_128.onnx`，校验 sha256，在服务器返回 HTTP 206 时续传未完成的文件，并在三次失败后换下一个镜像。`--force` 会重新下载。`--with-gfpgan` 是可选项。`doctor` 打印执行提供者、CUDA/cuDNN 是否预加载成功，以及本地文件的 sha256。CI 不会运行这两个命令。
+
+命令核对的哈希：
+
+| 文件 | sha256 |
+| --- | --- |
+| `det_10g.onnx` | `5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91` |
+| `w600k_r50.onnx` | `4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43` |
+| `inswapper_128.onnx` | `e4a3f08c753cb72d04e10aa0f7dbe3deebbf39567d4ead6dce08e98aa49e16af` |
+| `gfpgan_1.4.onnx` | `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385` |
+
+buffalo 压缩包本身不锁定哈希。命令在解压后核对两个 ONNX 成员，因此一份有效的重新打包也会被接受。你仍然可以手动复制文件，再用 `barrett-faceswap inspect-models` 锁定。
 
 期望的文件名：
 
@@ -27,29 +46,32 @@
 | crossface_simswap | `models/crossface_simswap.onnx` | `embedding_512` | 512 维 |
 | crossface_ghost | `models/crossface_ghost.onnx` | `embedding_512` | 512 维 |
 
-增强、蒙版、额外换脸器和 crossface 文件都是可选的。默认的 inswapper 换脸不需要它们。`face_enhancer` 需要你选中的那一个增强文件。遮挡和解析蒙版在文件缺失时退回占位。选中另一个换脸器时会打开那个文件和它的 crossface 图。本文档里的文件都不会被 CI 下载。
+增强、蒙版、额外换脸器和 crossface 文件都是可选的。默认的 inswapper 换脸不需要它们。`face_enhancer` 需要你选中的那一个增强文件。遮挡文件缺失时保持全 1 蒙版。解析文件缺失时，换脸裁剪使用带羽化的关键点凸包；没有关键点时使用椭圆。选中另一个换脸器时会打开那个文件和它的 crossface 图。本文档里的文件都不会被 CI 下载。
 
 ## InsightFace buffalo_l
 
 `det_10g.onnx` 和 `w600k_r50.onnx` 是 `buffalo_l` 包里的检测器和识别器（SCRFD-10GF 与 ResNet50@WebFace600K）。这个包里还有本阶段不会加载的关键点和属性模型。
 
-官方索引：
+`download-models` 按顺序尝试这些地址，并按文件名解压成员（`buffalo_l/det_10g.onnx` 可以接受）：
 
-- 模型库说明：<https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md>
-- 发布标签：<https://github.com/deepinsight/insightface/releases/tag/model-zoo>
-- 模型库页面给出了 `buffalo_l` 的 Google Drive 压缩包。解压后复制上面两个文件名。除非以后的阶段用到，否则不必保留 `1k3d68.onnx`、`2d106det.onnx` 和 `genderage.onnx`。
+- <https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip>
+- <https://github.com/deepinsight/insightface/releases/download/model-zoo/buffalo_l.zip>
+
+不必保留 `1k3d68.onnx`、`2d106det.onnx` 和 `genderage.onnx`。模型库说明：<https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md>。发布标签：<https://github.com/deepinsight/insightface/releases/tag/model-zoo>。同一份包的 Google Drive 副本也可以，只要上面两个 ONNX 哈希相符。
 
 识别器必须是这个 WebFace600K ArcFace 模型。inswapper 图是对着这个向量导出的。换一个识别器会得到错误的替换结果。
 
 ## inswapper_128.onnx
 
-InsightFace 记录了一个直接文件地址：
+`download-models` 按顺序尝试这些地址：
 
-<https://github.com/deepinsight/insightface/releases/download/model-zoo/inswapper_128.onnx>
+- <https://github.com/deepinsight/insightface/releases/download/model-zoo/inswapper_128.onnx>
+- <https://github.com/facefusion/facefusion-assets/releases/download/models/inswapper_128.onnx>
+- <https://huggingface.co/facefusion/models-3.0.0/resolve/main/inswapper_128.onnx>
 
-放到 `models/inswapper_128.onnx`。他们的示例写明 128 的演示已不再维护，并建议更高分辨率的替换使用他们自己的产品。图中的 `emap` 初始值是必需的。本仓库从 ONNX 文件读取这个张量，不附带副本。
+放到 `models/inswapper_128.onnx`。他们的示例写明 128 的演示已不再维护，并建议更高分辨率的替换使用他们自己的产品。512×512 矩阵是一个初始值。官方文件把它放在最后，名字是 `buff2fs`（InsightFace 读取 `graph.initializer[-1]`）。本仓库优先使用名为 `emap` 的初始值，否则使用最后一个初始值，并检查形状是 512×512。本仓库不附带副本。
 
-这里实现的 ONNX 约定：4 维 RGB 图像，范围 0..1，以及 2 维隐向量。隐向量是 512 维 ArcFace 向量与初始化器里 `emap` 矩阵（512×512）的乘积，再做 L2 归一化。裁剪使用 inswapper 模板（ArcFace 112 按 size/128 缩放，再在 x 上平移 `8 * size / 128` 像素）。输出按 0..1 RGB 解码。`commercial_use` 为 false。
+这里实现的 ONNX 约定：4 维 RGB 图像，范围 0..1，以及 2 维隐向量。隐向量是 512 维 ArcFace 向量与该矩阵的乘积，再做 L2 归一化。裁剪使用 inswapper 模板（ArcFace 112 按 size/128 缩放，再在 x 上平移 `8 * size / 128` 像素）。输出按 0..1 RGB 解码。`commercial_use` 为 false。
 
 ## HyperSwap 256
 
@@ -87,11 +109,39 @@ FaceFusion 本身是 OpenRAIL-AS。不要把那个项目的源码复制进本仓
 
 ## GFPGAN 1.4
 
+`download-models --with-gfpgan` 会尝试这些 ONNX 镜像，并且只接受 sha256 `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385`：
+
+- <https://github.com/facefusion/facefusion-assets/releases/download/models/gfpgan_1.4.onnx>
+- <https://huggingface.co/facefusion/models-3.0.0/resolve/main/gfpgan_1.4.onnx>
+
 官方检查点（PyTorch，不是 ONNX）：
 
 <https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth>
 
-请自行导出到 `models/gfpgan_1.4.onnx`。本仓库不附带转换器，也不下载该文件。本流水线运行的图是 NCHW RGB float32，用 `(pixel / 255 - 0.5) / 0.5` 归一化，空间尺寸在 ONNX 输入未写明时是 512。一个 4 维输入就够了。GFPGAN 的代码和公开的 v1.4 权重是 Apache-2.0。网络里包含 NVIDIA Source Code License 下的 StyleGAN2。模型注册表把 `commercial_use` 设为 false，不把该文件当成已获商业许可。
+如果每个镜像都超时，请在本仓库之外导出 ONNX。不要把 GFPGAN 或 FaceFusion 的源码复制进来。
+
+1. 在另一个环境里安装 Apache-2.0 的 GFPGAN 项目，并把 `GFPGANv1.4.pth` 载入它的 clean 生成器。
+2. 导出一个形状为 `1x3x512x512` 的 float32 输入。
+3. 本流水线送入的是 NCHW RGB，归一化为 `(pixel / 255 - 0.5) / 0.5`。一个 4 维输入就够了。空间尺寸跟随 ONNX 输入；注册表的后备尺寸是 512。
+4. 你自己导出的文件不会等于镜像哈希。`download-models` 会拒绝它。请自行复制到 `models/gfpgan_1.4.onnx`，并把 `models.gfpgan.sha256` 留空，或者锁定 `doctor` 打印出的哈希。
+
+在你已经用上游项目构造出 `net` 之后：
+
+```python
+import torch
+
+dummy = torch.zeros(1, 3, 512, 512)
+torch.onnx.export(
+    net,
+    dummy,
+    "gfpgan_1.4.onnx",
+    input_names=["input"],
+    output_names=["output"],
+    opset_version=17,
+)
+```
+
+GFPGAN 的代码和公开的 v1.4 权重是 Apache-2.0。网络里包含 NVIDIA Source Code License 下的 StyleGAN2。模型注册表把 `commercial_use` 设为 false，不把该文件当成已获商业许可。
 
 ## CodeFormer
 

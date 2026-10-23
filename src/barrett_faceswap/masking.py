@@ -1,7 +1,8 @@
 """Compose box, parsing, and occlusion masks for one aligned crop.
 
 Model files are optional. A missing occlusion graph keeps the all-ones stub.
-A missing parser keeps the ellipse. Both still go through :func:`merge_min`.
+A missing parser uses a feathered landmark hull when the caller passes crop
+landmarks, and the ellipse otherwise. Both still go through :func:`merge_min`.
 """
 
 from __future__ import annotations
@@ -37,8 +38,12 @@ class MaskStack:
         if settings.parser and self.store.paths()["parser"].is_file():
             self._parser = self.store.session("parser")
 
-    def compose(self, crop_bgr, size: int, blur: int):
-        """Box, region, and occlusion, merged by the per-pixel minimum."""
+    def compose(self, crop_bgr, size: int, blur: int, landmarks=None):
+        """Box, region, and occlusion, merged by the per-pixel minimum.
+
+        ``landmarks`` are the five template points in the aligned crop. They
+        are used only when the parsing file is absent.
+        """
 
         self.load()
         settings = self.config.masks
@@ -57,5 +62,5 @@ class MaskStack:
             region = run_parser(self._parser, crop_bgr, list(settings.regions), size, blur)
         else:
             path = None if self.store is None else str(self.store.paths()["parser"])
-            region = parser_stub_mask(size, blur, path)
+            region = parser_stub_mask(size, blur, path, landmarks=landmarks)
         return composite_mask(size, blur, occlusion=occlusion, region=region)

@@ -8,12 +8,23 @@ installed. A CPU build, including CI, skips it and keeps running.
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from pathlib import Path
 
 from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import t
 
 logger = logging.getLogger(__name__)
+
+_PREPARED = False
+_STATUS: dict[str, object] = {}
+
+# Pip wheels that ship the CUDA 13 / cuDNN 9 libraries onnxruntime-gpu 1.31 expects.
+_CUDA_LIBS = {
+    "cublas": "libcublasLt.so.13",
+    "cudnn": "libcudnn.so.9",
+}
 
 PROVIDER_MAP: dict[str, str] = {
     "cuda": "CUDAExecutionProvider",
@@ -121,9 +132,134 @@ def tensorrt_options(device_id: int, tensorrt) -> dict[str, object]:
     }
 
 
+def prepare_runtime() -> dict[str, object]:
+    """Prepend NVIDIA pip library directories and preload CUDA DLLs once.
+
+    onnxruntime-gpu 1.31 looks for CUDA 13 (``libcublasLt.so.13``) and cuDNN 9.
+    Those files come from ``onnxruntime-gpu[cuda,cudnn]``. Changing
+    ``LD_LIBRARY_PATH`` after process start does not reload the dynamic linker,
+    so this also calls ``onnxruntime.preload_dlls()`` when that function exists.
+    A CPU wheel, including CI, must not raise.
+    """
+
+    global _PREPARED
+    if _PREPARED:
+        return dict(_STATUS)
+    _PREPARED = True
+    status: dict[str, object] = {
+        "preload": "unavailable",
+        "error": "",
+        "libraries": {name: "" for name in _CUDA_LIBS},
+        "library_dirs": [],
+    }
+    try:
+        dirs = _nvidia_lib_dirs()
+        status["library_dirs"] = list(dirs)
+        if dirs:
+            _prepend_library_path(dirs)
+        status["libraries"] = _probe_cuda_libs(dirs)
+        preload, error = _preload_ort()
+        status["preload"] = preload
+        status["error"] = error
+    except Exception as exc:
+        status["preload"] = "failed"
+        status["error"] = str(exc)
+        logger.info(t("execution.cuda_preload_failed", error=exc))
+    _STATUS.clear()
+    _STATUS.update(status)
+    return dict(_STATUS)
+
+
+def reset_runtime_prepare() -> None:
+    """Allow another preload attempt. Tests use this."""
+
+    global _PREPARED
+    _PREPARED = False
+    _STATUS.clear()
+
+
 def _onnxruntime():
+    prepare_runtime()
     try:
         import onnxruntime
     except ImportError as exc:
         raise BarrettFaceswapError(t("execution.ort_missing")) from exc
     return onnxruntime
+
+
+def _nvidia_lib_dirs() -> list[str]:
+    roots: list[Path] = []
+    try:
+        import nvidia
+
+        roots.append(Path(nvidia.__file__).resolve().parent)
+    except Exception:
+        pass
+    for entry in sys.path:
+        if not entry:
+            continue
+        candidate = Path(entry) / "nvidia"
+        if candidate.is_dir():
+            roots.append(candidate)
+    found: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for lib in sorted(root.glob("*/lib")):
+            if not lib.is_dir():
+                continue
+            text = str(lib)
+            if text in seen:
+                continue
+            seen.add(text)
+            found.append(text)
+    return found
+
+
+def _prepend_library_path(dirs: list[str]) -> None:
+    current = os.environ.get("LD_LIBRARY_PATH", "")
+    parts = [item for item in current.split(":") if item]
+    merged: list[str] = []
+    for item in list(dirs) + parts:
+        if item not in merged:
+            merged.append(item)
+    os.environ["LD_LIBRARY_PATH"] = ":".join(merged)
+    if hasattr(os, "add_dll_directory"):
+        for directory in dirs:
+            try:
+                os.add_dll_directory(directory)  # type: ignore[attr-defined]
+            except OSError:
+                continue
+
+
+def _probe_cuda_libs(dirs: list[str]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for name, filename in _CUDA_LIBS.items():
+        path = ""
+        for directory in dirs:
+            candidate = Path(directory) / filename
+            if candidate.is_file():
+                path = str(candidate)
+                break
+        found[name] = path
+    return found
+
+
+def _preload_ort() -> tuple[str, str]:
+    try:
+        import onnxruntime
+    except ImportError:
+        logger.info(t("execution.cuda_preload_skip"))
+        return "unavailable", ""
+    preload = getattr(onnxruntime, "preload_dlls", None)
+    if preload is None:
+        logger.info(t("execution.cuda_preload_skip"))
+        return "unavailable", ""
+    try:
+        preload()
+    except Exception as exc:
+        logger.info(t("execution.cuda_preload_failed", error=exc))
+        return "failed", str(exc)
+    logger.info(t("execution.cuda_preload_ok"))
+    return "ok", ""

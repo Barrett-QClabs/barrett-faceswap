@@ -9,6 +9,7 @@ Execution options degrade to CPU:
 - `execution.precision: fp16` selects a sibling `*_fp16.onnx` and falls back to the fp32 file.
 - `execution.cuda_graph` uses IO binding only when the session has `CUDAExecutionProvider`.
 - TensorRT cache directories, fp16, and the builder optimization level are attached only when that provider is installed.
+- RTX 50-series uses `onnxruntime-gpu[cuda,cudnn]` (CUDA 13 and cuDNN 9). Setup calls `onnxruntime.preload_dlls()` when it exists. `barrett-faceswap doctor` reports the result. A CPU wheel does not raise.
 
 `benchmark` and `benchmark --live` print per-stage latency and `realtime_fps`. The live benchmark uses synthetic frames.
 

@@ -28,6 +28,7 @@ from barrett_faceswap.vision import read_image
 class _Slot:
     latent: np.ndarray
     match: np.ndarray
+    source_score: float = 0.0
     target_index: int | None = None
 
 
@@ -76,7 +77,7 @@ class FaceSwapper:
             ctx.notes.append(
                 t(
                     "processor.swapper_done",
-                    source_score=f"{pairs[0][0].score:.3f}",
+                    source_score=f"{pairs[0][1].source_score:.3f}",
                     target_score=f"{pairs[0][0].score:.3f}",
                     index=ctx.target_face_index,
                     faces=len(pairs),
@@ -128,12 +129,19 @@ class FaceSwapper:
         slots: list[_Slot] = []
         for entry in entries:
             image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
-            arc = self._embed_image(backend, image)
+            arc, source_score = self._embed_image(backend, image)
             match = arc
             if entry.reference:
-                match = self._embed_image(backend, read_image(Path(entry.reference)))
+                match, _reference_score = self._embed_image(backend, read_image(Path(entry.reference)))
             latent = arc if self._spec.embedding == "emap" else backend.project(arc)
-            slots.append(_Slot(latent=latent, match=match, target_index=entry.target_index))
+            slots.append(
+                _Slot(
+                    latent=latent,
+                    match=match,
+                    source_score=source_score,
+                    target_index=entry.target_index,
+                )
+            )
         self._slots = slots
         return slots
 
@@ -146,12 +154,14 @@ class FaceSwapper:
             reference = str(self.config.swap.reference)
         return [FaceMapEntry(source="", target_index=None, reference=reference)]
 
-    def _embed_image(self, backend, image: np.ndarray) -> np.ndarray:
+    def _embed_image(self, backend, image: np.ndarray) -> tuple[np.ndarray, float]:
         face = select_face(self._detect(image), 0)
         if self._spec.embedding == "emap":
-            return backend.embed(image, face.landmarks)
-        assert self.store is not None
-        return embed_arcface(self.store, image, face.landmarks)
+            vector = backend.embed(image, face.landmarks)
+        else:
+            assert self.store is not None
+            vector = embed_arcface(self.store, image, face.landmarks)
+        return vector, float(face.score)
 
     def _pairs(
         self,
@@ -234,7 +244,7 @@ class FaceSwapper:
             assert self.store is not None
             self.masks = MaskStack(self.config, self.store)
             self.masks.load()
-        mask = self.masks.compose(crop, side, self.config.blend.mask_blur)
+        mask = self.masks.compose(crop, side, self.config.blend.mask_blur, landmarks=template)
         colored = apply_color(self.config.blend.color, swapped, crop, mask)
         if self.config.blend.mode == "poisson":
             return paste_poisson(frame, colored, matrix, mask)

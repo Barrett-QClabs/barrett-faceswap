@@ -2,7 +2,26 @@
 
 # Download model weights
 
-Do not commit the files. Do not add a CI step that downloads them. Copy them into `models/` yourself, then optionally pin the sha256 with `barrett-faceswap inspect-models`.
+Do not commit the files. Do not add a CI step that downloads them. From the repository root:
+
+```bash
+barrett-faceswap download-models
+barrett-faceswap download-models --with-gfpgan
+barrett-faceswap doctor
+```
+
+`download-models` fetches `buffalo_l.zip` and `inswapper_128.onnx`, checks sha256, resumes a partial file when the server answers HTTP 206, and tries the next mirror after three failures. `--force` downloads again. `--with-gfpgan` is optional. `doctor` prints execution providers, whether CUDA/cuDNN preload ran, and the sha256 of the local files. CI does not run either command.
+
+Pins checked by the command:
+
+| File | sha256 |
+| --- | --- |
+| `det_10g.onnx` | `5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91` |
+| `w600k_r50.onnx` | `4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43` |
+| `inswapper_128.onnx` | `e4a3f08c753cb72d04e10aa0f7dbe3deebbf39567d4ead6dce08e98aa49e16af` |
+| `gfpgan_1.4.onnx` | `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385` |
+
+The buffalo archive itself is not pinned. The command hashes the two ONNX members after extraction, so a valid re-pack is accepted. You can still copy files by hand and pin them with `barrett-faceswap inspect-models`.
 
 Expected names:
 
@@ -27,29 +46,32 @@ Expected names:
 | crossface_simswap | `models/crossface_simswap.onnx` | `embedding_512` | 512-d |
 | crossface_ghost | `models/crossface_ghost.onnx` | `embedding_512` | 512-d |
 
-The enhancer, mask, extra swapper, and crossface files are optional. A default inswapper swap runs without them. `face_enhancer` needs the enhancer file you select. Occlusion and parsing masks fall back to stubs when their files are absent. Selecting another swapper opens that file and its crossface graph. Nothing in this document is fetched by CI.
+The enhancer, mask, extra swapper, and crossface files are optional. A default inswapper swap runs without them. `face_enhancer` needs the enhancer file you select. A missing occlusion file stays an all-ones mask. A missing parser uses a feathered landmark convex hull on the swap crop, and an ellipse when no landmarks are passed. Selecting another swapper opens that file and its crossface graph. Nothing in this document is fetched by CI.
 
 ## InsightFace buffalo_l
 
 `det_10g.onnx` and `w600k_r50.onnx` are the detector and recognizer inside the `buffalo_l` pack (SCRFD-10GF and ResNet50@WebFace600K). The pack also contains landmark and attribute models this phase does not load.
 
-Official index:
+`download-models` tries these URLs in order and extracts members by filename (`buffalo_l/det_10g.onnx` is accepted):
 
-- Model zoo write-up: <https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md>
-- Release tag: <https://github.com/deepinsight/insightface/releases/tag/model-zoo>
-- The zoo page links a Google Drive archive for `buffalo_l`. Unzip it and copy the two filenames above. Leave `1k3d68.onnx`, `2d106det.onnx`, and `genderage.onnx` out unless you add a later stage that uses them.
+- <https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip>
+- <https://github.com/deepinsight/insightface/releases/download/model-zoo/buffalo_l.zip>
+
+Leave `1k3d68.onnx`, `2d106det.onnx`, and `genderage.onnx` out. The model zoo write-up is <https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md>. The release tag is <https://github.com/deepinsight/insightface/releases/tag/model-zoo>. A Google Drive copy of the same pack is fine if you check the two ONNX hashes above.
 
 The recognizer must be this WebFace600K ArcFace model. The inswapper graph was exported against that embedding. A different recognizer produces a bad swap.
 
 ## inswapper_128.onnx
 
-InsightFace documents a direct file:
+`download-models` tries these URLs in order:
 
-<https://github.com/deepinsight/insightface/releases/download/model-zoo/inswapper_128.onnx>
+- <https://github.com/deepinsight/insightface/releases/download/model-zoo/inswapper_128.onnx>
+- <https://github.com/facefusion/facefusion-assets/releases/download/models/inswapper_128.onnx>
+- <https://huggingface.co/facefusion/models-3.0.0/resolve/main/inswapper_128.onnx>
 
-Place it at `models/inswapper_128.onnx`. Their example says the 128 demo is unmaintained and points at their own product for higher-resolution swaps. The graph's `emap` initializer is required. This repository reads that tensor from the ONNX file. It does not ship a copy.
+Place it at `models/inswapper_128.onnx`. Their example says the 128 demo is unmaintained and points at their own product for higher-resolution swaps. The 512×512 matrix is an initializer. The official file stores it last and names it `buff2fs` (InsightFace reads `graph.initializer[-1]`). This repository prefers an initializer named `emap` and otherwise uses the last initializer, then checks that the shape is 512×512. It does not ship a copy.
 
-ONNX contract implemented here: a 4-D RGB image in 0..1 and a 2-D latent. The latent is the L2-normalized product of the 512-d ArcFace embedding and the `emap` matrix stored as an initializer (512×512). The crop uses the inswapper template (ArcFace 112 scaled by size/128, then shifted by `8 * size / 128` pixels on x). Output is decoded as 0..1 RGB. `commercial_use` is false.
+ONNX contract implemented here: a 4-D RGB image in 0..1 and a 2-D latent. The latent is the L2-normalized product of the 512-d ArcFace embedding and that matrix. The crop uses the inswapper template (ArcFace 112 scaled by size/128, then shifted by `8 * size / 128` pixels on x). Output is decoded as 0..1 RGB. `commercial_use` is false.
 
 ## HyperSwap 256
 
@@ -87,11 +109,39 @@ The published training code is Apache-2.0. Circulating ONNX packs are not cleare
 
 ## GFPGAN 1.4
 
+`download-models --with-gfpgan` tries these ONNX mirrors and accepts only sha256 `accc4757b26bdb89b32b4d3500d4f79c9dff97c1dd7c7104bf9dcb95e3311385`:
+
+- <https://github.com/facefusion/facefusion-assets/releases/download/models/gfpgan_1.4.onnx>
+- <https://huggingface.co/facefusion/models-3.0.0/resolve/main/gfpgan_1.4.onnx>
+
 Official checkpoint (PyTorch, not ONNX):
 
 <https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth>
 
-Export it yourself to `models/gfpgan_1.4.onnx`. This repository does not ship a converter and does not download the file. The graph this pipeline runs is NCHW RGB float32, normalized with `(pixel / 255 - 0.5) / 0.5`, spatial size 512 unless the ONNX input says otherwise. One 4-D input is enough. GFPGAN's code and the published v1.4 weights are Apache-2.0. The network incorporates StyleGAN2, which is under the NVIDIA Source Code License. The model registry sets `commercial_use` to false and does not treat the file as commercially cleared.
+If every mirror times out, export ONNX outside this repository. Do not copy GFPGAN or FaceFusion source into this tree.
+
+1. In a separate environment, install the Apache-2.0 GFPGAN project and load `GFPGANv1.4.pth` into its clean generator.
+2. Export one float32 input of shape `1x3x512x512`.
+3. This pipeline feeds NCHW RGB with `(pixel / 255 - 0.5) / 0.5`. One 4-D input is enough. Spatial size follows the ONNX input; the registry fallback is 512.
+4. A file you export will not match the mirror hash. `download-models` rejects it. Copy it to `models/gfpgan_1.4.onnx` yourself and leave `models.gfpgan.sha256` null, or pin the hash `doctor` prints.
+
+After you have constructed `net` from that upstream project:
+
+```python
+import torch
+
+dummy = torch.zeros(1, 3, 512, 512)
+torch.onnx.export(
+    net,
+    dummy,
+    "gfpgan_1.4.onnx",
+    input_names=["input"],
+    output_names=["output"],
+    opset_version=17,
+)
+```
+
+GFPGAN's code and the published v1.4 weights are Apache-2.0. The network incorporates StyleGAN2, which is under the NVIDIA Source Code License. The model registry sets `commercial_use` to false and does not treat the file as commercially cleared.
 
 ## CodeFormer
 
