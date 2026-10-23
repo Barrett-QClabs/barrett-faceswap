@@ -2,7 +2,7 @@
 
 # 架构
 
-公开调用是 `FaceSwapPipeline.run`。第三阶段加上可选换脸图、像素提升、多人脸选择、泊松融合、可续跑的任务队列，以及可选的无磁盘视频管道。视频目标会交给 `VideoPipeline`。两条路径都会在处理器前后调用 `CompliancePolicy`，续跑的任务和管道模式也一样。处理器只返回帧，不写输出文件，因此不能靠某个处理器提前存盘来绕过水印。
+对文件的公开调用是 `FaceSwapPipeline.run`。第四阶段加上实时摄像头循环、在 CPU 上保持空闲的 TensorRT 与 CUDA 图选项、fp16 旁路文件查找、商业使用门禁，以及一个不实际训练的训练脚手架。第三阶段的可选换脸图、像素提升、多人脸选择、泊松融合、可续跑任务和可选的无磁盘管道仍然保留。视频目标会交给 `VideoPipeline`。文件路径和实时路径都会在处理器前后调用 `CompliancePolicy`，续跑的任务和管道模式也一样。处理器只返回帧，不写输出文件，因此不能靠某个处理器提前存盘来绕过水印。
 
 `configs/default.yaml` 里的 `compliance.enabled` 保持 `false`。策略对象仍然会执行。在这个默认值下，它会记录强制已关闭，并写出不带标记的文件。
 
@@ -79,7 +79,7 @@ ffprobe
 
 ## 任务
 
-`jobs/<id>/job.json` 保存请求、状态（`pending`、`running`、`interrupted`、`done`）和 `next_frame`（第一帧尚未完成的序号）。`barrett-faceswap jobs submit` 只排队，不运行。`jobs resume ID`、`jobs run` 和 `swap --job-id ID --resume` 会继续。硬停止可能把状态留在 `running`；续跑接受 `pending`、`running` 和 `interrupted`。已完成的编号会被拒绝。磁盘续跑跳过序号低于 `next_frame` 且已经写出的帧，并在 `raw/frame_*.png` 已存在时复用它们。磁盘运行结束时的水印步骤仍会走过每一帧已处理的图，包括中断前写好的帧。管道续跑是上面说的时间戳定位。在标成 `done` 之前抛出的异常会把任务标成 `interrupted`。图像任务把 `next_frame` 设为 1。
+`jobs/<id>/job.json` 保存请求、状态（`pending`、`running`、`interrupted`、`done`）和 `next_frame`（第一帧尚未完成的序号）。`barrett-faceswap jobs submit` 只排队，不运行。`jobs resume ID`、`jobs run` 和 `swap --job-id ID --resume` 会继续。硬停止可能把状态留在 `running`；续跑接受 `pending`、`running` 和 `interrupted`。已完成的编号会被拒绝。磁盘续跑跳过序号低于 `next_frame` 且已经写出的帧，并在 `raw/frame_*.png` 已存在时复用它们。水印步骤会走过每一帧已处理的图，并跳过已经有同名 `.wm` 标记的帧，因此续跑不会把色带画两次。已经写出但还没有标记的帧仍会打一次水印。管道续跑是上面说的时间戳定位。在标成 `done` 之前抛出的异常会把任务标成 `interrupted`。图像任务把 `next_frame` 设为 1。
 
 ## 人脸增强
 
@@ -106,15 +106,35 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 界面和基准
 
-`barrett-faceswap ui` 构建一个 Gradio Blocks 应用。Gradio 只在 `build_demo` / `launch_ui` 里导入，属于 `[ui]` 额外依赖。语言下拉框调用 `t()`，并重写每一条标题，包括预览和运行按钮，以及第三阶段的控件（换脸模型、像素提升、多人脸、参考脸、脸映射、融合、颜色、视频模式）。对视频点预览时抽出第一帧，再走静态图像流水线。运行会写到输出路径。只有目标是视频并且点击的是运行时，才会送出编码器和视频模式下拉框的值。合规复选框不能把已经打开的配置关掉。随仓库提供的复选框跟随配置，配置是关闭的。
+`barrett-faceswap ui` 构建一个 Gradio Blocks 应用。Gradio 只在 `build_demo` / `launch_ui` 里导入，属于 `[ui]` 额外依赖。语言下拉框调用 `t()`，并重写每一条标题，包括预览和运行按钮、第三阶段控件、商业门禁复选框和摄像头页。对视频点预览时抽出第一帧，再走静态图像流水线。运行会写到输出路径。只有目标是视频并且点击的是运行时，才会送出编码器和视频模式下拉框的值。合规复选框不能把已经打开的配置关掉。随仓库提供的复选框跟随配置，配置是关闭的。摄像头页和命令行共用 `LiveSession`。开始只是待命，第一帧摄像头画面做同意检查，停止时若强制打开会写一行审计。三条线程在 `barrett-faceswap live` 里，不在浏览器回调里。
 
-`barrett-faceswap benchmark` 为处理器链计时。`--dry-run` 不加载 ONNX。会打印每秒帧数。`nvidia-smi` 可用时读取显存，否则报告不可用。
+`barrett-faceswap benchmark` 为处理器链计时，并打印各阶段毫秒数和 `realtime_fps`。`--live` 给一次合成的摄像头会话计时（采集、检测、替换、输出），不会打开摄像头。`--dry-run` 不加载 ONNX。`nvidia-smi` 可用时读取显存，否则报告不可用。
+
+## 实时
+
+`barrett-faceswap live` 用三条线程做采集、处理和输出。每一跳是一个 `LatestQueue`。队列满时 `put_latest` 丢掉最旧的帧（`live.queue_size`，默认 1）。检测每隔 `live.detect_every` 帧做一次（默认 3）。中间帧由 `DetectionCache` 按上次匹配到的速度移动框和关键点。`prepare_source` 只对源脸做一次向量。设置了 `DISPLAY` 时打开预览窗口。`--no-preview` 跳过预览。`--virtual-camera /dev/video2` 经 ffmpeg 把原始 BGR 写到 v4l2loopback 设备。设备不存在时记一条日志，预览继续。
+
+合规包住这条路径。`before_process` 检查源图和第一帧摄像头画面。强制打开时，每一帧输出在内存里加水印。`complete_output` 追加一行审计，不给容器文件打标签。
+
+## 执行
+
+`execution.precision` 是 `fp32`（默认）或 `fp16`。fp16 会在配置文件旁边查找 `{stem}_fp16.onnx`，找不到就退回 fp32。`execution.cuda_graph` 只在会话真的带有 `CUDAExecutionProvider` 时，给 CUDA 提供者加上 `enable_cuda_graph`，并让换脸器走 IO binding。否则仍调用 `session.run`。TensorRT 选项（引擎缓存、计时缓存、fp16、构建优化级别 0–5）只在安装了 `TensorrtExecutionProvider` 时挂上。CPU 的 CI 会跳过两者，也不会创建缓存目录。
+
+## 商业路线
+
+`--commercial` 把 `execution.commercial` 设为真。`guard_commercial` 会拒绝这次运行将打开、且注册表行缺失或 `commercial_use` 为 false 的角色。内置行全部为 false，因此该开关会拒绝默认图，蒙版仍开启时也包括遮挡和解析。没有任何 YAML 键能把内置行改成 true。你自己训练的模型，是法律复核之后新增的一行注册表。
+
+`src/barrett_faceswap/train/` 检查一份本地清单，许可字符串必须正好是 `commercial-ok`，然后打印训练步骤，给出 ONNX 约定（NCHW RGB，范围 [-1, 1]，512 维隐向量，ArcFace 模板按 size/112 缩放），并可以计算全局 SSIM 和 ArcFace 余弦。它不下载数据，不打开训练循环，也不复制 GHOST 或 AEI-Net 的源码。那些项目是这条 Apache-2.0 路线所指的方向。这里的代码是原创的。入口是 `scripts/train_swapper.py --check`、`scripts/export_onnx.py --check` 和 `scripts/eval_swapper.py --self-test`。没有 `--check` 时，训练和导出脚本以状态 2 退出，不写权重。
+
+## 文档站
+
+`mkdocs.yml` 用 Material 和 `mkdocs-static-i18n`（`docs_structure: folder`）从 `docs/en` 与 `docs/zh-CN` 构建站点。`scripts/build_cli_reference.py` 根据 `build_parser()` 用两种语言写出 CLI 页。CI 以 `--check` 运行该脚本，并执行 `mkdocs build --strict`。不会部署。`docs/*.md` 里的叙述文件留在站点旁边，并且被排除在构建之外。
 
 ## 采纳的想法
 
 **处理器协议。** `Processor` 有 `pre_check`、`process_frame` 和 `post_process`。`processors/registry.py` 把名称映射到工厂，工厂接收 pydantic 配置和提供者列表。`face_swapper` 和 `face_enhancer` 已注册。这是 FaceFusion 那类接缝。方法和注册表是本地代码。
 
-**会话缓存。** `ModelStore.session` 用解析后的路径、sha256、请求的提供者元组以及设备号作为键。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。可以写出 `tensorrt`，日志会说明它延后：没有引擎缓存，也没有构建参数。RTX 5090（Blackwell）需要链接 CUDA 12.8 或更新版本的 `onnxruntime-gpu`。CI 跑的是 CPU 轮子。
+**会话缓存。** `ModelStore.session` 用解析后的路径、sha256、请求的提供者元组以及设备号作为键。创建会话时加锁。重复调用不会重建会话。`prefer_cuda` 在请求包含 `cuda` 时把它放到最前，`cpu` 留在最后。如果安装的 ONNX Runtime 没有 CUDA 提供者，这个名称会被跳过，CPU 仍然保留。写出 `tensorrt` 时，如果该提供者已安装，会挂上引擎缓存、计时缓存、fp16 和构建优化级别；CPU 轮子上则跳过。RTX 5090（Blackwell）需要链接 CUDA 12.8 或更新版本的 `onnxruntime-gpu`。CI 跑的是 CPU 轮子。
 
 **对齐和贴回。** `align.py` 放着 ArcFace 五点模板和 FFHQ 512 模板。112 是识别裁剪。128 在此基础上向右平移 8 像素，这是 inswapper 导出所期望的。增强器按 `size / 512` 缩放 FFHQ 模板。`blend.py` 做逆变换并按蒙版合成。
 
@@ -138,4 +158,4 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 仍然延后
 
-实时摄像头、CUDA 图、TensorRT 引擎缓存、本阶段这组之外的换脸器（blendswap、uniface、hififace 等）、自动下载权重、精确到帧的管道续跑，以及能在像素上画出中文水印的捆绑字体。OpenCV 的 Hershey 字体写不出 `人工智能生成`。可见色带仍走现有的拉丁文路径。容器注释和旁路文件携带 Unicode 字符串。管道续跑按时间戳定位。磁盘续跑会给已经写好的帧再打一次水印。
+这组之外的换脸器（blendswap、uniface、hififace 等）、自动下载权重，以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。`compliance.enabled` 在正式发布前保持 false。

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "barrett-faceswap"
-version = "0.3.0"
-description = "Face-swap toolkit: multiple swappers, video, jobs, a bilingual Gradio UI, and an opt-in compliance gate."
+version = "0.4.0"
+description = "Face-swap toolkit: live webcam, multiple swappers, video, jobs, a bilingual Gradio UI, and an opt-in compliance gate."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -37,6 +37,7 @@ dependencies = [
 gpu = ["onnxruntime-gpu>=1.17"]
 ui = ["gradio>=4.44,<6"]
 dev = ["pytest>=8.0", "gradio>=4.44,<6"]
+docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "mkdocs-static-i18n>=1.2"]
 
 [project.scripts]
 barrett-faceswap = "barrett_faceswap.cli:main"

@@ -64,12 +64,23 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.keep_audio", "label"),
     ControlSpec("ui.dry_run", "label"),
     ControlSpec("ui.compliance", "label"),
+    ControlSpec("ui.commercial", "label"),
     ControlSpec("ui.consent", "label"),
     ControlSpec("ui.consent_subject", "label"),
     ControlSpec("ui.preview", "value"),
     ControlSpec("ui.run", "value"),
     ControlSpec("ui.preview_image", "label"),
     ControlSpec("ui.status", "label"),
+    ControlSpec("ui.live_tab", "label"),
+    ControlSpec("ui.live_intro", "value"),
+    ControlSpec("ui.live_source", "label"),
+    ControlSpec("ui.live_camera", "label"),
+    ControlSpec("ui.live_preview", "label"),
+    ControlSpec("ui.dry_run", "label"),
+    ControlSpec("ui.compliance", "label"),
+    ControlSpec("ui.live_start", "value"),
+    ControlSpec("ui.live_stop", "value"),
+    ControlSpec("ui.live_status", "label"),
 )
 
 
@@ -148,6 +159,7 @@ def build_demo(config_path: str | Path):
         keep_audio: bool,
         dry_run: bool,
         compliance: bool,
+        commercial: bool,
         consent: object,
         subject: str,
         preview_only: bool,
@@ -210,6 +222,7 @@ def build_demo(config_path: str | Path):
                     blend_mode=blend_mode,
                     color_transfer=color_transfer,
                     video_mode=selected_video_mode,
+                    commercial=bool(commercial),
                 )
                 config = apply_request_overrides(load_config(config_file), request)
                 result = FaceSwapPipeline(config).run(request)
@@ -289,6 +302,7 @@ def build_demo(config_path: str | Path):
         keep_audio = gr.Checkbox(value=initial.video.keep_audio, label=t("ui.keep_audio"))
         dry_run = gr.Checkbox(value=False, label=t("ui.dry_run"))
         compliance = gr.Checkbox(value=bool(initial.compliance.enabled), label=t("ui.compliance"))
+        commercial = gr.Checkbox(value=False, label=t("ui.commercial"))
         consent = gr.File(type="filepath", label=t("ui.consent"), file_count="single")
         subject = gr.Textbox(value="", label=t("ui.consent_subject"))
         preview_button = gr.Button(t("ui.preview"))
@@ -320,6 +334,7 @@ def build_demo(config_path: str | Path):
             keep_audio,
             dry_run,
             compliance,
+            commercial,
             consent,
             subject,
             preview_button,
@@ -327,8 +342,6 @@ def build_demo(config_path: str | Path):
             preview,
             status,
         ]
-        if len(labeled) != len(CONTROLS):
-            raise BarrettFaceswapError(t("ui.control_mismatch", found=len(labeled), expected=len(CONTROLS)))
         form = [
             language,
             source,
@@ -353,10 +366,66 @@ def build_demo(config_path: str | Path):
             keep_audio,
             dry_run,
             compliance,
+            commercial,
             consent,
             subject,
         ]
-        language.change(on_language, inputs=[language], outputs=labeled)
+        (
+            live_tab,
+            live_intro,
+            live_source,
+            live_camera,
+            live_preview,
+            live_dry,
+            live_compliance,
+            live_start,
+            live_stop,
+            live_status,
+        ) = _live_tab(
+            gr,
+            initial,
+            config_file,
+        )
+        labeled.extend(
+            [
+                live_tab,
+                live_intro,
+                live_source,
+                live_camera,
+                live_preview,
+                live_dry,
+                live_compliance,
+                live_start,
+                live_stop,
+                live_status,
+            ]
+        )
+        if len(labeled) != len(CONTROLS):
+            raise BarrettFaceswapError(t("ui.control_mismatch", found=len(labeled), expected=len(CONTROLS)))
+        # Gradio applies label updates to form controls. The tab button itself
+        # keeps the label from page load, so the browser rewrites that one node.
+        current_language = get_language()
+        set_language("en")
+        tab_en = t("ui.live_tab")
+        set_language("zh-CN")
+        tab_zh = t("ui.live_tab")
+        set_language(current_language)
+        tab_js = (
+            "(lang) => {"
+            f" const next = lang === 'zh-CN' ? {tab_zh!r} : {tab_en!r};"
+            " const paint = () => {"
+            "   document.querySelectorAll('button').forEach((button) => {"
+            f"     const text = (button.innerText || '').trim();"
+            f"     if (text === {tab_en!r} || text === {tab_zh!r}) button.innerText = next;"
+            "   });"
+            " };"
+            " paint();"
+            " setTimeout(paint, 0);"
+            " setTimeout(paint, 250);"
+            " return lang;"
+            "}"
+        )
+        language.change(on_language, inputs=[language], outputs=labeled, js=tab_js)
         preview_button.click(
             lambda *args: on_execute(*args, True),
             inputs=form,
@@ -368,6 +437,96 @@ def build_demo(config_path: str | Path):
             outputs=[preview, status],
         )
     return demo
+
+
+def _live_tab(gr, initial, config_file: Path):
+    """Webcam tab. The threaded capture loop is the ``live`` CLI command."""
+
+    from barrett_faceswap.live import LiveSession
+    from barrett_faceswap.types import SwapRequest
+
+    holder: dict[str, LiveSession | None] = {"session": None}
+    with gr.Tab(t("ui.live_tab")) as live_tab:
+        live_intro = gr.Markdown(t("ui.live_intro"))
+        live_source = gr.Image(type="filepath", label=t("ui.live_source"))
+        live_camera = gr.Image(sources=["webcam"], streaming=True, type="numpy", label=t("ui.live_camera"))
+        live_preview = gr.Image(type="numpy", label=t("ui.live_preview"))
+        live_dry = gr.Checkbox(value=True, label=t("ui.dry_run"))
+        live_compliance = gr.Checkbox(value=bool(initial.compliance.enabled), label=t("ui.compliance"))
+        live_start = gr.Button(t("ui.live_start"))
+        live_stop = gr.Button(t("ui.live_stop"))
+        live_status = gr.Textbox(label=t("ui.live_status"), interactive=False)
+
+    def _request(source, dry_run: bool, compliance: bool) -> SwapRequest:
+        source_path = _as_path(source)
+        if source_path is None:
+            raise BarrettFaceswapError(t("ui.need_files"))
+        return SwapRequest(
+            source_path=source_path,
+            target_path=Path("camera-ui"),
+            output_path=Path("outputs/live-ui-session.txt"),
+            dry_run=bool(dry_run),
+            enable_compliance=bool(compliance),
+            live_session=True,
+            acknowledge_authorized_use=False,
+        )
+
+    def on_start(source, dry_run: bool, compliance: bool):
+        holder["session"] = None
+        try:
+            _request(source, dry_run, compliance)
+        except BarrettFaceswapError as exc:
+            return str(exc)
+        holder["armed"] = (source, bool(dry_run), bool(compliance))
+        return t("ui.live_ready")
+
+    def on_frame(frame, source, dry_run: bool, compliance: bool):
+        if frame is None:
+            return None
+        try:
+            session = holder.get("session")
+            if session is None:
+                if not holder.get("armed"):
+                    return frame
+                config = load_config(config_file)
+                request = _request(source, dry_run, compliance)
+                config = apply_request_overrides(config, request)
+                session = LiveSession(config, request)
+                bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                session.start(bgr)
+                holder["session"] = session
+            else:
+                bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            output = session.step(bgr)
+            return cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+        except (BarrettFaceswapError, ValidationError, LanguageError) as exc:
+            holder["session"] = None
+            return None
+
+    def on_stop():
+        session = holder.get("session")
+        holder["session"] = None
+        holder["armed"] = None
+        if session is None:
+            return t("ui.live_idle")
+        result = session.finish()
+        return t("ui.live_stopped", path=result.output_path)
+
+    live_start.click(on_start, inputs=[live_source, live_dry, live_compliance], outputs=live_status)
+    live_camera.stream(on_frame, inputs=[live_camera, live_source, live_dry, live_compliance], outputs=live_preview)
+    live_stop.click(on_stop, outputs=live_status)
+    return (
+        live_tab,
+        live_intro,
+        live_source,
+        live_camera,
+        live_preview,
+        live_dry,
+        live_compliance,
+        live_start,
+        live_stop,
+        live_status,
+    )
 
 
 def _as_path(value: object) -> Path | None:

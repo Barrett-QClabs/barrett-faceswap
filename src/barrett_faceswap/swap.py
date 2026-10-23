@@ -37,7 +37,13 @@ class IdentitySwapper:
         latent = self._map_embedding(embedding)
         image_name, latent_name = _bind_swap_inputs(session)
         blob = _swapper_blob(target_crop_bgr)
-        prediction = session.run(None, {latent_name: latent, image_name: blob})[0]
+        from barrett_faceswap.binding import run_feeds
+
+        prediction = run_feeds(
+            session,
+            {latent_name: latent, image_name: blob},
+            cuda_graph=bool(self.store.config.execution.cuda_graph),
+        )[0]
         array = np.asarray(prediction, dtype=np.float32)
         if array.ndim != 4:
             raise SwapError(t("swap.output_rank", rank=array.ndim))
@@ -150,7 +156,13 @@ class GraphSwapper:
         image_name, latent_name = _bind_swap_inputs(session)
         blob = _normalize_blob(target_crop_bgr, self.spec.normalize)
         vector = np.asarray(latent, dtype=np.float32).reshape(1, -1)
-        prediction = session.run(None, {latent_name: vector, image_name: blob})[0]
+        from barrett_faceswap.binding import run_feeds
+
+        prediction = run_feeds(
+            session,
+            {latent_name: vector, image_name: blob},
+            cuda_graph=bool(self.store.config.execution.cuda_graph),
+        )[0]
         array = np.asarray(prediction, dtype=np.float32)
         if array.ndim != 4:
             raise SwapError(t("swap.output_rank", rank=array.ndim))

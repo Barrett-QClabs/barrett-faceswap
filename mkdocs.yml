@@ -1,0 +1,43 @@
+site_name: Barrett FaceSwap
+site_description: Realtime face swap, commercial gate, and bilingual docs.
+docs_dir: docs
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: teal
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh-CN
+          name: 简体中文
+          build: true
+          # Material ships zh, not zh-CN. The docs folder stays zh-CN.
+          theme:
+            language: zh
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Live: live.md
+  - Commercial: commercial.md
+  - Compliance: compliance.md
+  - CLI: cli.md
+exclude_docs: |
+  ARCHITECTURE.md
+  ARCHITECTURE.zh-CN.md
+  COMPLIANCE.md
+  COMPLIANCE.zh-CN.md
+  RESEARCH.md
+  RESEARCH.zh-CN.md
+markdown_extensions:
+  - tables
+  - admonition

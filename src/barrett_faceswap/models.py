@@ -72,8 +72,7 @@ class ModelStore:
         self.device_id = int(config.execution.device_id)
 
     def paths(self) -> dict[str, Path]:
-        models = self.config.models
-        return {role: getattr(models, role).path for role in ROLE_ORDER}
+        return {role: weight_path(self.config, role) for role in ROLE_ORDER}
 
     def missing(self, roles: tuple[str, ...] | None = None) -> list[tuple[str, Path]]:
         selected = self.paths() if roles is None else {role: self.paths()[role] for role in roles}
@@ -101,18 +100,35 @@ class ModelStore:
             self.ensure_present((role,))
         record = registry_record(self.config, role)
         digest = verify_model_hash(path, record.sha256, role)
-        key = (str(path.resolve()), digest, tuple(self.providers), self.device_id)
+        graph = bool(self.config.execution.cuda_graph)
+        key = (str(path.resolve()), digest, tuple(self.providers), self.device_id, graph, self.config.execution.precision)
         with _CACHE_LOCK:
             cached = _SESSION_CACHE.get(key)
             if cached is not None:
                 return cached
-            ort_providers = resolve_providers(self.providers, self.device_id)
+            ort_providers = resolve_providers(self.providers, self.device_id, self.config.execution)
             if factory is None:
                 session = _onnxruntime().InferenceSession(str(path), providers=ort_providers)
             else:
                 session = factory(path, ort_providers, self.device_id)
             _SESSION_CACHE[key] = session
             return session
+
+
+def weight_path(config: AppConfig, role: str) -> Path:
+    """fp32 path, or the sibling ``*_fp16.onnx`` when that file is present.
+
+    A missing fp16 file falls back to fp32 so a CPU checkout still loads.
+    """
+
+    base = getattr(config.models, role).path
+    if config.execution.precision != "fp16":
+        return base
+    candidate = base.with_name(f"{base.stem}_fp16{base.suffix}")
+    if candidate.is_file():
+        return candidate
+    logger.info(t("execution.fp16_fallback", role=role, path=candidate))
+    return base
 
 
 def _onnxruntime():

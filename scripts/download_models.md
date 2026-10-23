@@ -137,3 +137,11 @@ barrett-faceswap inspect-models
 ```
 
 Copy each printed sha256 into `configs/default.yaml` under `models.<role>.sha256`. The next load refuses a different file. An empty pin still hashes the file and logs the digest. It does not fail the run.
+
+## fp16 siblings
+
+`execution.precision: fp16` looks for a sibling next to the configured file. `models/inswapper_128.onnx` selects `models/inswapper_128_fp16.onnx` when that file is present, and stays on the fp32 file when it is not. The same `*_fp16` suffix applies to every role. This page does not fetch either variant. The default precision is `fp32`.
+
+## A commercial weight
+
+Every filename above is registered with `commercial_use: false`. `barrett-faceswap swap --commercial` refuses them. A weight you train yourself is not downloaded by `scripts/train_swapper.py`. After legal review, add your own registry row with `commercial_use: true`. The gate reads that flag and does not grant an exception for the rows in this table. See [docs/COMPLIANCE.md](../docs/COMPLIANCE.md).

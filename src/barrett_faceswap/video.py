@@ -124,10 +124,11 @@ class VideoPipeline:
                         role=f"output[{index}]",
                     )
                 if context.watermark_enabled:
-                    for frame_path in frames:
-                        marked_path = processed_dir / frame_path.name
-                        marked = self.policy.mark_frame(context, read_image(marked_path))
-                        write_image(marked_path, marked)
+                    watermark_frames(
+                        self.policy,
+                        context,
+                        [processed_dir / frame_path.name for frame_path in frames],
+                    )
             audio_mode = encode_video(
                 processed_dir,
                 request.output_path,
@@ -339,6 +340,27 @@ class VideoPipeline:
                     future.result()
         for processor in processors:
             processor.post_process()
+
+
+def watermark_frames(policy, context, frame_paths: list[Path]) -> int:
+    """Watermark each frame that does not already have a ``.wm`` stamp.
+
+    A resumed disk job skips frames stamped by the earlier attempt, so the
+    bar is not drawn twice.
+    """
+
+    from barrett_faceswap.vision import read_image, write_image
+
+    written = 0
+    for path in frame_paths:
+        stamp = Path(str(path) + ".wm")
+        if stamp.is_file():
+            continue
+        marked = policy.mark_frame(context, read_image(path))
+        write_image(path, marked)
+        stamp.write_text("1\n", encoding="utf-8")
+        written += 1
+    return written
 
 
 def _trim_bounds(request: SwapRequest, duration: float) -> tuple[float | None, float | None]:

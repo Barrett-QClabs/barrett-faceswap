@@ -111,6 +111,24 @@ execution:
   # First available provider wins; CPU is the portable fallback.
   providers: [cuda, cpu]
   device_id: 0
+  # fp32 is what CI runs. fp16 selects a sibling *_fp16.onnx when that file exists.
+  precision: fp32
+  # CUDA graph capture and IO binding apply only when the CUDA provider is installed.
+  cuda_graph: false
+  # Refuses every registry row with commercial_use false. The built-in rows stay false.
+  commercial: false
+  tensorrt:
+    engine_cache: .cache/tensorrt/engines
+    timing_cache: .cache/tensorrt/timing
+    fp16: true
+    builder_optimization_level: 3
+
+live:
+  # 1 keeps the newest camera frame and drops the rest.
+  queue_size: 1
+  detect_every: 3
+  preview: true
+  camera: 0
 
 detect:
   det_size: 640
@@ -155,6 +173,8 @@ compliance:
     enabled: true
     # null uses the active locale label (AI-generated / 人工智能生成).
     text: null
+    # Optional TTF or OTF for glyphs the built-in bitmaps do not cover. Null is valid.
+    font_path: null
   content_filter:
     # none | stub | nudenet | custom
     # stub is a no-op that allows the frame and logs that no detector is loaded.

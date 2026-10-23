@@ -91,9 +91,41 @@ class ModelsConfig(_Model):
     crossface_ghost: ModelFile = Field(default_factory=lambda: _optional_model("models/crossface_ghost.onnx"))
 
 
+class TensorRTConfig(_Model):
+    """Used only when the TensorRT execution provider is actually installed."""
+
+    engine_cache: Path = Field(default_factory=lambda: resolve_config_path(".cache/tensorrt/engines"))
+    timing_cache: Path = Field(default_factory=lambda: resolve_config_path(".cache/tensorrt/timing"))
+    fp16: bool = True
+    builder_optimization_level: int = 3
+
+    @field_validator("engine_cache", "timing_cache", mode="before")
+    @classmethod
+    def _cache(cls, value: object) -> Path:
+        return resolve_config_path(value)
+
+    @field_validator("builder_optimization_level")
+    @classmethod
+    def _level(cls, value: int) -> int:
+        if not 0 <= int(value) <= 5:
+            raise ValueError(t("config.builder_level"))
+        return int(value)
+
+
 class ExecutionConfig(_Model):
     providers: list[str] = Field(default_factory=lambda: ["cuda", "cpu"])
     device_id: int = 0
+    precision: str = "fp32"
+    cuda_graph: bool = False
+    commercial: bool = False
+    tensorrt: TensorRTConfig = Field(default_factory=TensorRTConfig)
+
+    @field_validator("precision")
+    @classmethod
+    def _precision(cls, value: str) -> str:
+        if value not in {"fp32", "fp16"}:
+            raise ValueError(t("config.precision", value=value))
+        return value
 
     @field_validator("providers")
     @classmethod
@@ -319,6 +351,18 @@ class ConsentConfig(_Model):
 class WatermarkConfig(_Model):
     enabled: bool = True
     text: str | None = None
+    # Optional TTF/OTF for labels the built-in glyphs do not cover.
+    font_path: Path | None = None
+
+    @field_validator("font_path", mode="before")
+    @classmethod
+    def _font(cls, value: object) -> Path | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if text in {"", "none", "null"}:
+            return None
+        return resolve_config_path(text)
 
 
 class ContentFilterConfig(_Model):
@@ -368,6 +412,22 @@ class ComplianceConfig(_Model):
     audit: AuditConfig = Field(default_factory=AuditConfig)
 
 
+class LiveConfig(_Model):
+    """Webcam loop. ``queue_size`` 1 keeps the newest frame and drops the rest."""
+
+    queue_size: int = 1
+    detect_every: int = 3
+    preview: bool = True
+    camera: int = 0
+
+    @field_validator("queue_size", "detect_every")
+    @classmethod
+    def _positive(cls, value: int) -> int:
+        if int(value) < 1:
+            raise ValueError(t("config.live_positive"))
+        return int(value)
+
+
 class JobsConfig(_Model):
     """Directory that stores job specs and in-progress frames."""
 
@@ -391,6 +451,7 @@ class AppConfig(_Model):
     enhancer: EnhancerConfig = Field(default_factory=EnhancerConfig)
     masks: MasksConfig = Field(default_factory=MasksConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
+    live: LiveConfig = Field(default_factory=LiveConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     processors: list[str] = Field(default_factory=lambda: ["face_swapper"])
     compliance: ComplianceConfig = Field(default_factory=ComplianceConfig)
@@ -464,7 +525,12 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
     color = getattr(request, "color_transfer", None)
     if color:
         blend = blend.model_copy(update={"color": color})
-    return config.model_copy(update={"enhancer": enhancer, "video": video, "swap": swap, "blend": blend})
+    execution = config.execution
+    if getattr(request, "commercial", False):
+        execution = execution.model_copy(update={"commercial": True})
+    return config.model_copy(
+        update={"enhancer": enhancer, "video": video, "swap": swap, "blend": blend, "execution": execution}
+    )
 
 
 def load_config(path: str | Path) -> AppConfig:

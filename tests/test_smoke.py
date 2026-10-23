@@ -19,7 +19,7 @@ from tests.conftest import REPO, write_config, write_png
 
 
 def test_package_imports() -> None:
-    assert __version__ == "0.3.0"
+    assert __version__ == "0.4.0"
     assert "face_swapper" in available_processors()
     assert "face_enhancer" in available_processors()
 
@@ -38,6 +38,12 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.blend.mode == "alpha"
     assert config.compliance.enabled is False
     assert config.models.gfpgan.path.name == "gfpgan_1.4.onnx"
+    assert config.execution.commercial is False
+    assert config.execution.precision == "fp32"
+    assert config.execution.cuda_graph is False
+    assert config.live.queue_size == 1
+    assert config.live.detect_every == 3
+    assert config.compliance.watermark.font_path is None
 
 
 def test_dry_run_without_models_or_consent(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
