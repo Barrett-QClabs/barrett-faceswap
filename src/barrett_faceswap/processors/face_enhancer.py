@@ -18,7 +18,8 @@ from barrett_faceswap.align import align_face, ffhq_template
 from barrett_faceswap.blend import paste_back
 from barrett_faceswap.config import AppConfig
 from barrett_faceswap.detect import FaceDetector
-from barrett_faceswap.enhance import blend_images, run_enhancer
+from barrett_faceswap.enhance import blend_images, blend_region, run_enhancer
+from barrett_faceswap.face_parsing import enhancer_skin_mask, parser_labels
 from barrett_faceswap.eyes import eye_mask, eye_openness
 from barrett_faceswap.errors import NoFaceError, ProcessorError
 from barrett_faceswap.i18n import t
@@ -32,6 +33,10 @@ from barrett_faceswap.types import ProcessContext
 ENHANCER_ROLES = {
     "gfpgan_1.4": "gfpgan",
     "codeformer": "codeformer",
+    "gpen_bfr_512": "gpen_bfr_512",
+    "gpen_bfr_1024": "gpen_bfr_1024",
+    "gpen_bfr_2048": "gpen_bfr_2048",
+    "restoreformer_plus_plus": "restoreformer_plus_plus",
 }
 
 
@@ -46,6 +51,7 @@ class FaceEnhancer:
         self.store: ModelStore | None = None
         self.detector_session = None
         self.enhancer_session = None
+        self.parser_session = None
         self.role = ENHANCER_ROLES.get(config.enhancer.model, "")
         self._lock = threading.Lock()
         self._miss_noted = False
@@ -63,6 +69,8 @@ class FaceEnhancer:
         self.store.ensure_present(("detector", self.role))
         self.detector_session = self.store.session("detector")
         self.enhancer_session = self.store.session(self.role)
+        if self.store.paths()["parser"].is_file() and self.config.masks.parser:
+            self.parser_session = self.store.session("parser")
 
     def process_frame(self, frame: np.ndarray, ctx: ProcessContext) -> np.ndarray:
         if ctx.dry_run:
@@ -90,17 +98,21 @@ class FaceEnhancer:
         for index, face in enumerate(faces):
             crop, matrix = align_face(output, face.landmarks[:5], side, template=ffhq_template(side))
             restored = run_enhancer(self.enhancer_session, crop, weight=self.config.enhancer.weight)
-            eyes = eye_mask(side, ffhq_template(side), self.config.blend.mask_blur)
-            openness = ctx.eye_openness if ctx.eye_openness is not None else eye_openness(face.landmarks)
-            # Open eyes keep more of the target crop. eye_blend 1 still means full restoration.
-            eye_amount = float(self.config.enhancer.eye_blend) * (1.0 - 0.7 * float(openness))
-            blended = blend_images(
-                restored,
-                crop,
-                self.config.enhancer.blend,
-                eye_mask=eyes,
-                eye_amount=eye_amount,
-            )
+            skin = self._skin_mask(crop, side)
+            if skin is not None:
+                blended = blend_region(restored, crop, self.config.enhancer.blend, skin)
+            else:
+                eyes = eye_mask(side, ffhq_template(side), self.config.blend.mask_blur)
+                openness = ctx.eye_openness if ctx.eye_openness is not None else eye_openness(face.landmarks)
+                # Open eyes keep more of the target crop. eye_blend 1 still means full restoration.
+                eye_amount = float(self.config.enhancer.eye_blend) * (1.0 - 0.7 * float(openness))
+                blended = blend_images(
+                    restored,
+                    crop,
+                    self.config.enhancer.blend,
+                    eye_mask=eyes,
+                    eye_amount=eye_amount,
+                )
             blended = self._stabilize(index, face, blended)
             carried.append((blended, np.asarray(face.landmarks[:5], dtype=np.float32).copy()))
             mask = region_mask(side, self.config.blend.mask_blur)
@@ -132,6 +144,15 @@ class FaceEnhancer:
         if previous.shape[:2] != blended.shape[:2]:
             previous = cv2.resize(previous, (blended.shape[1], blended.shape[0]), interpolation=cv2.INTER_LINEAR)
         return blend_images(previous, blended, amount)
+
+    def _skin_mask(self, crop: np.ndarray, side: int) -> np.ndarray | None:
+        if self.parser_session is None:
+            return None
+        labels = parser_labels(self.parser_session, crop, side)
+        mask = enhancer_skin_mask(labels, self.config.blend.mask_blur)
+        if float(mask.max()) <= 0.0:
+            return None
+        return mask
 
     def _detector(self) -> FaceDetector:
         if self._detector_obj is None:

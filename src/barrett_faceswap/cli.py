@@ -18,6 +18,7 @@ from barrett_faceswap.swap_catalog import (
     BLEND_MODES,
     COLOR_TRANSFERS,
     EYE_MODES,
+    OCCLUDER_MODELS,
     SWAPPER_NAMES,
     VIDEO_MODES,
 )
@@ -107,12 +108,25 @@ def build_parser() -> argparse.ArgumentParser:
     swap.add_argument("--video-threads", type=int, default=None, help=t("cli.video_threads"))
     swap.add_argument("--no-audio", action="store_true", help=t("cli.no_audio"))
     swap.add_argument("--filter-every", type=int, default=None, help=t("cli.filter_every"))
-    swap.add_argument("--enhancer-model", default=None, choices=list(ENHANCER_MODELS), help=t("cli.enhancer_model"))
+    swap.add_argument(
+        "--face-enhancer-model",
+        "--enhancer-model",
+        dest="enhancer_model",
+        default=None,
+        choices=list(ENHANCER_MODELS),
+        help=t("cli.enhancer_model"),
+    )
     swap.add_argument("--enhancer-blend", type=float, default=None, help=t("cli.enhancer_blend"))
     swap.add_argument("--enhancer-weight", type=float, default=None, help=t("cli.enhancer_weight"))
     _add_phase3_flags(swap)
     swap.add_argument("--job-id", default=None, help=t("cli.job_id"))
     swap.add_argument("--resume", action="store_true", help=t("cli.resume"))
+    swap.add_argument(
+        "--occluder-model",
+        default=None,
+        choices=list(OCCLUDER_MODELS),
+        help=t("cli.occluder_model"),
+    )
     swap.add_argument("--commercial", action="store_true", help=t("cli.commercial"))
 
     jobs = sub.add_parser("jobs", help=t("cli.jobs_help"))
@@ -158,7 +172,39 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--no-watermark", action="store_true", help=t("cli.no_watermark"))
     live.add_argument("--commercial", action="store_true", help=t("cli.commercial"))
     live.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
+    live.add_argument(
+        "--occluder-model",
+        default=None,
+        choices=list(OCCLUDER_MODELS),
+        help=t("cli.occluder_model"),
+    )
     _add_phase3_flags(live)
+
+    compare = sub.add_parser("compare", help=t("cli.compare_help"))
+    compare.add_argument("--source", required=True, type=Path, help=t("cli.source"))
+    compare.add_argument("--target", required=True, type=Path, help=t("cli.target"))
+    compare.add_argument("--output", required=True, type=Path, help=t("cli.output"))
+    compare.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    compare.add_argument("--lang", default=None, help=t("cli.lang"))
+    compare.add_argument("--dry-run", action="store_true", help=t("cli.dry_run"))
+    compare.add_argument("--frames", type=int, default=1, help=t("cli.compare_frames"))
+    compare.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
+    compare.add_argument(
+        "--face-swapper-model",
+        dest="compare_swappers",
+        action="append",
+        default=None,
+        choices=list(SWAPPER_NAMES),
+        help=t("cli.compare_swappers"),
+    )
+    compare.add_argument(
+        "--face-enhancer-model",
+        dest="compare_enhancers",
+        action="append",
+        default=None,
+        choices=list(ENHANCER_MODELS),
+        help=t("cli.compare_enhancers"),
+    )
 
     inspect = sub.add_parser("inspect-models", help=t("cli.inspect_help"))
     inspect.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
@@ -195,6 +241,27 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_argument("--lang", default=None, help=t("cli.lang"))
     download.add_argument("--with-gfpgan", action="store_true", help=t("cli.download_with_gfpgan"))
     download.add_argument("--with-masks", action="store_true", help=t("cli.download_with_masks"))
+    download.add_argument(
+        "--swapper",
+        action="append",
+        default=None,
+        choices=list(SWAPPER_NAMES),
+        help=t("cli.download_swapper"),
+    )
+    download.add_argument(
+        "--enhancer",
+        action="append",
+        default=None,
+        choices=list(ENHANCER_MODELS),
+        help=t("cli.download_enhancer"),
+    )
+    download.add_argument(
+        "--occluder",
+        action="append",
+        default=None,
+        choices=list(OCCLUDER_MODELS),
+        help=t("cli.download_occluder"),
+    )
     download.add_argument("--force", action="store_true", help=t("cli.download_force"))
     download.add_argument("--from-dir", type=Path, default=None, help=t("cli.download_from_dir"))
     return parser
@@ -218,6 +285,9 @@ def _dispatch(namespace: argparse.Namespace) -> int:
             with_masks=namespace.with_masks,
             force=namespace.force,
             from_dir=namespace.from_dir,
+            swappers=namespace.swapper,
+            enhancers=namespace.enhancer,
+            occluders=namespace.occluder,
         ):
             print(line)
         return 0
@@ -235,6 +305,23 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         return _dispatch_jobs(namespace)
     if namespace.command == "live":
         return _dispatch_live(namespace)
+    if namespace.command == "compare":
+        from barrett_faceswap.compare import run_compare
+
+        config = load_config(namespace.config)
+        cells = run_compare(
+            config,
+            namespace.source,
+            namespace.target,
+            namespace.output,
+            swappers=namespace.compare_swappers,
+            enhancers=namespace.compare_enhancers,
+            frames=namespace.frames,
+            dry_run=namespace.dry_run,
+            providers=namespace.execution_provider,
+        )
+        print(t("compare.wrote", path=namespace.output, count=len(cells)))
+        return 0
     if namespace.command == "benchmark":
         config = load_config(namespace.config)
         runner = run_live_benchmark if namespace.live else run_benchmark
@@ -287,6 +374,7 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         enhancer_blend=namespace.enhancer_blend,
         enhancer_weight=namespace.enhancer_weight,
         swapper_model=namespace.swapper_model,
+        occluder_model=namespace.occluder_model,
         pixel_boost=namespace.pixel_boost,
         many_faces=namespace.many_faces,
         reference_path=namespace.reference,
@@ -309,7 +397,14 @@ def _dispatch(namespace: argparse.Namespace) -> int:
 
 
 def _add_phase3_flags(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--swapper-model", default=None, choices=list(SWAPPER_NAMES), help=t("cli.swapper_model"))
+    parser.add_argument(
+        "--face-swapper-model",
+        "--swapper-model",
+        dest="swapper_model",
+        default=None,
+        choices=list(SWAPPER_NAMES),
+        help=t("cli.swapper_model"),
+    )
     parser.add_argument("--pixel-boost", type=int, default=None, help=t("cli.pixel_boost"))
     parser.add_argument("--many-faces", action="store_true", help=t("cli.many_faces"))
     parser.add_argument("--reference", type=Path, default=None, help=t("cli.reference"))
@@ -376,6 +471,7 @@ def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None
         processors=processors,
         execution_providers=getattr(namespace, "execution_provider", None),
         swapper_model=namespace.swapper_model,
+        occluder_model=getattr(namespace, "occluder_model", None),
         pixel_boost=namespace.pixel_boost,
         many_faces=bool(namespace.many_faces),
         reference_path=namespace.reference,
@@ -411,6 +507,7 @@ def _dispatch_live(namespace: argparse.Namespace) -> int:
         no_watermark=namespace.no_watermark,
         execution_providers=namespace.execution_provider,
         swapper_model=namespace.swapper_model,
+        occluder_model=getattr(namespace, "occluder_model", None),
         pixel_boost=namespace.pixel_boost,
         many_faces=namespace.many_faces,
         reference_path=namespace.reference,

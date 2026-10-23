@@ -23,16 +23,18 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 
 ## 功能
 
-- SCRFD 风格的 ONNX 检测（`det_10g`）、ArcFace 向量（`w600k_r50`），以及可选换脸器：`inswapper_128`（默认）、`hyperswap_1a/1b/1c_256`、`simswap_256`、`simswap_unofficial_512`、`ghost_1/2/3_256`。注册表每一行都有许可键，并且 `commercial_use` 为 false。HyperSwap、SimSwap 和 Ghost 需要操作者提供的 crossface ONNX，把 ArcFace 映射到该图的隐向量
+- SCRFD 风格的 ONNX 检测（`det_10g`）、ArcFace 向量（`w600k_r50`），以及 `--face-swapper-model` 可选换脸器：`inswapper_128`（默认）、`hyperswap_1a/1b/1c_256`、`simswap_256`、`simswap_unofficial_512`、`blendswap_256`、`ghost_1/2/3_256`。每张图使用自己的模板、均值和标准差。SimSwap 和 Ghost 仍需要 crossface ONNX。HyperSwap 直接使用归一化的 ArcFace 向量。BlendSwap 使用 112 像素的源裁剪。注册表每一行的 `commercial_use` 仍是 false。本项目用于非商业用途。权重由使用者自行下载
 - 像素提升：把更大的对齐裁剪切成原生尺寸的小块，逐块推理后再拼回去（128 / 256 / 512 / 768 / 1024，且该尺寸必须能被所选模型整除）
 - 选脸：按序号选一张、`--many-faces` 替换每一张、用 ArcFace 余弦相似度对参考脸，或用 JSON 做源脸到目标脸的映射。视频用一个小的 IoU 跟踪器保持这次选择
 - 贴回默认是 alpha。`--blend-mode poisson` 使用 `cv2.seamlessClone`。颜色迁移默认是 `lab`（Lab 空间的均值和标准差）。`mean_std`、`histogram` 和 `none` 仍然可用。`--color-transfer none` 会关掉匹配
 - 任务把规格和下一帧未完成的序号存在 `jobs/<id>/`，中断的视频可以续跑
 - 视频默认把帧写到磁盘。`--video-mode pipe` 经 ffmpeg 管道解码和编码，不为每一帧写 PNG
-- 蒙版按像素取最小值合并：内缩方框、xseg 风格的遮挡 ONNX、BiSeNet 人脸解析区域。遮挡文件缺失时仍是全 1 蒙版。解析文件缺失时，换脸裁剪用带羽化的关键点凸包；没有关键点时用椭圆
-- `face_enhancer`：GFPGAN 1.4 或 CodeFormer ONNX，带混合系数。它已注册，但默认不在处理器列表里，因此换脸不强制要求这些文件
+- 蒙版按像素取最小值合并：内缩方框、xseg 遮挡（`--occluder-model xseg_1`、`xseg_2`、`xseg_3` 或 `sam2_refine`）和 BiSeNet 人脸解析。视频和实时按 `masks.stride`（默认 3）隔帧重算 ONNX 蒙版，人脸几乎不动时把上一张蒙版扭过来。遮挡文件缺失时仍是全 1 蒙版。解析文件缺失时，换脸裁剪用带羽化的关键点凸包；没有关键点时用椭圆。`sam2_refine` 由操作者提供 ONNX，不会下载
+- `--face-enhancer-model`：GFPGAN 1.4（默认）、CodeFormer（保真默认 0.7）、GPEN BFR 512/1024/2048 或 RestoreFormer++。有解析文件时，修复结果只混合到皮肤类别，眼睛和眉毛保留普通换脸。它默认不在处理器列表里
+- `barrett-faceswap compare` 为换脸器和增强器的组合写出带标签的联系表和耗时表。`--dry-run` 不加载权重
+- 实时关键点在对齐之前做与视频相同的 One-Euro 平滑。视频已经在人脸流里、对齐之前平滑
 - 视频：ffprobe、抽帧、线程池走同一套处理器、`libx264` 或 `h264_nvenc`，再把原音轨混回去。可以裁剪时间段
-- ONNX Runtime 会话按模型哈希、提供者列表、设备、精度和 CUDA 图标记缓存。请求里包含 CUDA 时优先 CUDA。安装了 TensorRT 提供者时会挂上引擎缓存、计时缓存、fp16 和构建优化级别。`execution.precision: fp16` 选用同目录的 `*_fp16.onnx`，文件不存在时退回 fp32。CUDA 会话会复用 IO binding。只有 `execution.cuda_graph` 打开时才请求 CUDA 图捕获
+- ONNX Runtime 会话按模型哈希、提供者列表、设备、精度和 CUDA 图标记缓存。同时列出 CUDA 和 TensorRT 时优先 CUDA。单独使用 `--execution-provider tensorrt` 会在 `.cache/tensorrt/engines` 建立 fp16 引擎缓存，inswapper（`swapper`）和 xseg（`occluder`）使用不同前缀。`execution.precision: fp16` 选用同目录的 `*_fp16.onnx`，文件不存在时退回 fp32。CUDA 会话会复用 IO binding。只有 `execution.cuda_graph` 打开时才请求 CUDA 图捕获
 - 模型注册表包含许可、商业标记、对齐名称、输入尺寸，以及加载时可选的 sha256 校验
 - CLI、视频流水线和界面共用的 Pydantic 配置
 - 中英文目录（`--lang`、`ui.language`、`BARRETT_FACESWAP_LANG`）。Gradio 的语言下拉会切换全部标签
@@ -43,7 +45,7 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - 视频不会因为某一帧没有脸而中止。它会降低阈值、旋转并放大后重试，然后在 `video.max_face_gap`（默认 10）以内用相邻帧补上关键点。`--eye-mode blend`（默认）尽量保留目标眼睛。`--with-enhancer` 加上 GFPGAN 或 CodeFormer，眼部混合更强。`--pixel-boost 256` 或 `512` 会把 inswapper 切块，静态图和视频都一样
 - `docs/en` 与 `docs/zh-CN` 下的双语文档站（MkDocs Material）。CI 会构建，不会部署
 
-以后再做：这组之外的换脸器，以及精确到帧的管道续跑。`compliance.enabled` 在正式发布前保持 false。
+以后再做：uniface、hififace，以及精确到帧的管道续跑。`compliance.enabled` 在正式发布前保持 false。
 
 ## 安装
 

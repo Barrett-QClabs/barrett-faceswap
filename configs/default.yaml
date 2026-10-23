@@ -71,7 +71,7 @@ models:
     sha256: null
 
 enhancer:
-  # gfpgan_1.4 | codeformer. The file is not required until face_enhancer runs.
+  # gfpgan_1.4 | codeformer | gpen_bfr_512 | gpen_bfr_1024 | gpen_bfr_2048 | restoreformer_plus_plus
   model: gfpgan_1.4
   # 1 keeps the restoration. 0 keeps the original crop.
   # 0.6 leaves more of the swapped face, which keeps hair from looking over-sharpened.
@@ -82,8 +82,8 @@ enhancer:
   temporal: 0.4
   # Mean landmark shift divided by face width. Above this, the previous crop is dropped.
   temporal_motion: 0.04
-  # CodeFormer fidelity input. Ignored when the graph has no second input.
-  weight: 0.5
+  # CodeFormer fidelity. GFPGAN ignores it. 0.7 is the default when CodeFormer is selected.
+  weight: 0.7
 
 masks:
   # A missing file falls back to the all-ones or ellipse stub. Nothing is downloaded.
@@ -91,11 +91,13 @@ masks:
   parser: true
   # Set true when the occlusion graph predicts the occluder instead of the visible face.
   occlusion_invert: false
+  # xseg_1 | xseg_2 | xseg_3 | sam2_refine. sam2_refine is a local ONNX.
+  occluder_model: xseg_1
   # Video and live run the ONNX masks every N frames and warp the last mask
   # while the face barely moves. 1 runs them on every frame. Still images
-  # always run them. Asymmetric ConvTranspose padding is rewritten at load so
-  # CUDA does not drop xseg back to the CPU.
-  stride: 2
+  # always run them. Stride 3 reuses the warped mask for two frames. A landmark
+  # jump still recomputes, so a stable face does not flicker.
+  stride: 3
   stride_motion: 0.04
   regions:
     - skin
@@ -155,7 +157,8 @@ detect:
 
 swap:
   # inswapper_128 | hyperswap_1a_256 | hyperswap_1b_256 | hyperswap_1c_256
-  # | simswap_256 | simswap_unofficial_512 | ghost_1_256 | ghost_2_256 | ghost_3_256
+  # | simswap_256 | simswap_unofficial_512 | blendswap_256
+  # | ghost_1_256 | ghost_2_256 | ghost_3_256
   model: inswapper_128
   resolution: 128
   # 0 keeps the native size (inswapper also honors resolution).

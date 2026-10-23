@@ -17,7 +17,7 @@ from barrett_faceswap.i18n import t
 
 logger = logging.getLogger(__name__)
 
-_REWRITE_ROLES = frozenset({"occluder", "parser"})
+_REWRITE_ROLES = frozenset({"occluder", "xseg_2", "xseg_3", "parser"})
 
 
 def should_rewrite(role: str) -> bool:

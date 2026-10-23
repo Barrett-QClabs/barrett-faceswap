@@ -1,6 +1,8 @@
 # 商业路线
 
-`--commercial` 把 `execution.commercial` 设为真。门禁会拒绝这次运行将打开、且注册表行的 `commercial_use` 为 false 或缺失的每一个角色。内置模型全部标成 false，因此商业构建不能加载 inswapper、可选换脸器、GFPGAN、CodeFormer、遮挡模型或解析模型。没有配置键能改写这些行。
+本项目用于非商业用途。开源权重，包括以非商业研究名义发布的权重，可以由操作者自行下载。注册表仍把每一条内置行标成 `commercial_use: false`，这些文件也不随本仓库分发。
+
+`--commercial` 把 `execution.commercial` 设为真。门禁会拒绝这次运行将打开、且注册表行的 `commercial_use` 为 false 或缺失的每一个角色。内置模型全部标成 false，因此商业构建不能加载 inswapper、可选换脸器、GFPGAN、CodeFormer、GPEN、RestoreFormer++、遮挡模型或解析模型。没有配置键能改写这些行。
 
 可商业授权的换脸器需要你自己训练并登记。脚手架沿着 Apache-2.0 的 GHOST / AEI-Net 这一类身份条件生成器来说明步骤。它不复制它们的训练源码，也不下载它们的权重。
 

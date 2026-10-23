@@ -15,7 +15,14 @@ from barrett_faceswap.i18n import t
 
 FILTER_PROVIDERS = ("none", "stub", "nudenet", "custom")
 EXECUTION_PROVIDERS = ("cuda", "tensorrt", "rocm", "coreml", "directml", "cpu")
-ENHANCER_MODELS = ("gfpgan_1.4", "codeformer")
+ENHANCER_MODELS = (
+    "gfpgan_1.4",
+    "codeformer",
+    "gpen_bfr_512",
+    "gpen_bfr_1024",
+    "gpen_bfr_2048",
+    "restoreformer_plus_plus",
+)
 VIDEO_ENCODERS = ("libx264", "h264_nvenc")
 
 
@@ -89,6 +96,16 @@ class ModelsConfig(_Model):
     crossface_hyperswap: ModelFile = Field(default_factory=lambda: _optional_model("models/crossface_hyperswap.onnx"))
     crossface_simswap: ModelFile = Field(default_factory=lambda: _optional_model("models/crossface_simswap.onnx"))
     crossface_ghost: ModelFile = Field(default_factory=lambda: _optional_model("models/crossface_ghost.onnx"))
+    blendswap_256: ModelFile = Field(default_factory=lambda: _optional_model("models/blendswap_256.onnx"))
+    gpen_bfr_512: ModelFile = Field(default_factory=lambda: _optional_model("models/gpen_bfr_512.onnx"))
+    gpen_bfr_1024: ModelFile = Field(default_factory=lambda: _optional_model("models/gpen_bfr_1024.onnx"))
+    gpen_bfr_2048: ModelFile = Field(default_factory=lambda: _optional_model("models/gpen_bfr_2048.onnx"))
+    restoreformer_plus_plus: ModelFile = Field(
+        default_factory=lambda: _optional_model("models/restoreformer_plus_plus.onnx")
+    )
+    xseg_2: ModelFile = Field(default_factory=lambda: _optional_model("models/xseg_2.onnx"))
+    xseg_3: ModelFile = Field(default_factory=lambda: _optional_model("models/xseg_3.onnx"))
+    sam2_refine: ModelFile = Field(default_factory=lambda: _optional_model("models/sam2_refine.onnx"))
 
 
 class TensorRTConfig(_Model):
@@ -270,7 +287,7 @@ class EnhancerConfig(_Model):
 
     model: str = "gfpgan_1.4"
     blend: float = 0.6
-    weight: float = 0.5
+    weight: float = 0.7
     # Lower than ``blend`` so GFPGAN does not replace the target eyes.
     eye_blend: float = 0.35
     # Mix of the previous enhanced crop when the face barely moves. 0 disables it.
@@ -298,8 +315,10 @@ class MasksConfig(_Model):
     occlusion: bool = True
     parser: bool = True
     occlusion_invert: bool = False
+    occluder_model: str = "xseg_1"
     # Video and live recompute ONNX masks every this many frames. 1 is every frame.
-    stride: int = 2
+    # 3 reuses the warped mask for two frames. A landmark jump still recomputes.
+    stride: int = 3
     # Mean landmark shift / face width. Above this, the previous mask is dropped.
     stride_motion: float = 0.04
     regions: list[str] = Field(default_factory=lambda: list(_default_regions()))
@@ -310,6 +329,15 @@ class MasksConfig(_Model):
         if int(value) < 1:
             raise ValueError(t("config.mask_stride"))
         return int(value)
+
+    @field_validator("occluder_model")
+    @classmethod
+    def _occluder_model(cls, value: str) -> str:
+        from barrett_faceswap.swap_catalog import OCCLUDER_MODELS
+
+        if value not in OCCLUDER_MODELS:
+            raise ValueError(t("config.occluder_model", model=value, allowed=", ".join(OCCLUDER_MODELS)))
+        return value
 
     @field_validator("stride_motion")
     @classmethod
@@ -590,8 +618,19 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
     execution = config.execution
     if getattr(request, "commercial", False):
         execution = execution.model_copy(update={"commercial": True})
+    masks = config.masks
+    occluder_model = getattr(request, "occluder_model", None)
+    if occluder_model:
+        masks = masks.model_copy(update={"occluder_model": occluder_model})
     return config.model_copy(
-        update={"enhancer": enhancer, "video": video, "swap": swap, "blend": blend, "execution": execution}
+        update={
+            "enhancer": enhancer,
+            "video": video,
+            "swap": swap,
+            "blend": blend,
+            "execution": execution,
+            "masks": masks,
+        }
     )
 
 

@@ -52,3 +52,38 @@ def run_occlusion(
     if data.shape != (size, size):
         data = cv2.resize(data, (size, size), interpolation=cv2.INTER_LINEAR)
     return _blur(data.astype(np.float32), blur)
+
+
+def refine_occlusion(session, crop_bgr: np.ndarray, coarse: np.ndarray, size: int) -> np.ndarray:
+    """Run an operator-supplied SAM 2 style graph: image plus coarse mask in, mask out.
+
+    The graph is not downloaded. Inputs are bound by rank. A 4-D tensor with one
+    channel is the coarse mask. Any other 4-D tensor is the 0..1 RGB crop.
+    """
+
+    image = bgr_to_nchw(crop_bgr, size, size, mode="zero_one", channels=3)
+    mask = np.asarray(coarse, dtype=np.float32)
+    if mask.ndim == 2:
+        mask = mask[None, None, ...]
+    elif mask.ndim == 3:
+        mask = mask[None, ...]
+    feeds: dict[str, np.ndarray] = {}
+    for item in session.get_inputs():
+        shape = list(item.shape)
+        if len(shape) == 4 and (shape[1] == 1 or shape[-1] == 1):
+            feeds[item.name] = mask if shape[1] == 1 or not isinstance(shape[1], int) else np.transpose(mask, (0, 2, 3, 1))
+            if shape[-1] == 1 and shape[1] != 1:
+                feeds[item.name] = np.transpose(mask, (0, 2, 3, 1))
+        elif len(shape) == 4:
+            feeds[item.name] = image
+        else:
+            feeds[item.name] = np.asarray([1.0], dtype=np.float32)
+    data = np.squeeze(first_spatial_output(session.run(None, feeds)).astype(np.float32))
+    if data.ndim == 3:
+        data = data[0] if data.shape[0] <= 4 else data[..., 0]
+    if data.ndim != 2:
+        raise ProcessorError(t("masks.occlusion_rank", rank=int(data.ndim)))
+    data = np.clip(data, 0.0, 1.0)
+    if data.shape != (size, size):
+        data = cv2.resize(data, (size, size), interpolation=cv2.INTER_LINEAR)
+    return data.astype(np.float32)

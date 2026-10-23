@@ -58,7 +58,12 @@ def available_provider_names() -> list[str]:
     return [name for name, ort_name in PROVIDER_MAP.items() if ort_name in present]
 
 
-def resolve_providers(requested: list[str] | tuple[str, ...], device_id: int, settings=None) -> list:
+def resolve_providers(
+    requested: list[str] | tuple[str, ...],
+    device_id: int,
+    settings=None,
+    role: str | None = None,
+) -> list:
     """Build the provider list passed to ``InferenceSession``.
 
     ``settings`` is an ``ExecutionConfig``. When it is omitted, providers are
@@ -81,7 +86,7 @@ def resolve_providers(requested: list[str] | tuple[str, ...], device_id: int, se
             continue
         if ort_name in seen:
             continue
-        selected.append(_with_options(ort_name, device_id, settings))
+        selected.append(_with_options(ort_name, device_id, settings, role))
         seen.add(ort_name)
     cpu = PROVIDER_MAP["cpu"]
     if cpu in present and cpu not in seen:
@@ -100,9 +105,9 @@ def resolve_providers(requested: list[str] | tuple[str, ...], device_id: int, se
     return selected
 
 
-def _with_options(ort_name: str, device_id: int, settings):
+def _with_options(ort_name: str, device_id: int, settings, role: str | None = None):
     if ort_name == "TensorrtExecutionProvider" and settings is not None:
-        return (ort_name, tensorrt_options(device_id, settings.tensorrt))
+        return (ort_name, tensorrt_options(device_id, settings.tensorrt, role))
     if ort_name == "CUDAExecutionProvider":
         options = {"device_id": int(device_id)}
         if settings is not None and settings.cuda_graph:
@@ -113,15 +118,19 @@ def _with_options(ort_name: str, device_id: int, settings):
     return ort_name
 
 
-def tensorrt_options(device_id: int, tensorrt) -> dict[str, object]:
-    """Provider options for an installed TensorRT runtime. Directories are created here."""
+def tensorrt_options(device_id: int, tensorrt, role: str | None = None) -> dict[str, object]:
+    """Provider options for an installed TensorRT runtime. Directories are created here.
+
+    ``role`` becomes the engine-cache prefix so inswapper (``swapper``) and xseg
+    (``occluder``) keep separate fp16 engines in the same directory.
+    """
 
     engine = Path(tensorrt.engine_cache)
     timing = Path(tensorrt.timing_cache)
     engine.mkdir(parents=True, exist_ok=True)
     timing.mkdir(parents=True, exist_ok=True)
     logger.info(t("execution.tensorrt_ready", engine=engine, timing=timing))
-    return {
+    options: dict[str, object] = {
         "device_id": int(device_id),
         "trt_engine_cache_enable": True,
         "trt_engine_cache_path": str(engine),
@@ -130,6 +139,9 @@ def tensorrt_options(device_id: int, tensorrt) -> dict[str, object]:
         "trt_fp16_enable": bool(tensorrt.fp16),
         "trt_builder_optimization_level": int(tensorrt.builder_optimization_level),
     }
+    if role:
+        options["trt_engine_cache_prefix"] = role
+    return options
 
 
 def prepare_runtime() -> dict[str, object]:

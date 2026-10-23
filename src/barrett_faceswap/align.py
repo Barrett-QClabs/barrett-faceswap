@@ -28,7 +28,21 @@ FFHQ_512 = np.array(
     dtype=np.float32,
 )
 
+# Normalized ArcFace 112 v1 points. SimSwap and Ghost crops scale these by the
+# crop side. v2 (the array below) is a different export and is not a substitute.
+ARCFACE_112_V1 = np.array(
+    [
+        [0.35473214, 0.45658929],
+        [0.64526786, 0.45658929],
+        [0.50000000, 0.61154464],
+        [0.37913393, 0.77687500],
+        [0.62086607, 0.77687500],
+    ],
+    dtype=np.float32,
+)
+
 # Left eye, right eye, nose, left mouth corner, right mouth corner.
+# These are the ArcFace 112 v2 points used by the recognizer and by BlendSwap's source crop.
 ARCFACE_112 = np.array(
     [
         [38.2946, 51.6963],
@@ -75,6 +89,12 @@ def swap_template(kind: str, size: int) -> np.ndarray:
         if size <= 0:
             raise AlignError(t("align.bad_size"))
         return (ARCFACE_112 * (float(size) / 112.0)).astype(np.float32)
+    if kind == "arcface_v1":
+        if size <= 0:
+            raise AlignError(t("align.bad_size"))
+        return (ARCFACE_112_V1 * float(size)).astype(np.float32)
+    if kind == "arcface_128":
+        return template_for_size(size)
     if kind == "ffhq":
         return ffhq_template(size)
     raise AlignError(t("align.template_kind", kind=kind))

@@ -21,6 +21,7 @@ from barrett_faceswap.models import ModelStore
 from barrett_faceswap.pixel_boost import run_tiled
 from barrett_faceswap.processors.registry import register_processor
 from barrett_faceswap.recover import map_points, search_faces
+from barrett_faceswap.preprocess import normalize_crop
 from barrett_faceswap.swap import GraphSwapper, IdentitySwapper, embed_arcface
 from barrett_faceswap.swap_catalog import output_size, swapper_by_name
 from barrett_faceswap.types import Face, ProcessContext
@@ -179,7 +180,10 @@ class FaceSwapper:
             match = arc
             if entry.reference:
                 match, _reference_score = self._embed_image(backend, read_image(Path(entry.reference)))
-            latent = arc if self._spec.embedding == "emap" else backend.project(arc)
+            if self._spec.embedding in {"emap", "source_image"}:
+                latent = arc
+            else:
+                latent = backend.project(arc)
             slots.append(
                 _Slot(
                     latent=latent,
@@ -203,6 +207,11 @@ class FaceSwapper:
     def _embed_image(self, backend, image: np.ndarray, face: Face | None = None) -> tuple[np.ndarray, float]:
         if face is None:
             face = select_face(self._detect(image), 0)
+        if self._spec.embedding == "source_image":
+            side = int(self._spec.source_size)
+            template = swap_template("arcface", side)
+            crop, _matrix = align_face(image, face.landmarks[:5], side, template=template)
+            return normalize_crop(crop, self._spec), float(face.score)
         if self._spec.embedding == "emap":
             vector = backend.embed(image, face.landmarks)
         else:

@@ -58,12 +58,13 @@ ffprobe
 | 名称 | 原生尺寸 | 模板 | 归一化 | 隐向量 | Crossface |
 | --- | --- | --- | --- | --- | --- |
 | `inswapper_128` | 128 | inswapper（ArcFace，128 时再平移 8 像素，并随尺寸缩放） | 0..1 RGB | `embedding @` 512×512 矩阵。优先使用名为 `emap` 的初始值；否则用最后一个初始值（官方文件里叫 `buff2fs`） | 无 |
-| `hyperswap_1a/1b/1c_256` | 256 | ArcFace 按 size/112 缩放 | [-1, 1] | crossface | `crossface_hyperswap` |
-| `simswap_256` | 256 | ArcFace 按 size/112 缩放 | [-1, 1] | crossface | `crossface_simswap` |
-| `simswap_unofficial_512` | 512 | ArcFace 按 size/112 缩放 | [-1, 1] | crossface | `crossface_simswap` |
-| `ghost_1/2/3_256` | 256 | ArcFace 按 size/112 缩放 | [-1, 1] | crossface | `crossface_ghost` |
+| `hyperswap_1a/1b/1c_256` | 256 | `arcface_128`（按裁剪尺寸的 inswapper 布局） | 均值 0.5、标准差 0.5，再对输出反归一化 | L2 归一化的 ArcFace | 无 |
+| `simswap_256` | 256 | ArcFace 112 v1 按裁剪边长缩放 | ImageNet 均值和标准差 | crossface，再 L2 | `crossface_simswap` |
+| `simswap_unofficial_512` | 512 | ArcFace 112 v1 按裁剪边长缩放 | 0..1 RGB | crossface，再 L2 | `crossface_simswap` |
+| `blendswap_256` | 256 | 目标用 FFHQ；源是 112 的 ArcFace 112 v2 | 两张图都是 0..1 RGB | 源裁剪，不是向量 | 无 |
+| `ghost_1/2/3_256` | 256 | ArcFace 112 v1 按裁剪边长缩放 | 均值 0.5、标准差 0.5，再对输出反归一化 | crossface，原始向量（不再 L2） | `crossface_ghost` |
 
-图像和隐向量按秩绑定（4 维图像、2 维隐向量），不写死输入名。输出解码与增强器相同：有值低于 `-0.01` 时按 [-1, 1]，最大值高于 `1.5` 时按 0..255，其余按 0..1。crossface 文件是操作者提供的 512 维到 512 维 ONNX。本仓库不附带这个文件，也不复制 FaceFusion、SimSwap 或 GHOST 的源码。新记录的 `commercial_use` 都是 false。来源和上面的约定写在 [scripts/download_models.zh-CN.md](../scripts/download_models.zh-CN.md)。
+图像和隐向量按秩绑定（4 维图像、2 维隐向量），不写死输入名。BlendSwap 有两个 4 维输入。名为 `source` 和 `target` 的输入优先；否则空间更小的那个是源。可选的反归一化之后，输出解码与增强器相同：有值低于 `-0.01` 时按 [-1, 1]，最大值高于 `1.5` 时按 0..255，其余按 0..1。crossface 文件是操作者提供的 512 维到 512 维 ONNX。本仓库不附带这个文件，也不复制 FaceFusion、SimSwap 或 GHOST 的源码。新记录的 `commercial_use` 都是 false。来源和上面的约定写在 [scripts/download_models.zh-CN.md](../scripts/download_models.zh-CN.md)。`barrett-faceswap compare` 写出带标签的联系表和 `.timing.txt`。`--dry-run` 不打开权重。
 
 ## 像素提升
 
@@ -95,7 +96,7 @@ ffprobe
 
 ## 人脸增强
 
-`face_enhancer` 已注册，但不在默认处理器列表里，因此换脸不强制要求这些权重。用 `--processors face_swapper,face_enhancer`、`--with-enhancer` 或界面上的复选框打开它。`--enhancer-model` 是 `gfpgan_1.4`（默认）或 `codeformer`。`--enhancer-blend` 把修复结果和原始裁剪混合（`1` 保留修复结果，默认 `0.6`）。`--enhancer-weight` 是 CodeFormer 的保真系数（默认 `0.5`）。GFPGAN 图没有旁路输入，因此那里用不到这个系数。
+`face_enhancer` 已注册，但不在默认处理器列表里，因此换脸不强制要求这些权重。用 `--processors face_swapper,face_enhancer`、`--with-enhancer` 或界面上的复选框打开它。`--face-enhancer-model`（别名 `--enhancer-model`）是 `gfpgan_1.4`（默认）、`codeformer`、`gpen_bfr_512`、`gpen_bfr_1024`、`gpen_bfr_2048` 或 `restoreformer_plus_plus`。`--enhancer-blend` 把修复结果和原始裁剪混合（`1` 保留修复结果，默认 `0.6`）。`--enhancer-weight` 是 CodeFormer 的保真系数（默认 `0.7`）。GFPGAN 图没有旁路输入，因此那里用不到这个系数。加载了 `models/bisenet_face_parsing.onnx` 时，混合只用皮肤类别，眼睛和眉毛像素留在未增强的换脸上。没有解析文件时仍走眼部椭圆混合。
 
 裁剪按 FFHQ 五点模板对齐，模板按 `size / 512` 缩放，再用椭圆区域蒙版贴回。混合在脸上使用 `enhancer.blend`，在同一模板生成的眼部蒙版里使用 `enhancer.eye_blend`（默认 `0.35`）。更低的眼部系数会留下目标眼睛，包括眼睑，而不是让修复结果替换它们。`enhancer.temporal`（默认 `0.4`）在五点平均位移除以脸宽不超过 `enhancer.temporal_motion`（默认 `0.04`）时，把这一帧的混合裁剪和上一帧的增强裁剪再混一次。`temporal: 0` 关闭这次混合。位移更大时丢掉上一帧裁剪，一次运行结束时 `post_process` 也会清掉它。没有检测到脸时，帧保持原样，并记一条笔记。调用方已经提供 `known_faces` 时，增强器使用这些脸。
 
@@ -112,7 +113,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 `masks.py` 生成内缩方框、区域和全 1 的遮挡占位，再逐元素取最小值（`merge_min`）。当对应的 ONNX 文件在磁盘上且开关打开时（`masks.occlusion`、`masks.parser`），`masking.py` 会替换占位。遮挡文件缺失时保持全 1。解析文件缺失时，如果换脸器传入了裁剪模板上的五个点，就用扩张后的关键点凸包并羽化；没有关键点时仍用椭圆。增强器自己的贴回仍用椭圆。解析文件已加载时，眼和眉的类别用作换脸的眼部蒙版。
 
-视频和实时（`masks.stride`，默认 2）每隔一帧才跑遮挡和解析图，并在关键点位移除以脸宽不超过 `masks.stride_motion`（默认 0.04）时，把上一张裁剪蒙版按对齐变化贴到当前帧。位移更大就立刻重算。`stride: 1` 表示每一帧都跑。静态图像始终重算。两张图都在时用两个线程一起跑。加载时，填充不对称的 ConvTranspose 会被改成零填充再加一层切片，数值不变，并且可以被 CUDA 提供者执行。facefusion 的 xseg 图是通道在最后（`[N, 256, 256, 3]`）；这种布局会先转置，不会按 NCHW 送进去。
+视频和实时（`masks.stride`，默认 3）每隔两帧才跑遮挡和解析图，并在关键点位移除以脸宽不超过 `masks.stride_motion`（默认 0.04）时，把上一张裁剪蒙版按对齐变化贴到当前帧。位移更大就立刻重算。`stride: 1` 表示每一帧都跑。静态图像始终重算。两张图都在时用两个线程一起跑。加载时，填充不对称的 ConvTranspose 会被改成零填充再加一层切片，数值不变，并且可以被 CUDA 提供者执行。facefusion 的 xseg 图是通道在最后（`[N, 256, 256, 3]`）；这种布局会先转置，不会按 NCHW 送进去。`--occluder-model` 是 `xseg_1`（默认）、`xseg_2`、`xseg_3` 或 `sam2_refine`。最后一项是操作者放到 `models/sam2_refine.onnx` 的 ONNX。它接收 0..1 的 RGB 裁剪和粗糙的 xseg 蒙版，并返回一张蒙版。它不会被下载。
 
 遮挡（`models/occlusion_xseg.onnx`，注册表尺寸 256）接收 0..1 的 RGB；静态输入是单通道时则接收灰度。通道在最后的静态形状也可以。数值越高表示该像素保持可见。最大值高于 `1.5` 时按 0..255 解释。`masks.occlusion_invert` 用来翻转那些预测遮挡物而不是人脸的图。`download-models --with-masks` 会下载 facefusion-assets 的 `xseg_1.onnx`（models-3.1.0）并存到这个路径。该文件的许可未经核实，很可能不能用于商业用途。xseg 这个想法来自 DeepFaceLab。那个项目的代码是 GPL-3.0，不在本仓库里。`commercial_use` 为 false。
 
@@ -126,13 +127,13 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 实时
 
-`barrett-faceswap live` 用三条线程做采集、处理和输出。每一跳是一个 `LatestQueue`。队列满时 `put_latest` 丢掉最旧的帧（`live.queue_size`，默认 1）。检测每隔 `live.detect_every` 帧做一次（默认 3）。中间帧由 `DetectionCache` 按上次匹配到的速度移动框和关键点。`prepare_source` 只对源脸做一次向量。设置了 `DISPLAY` 时打开预览窗口。`--no-preview` 跳过预览。`--virtual-camera /dev/video2` 经 ffmpeg 把原始 BGR 写到 v4l2loopback 设备。设备不存在时记一条日志，预览继续。
+`barrett-faceswap live` 用三条线程做采集、处理和输出。每一跳是一个 `LatestQueue`。队列满时 `put_latest` 丢掉最旧的帧（`live.queue_size`，默认 1）。检测每隔 `live.detect_every` 帧做一次（默认 3）。中间帧由 `DetectionCache` 按上次匹配到的速度移动框和关键点。缓存更新之后，One-Euro 滤波（`video.smooth`，与文件路径相同）会在处理器对齐之前平滑关键点。第一个样本保持原样。视频已经在 `FaceStream` 里、对齐之前做过平滑，因此实时滤波不会在那条路径上再做一次。`prepare_source` 只对源脸做一次向量。设置了 `DISPLAY` 时打开预览窗口。`--no-preview` 跳过预览。`--virtual-camera /dev/video2` 经 ffmpeg 把原始 BGR 写到 v4l2loopback 设备。设备不存在时记一条日志，预览继续。
 
 合规包住这条路径。`before_process` 检查源图和第一帧摄像头画面。强制打开时，每一帧输出在内存里加水印。`complete_output` 追加一行审计，不给容器文件打标签。
 
 ## 执行
 
-`execution.precision` 是 `fp32`（默认）或 `fp16`。fp16 会在配置文件旁边查找 `{stem}_fp16.onnx`，找不到就退回 fp32。`execution.cuda_graph` 给 CUDA 提供者加上 `enable_cuda_graph`。只要会话报告 `CUDAExecutionProvider`，就会复用一个 IO binding；失败时退回 `session.run`。CPU 会话（包括 CI）仍走 `session.run`。TensorRT 选项（引擎缓存、计时缓存、fp16、构建优化级别 0–5）只在安装了 `TensorrtExecutionProvider` 时挂上。CPU 的 CI 会跳过两者，也不会创建缓存目录。基础包不依赖某个 ONNX Runtime 轮子。安装 `[cpu]` 或 `[gpu]` 附加项，不要两个都装。`doctor` 在两个发行名都存在时会警告。
+`execution.precision` 是 `fp32`（默认）或 `fp16`。fp16 会在配置文件旁边查找 `{stem}_fp16.onnx`，找不到就退回 fp32。`execution.cuda_graph` 给 CUDA 提供者加上 `enable_cuda_graph`。只要会话报告 `CUDAExecutionProvider`，就会复用一个 IO binding；失败时退回 `session.run`。CPU 会话（包括 CI）仍走 `session.run`。TensorRT 选项（引擎缓存、计时缓存、fp16、构建优化级别 0–5）只在安装了 `TensorrtExecutionProvider` 时挂上。`--execution-provider tensorrt` 会选中该提供者，然后再退回 CPU。引擎缓存的前缀是模型角色，因此 inswapper（`swapper`）和 xseg（`occluder`）不会共用同一个引擎名。同时列出 CUDA 和 TensorRT 时，`prefer_cuda` 仍然把 CUDA 放在前面。CPU 的 CI 会跳过两者，也不会创建缓存目录。基础包不依赖某个 ONNX Runtime 轮子。安装 `[cpu]` 或 `[gpu]` 附加项，不要两个都装。`doctor` 在两个发行名都存在时会警告。
 
 ## 商业路线
 
@@ -152,7 +153,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 **对齐和贴回。** `align.py` 放着 ArcFace 五点模板和 FFHQ 512 模板。112 是识别裁剪。128 在此基础上向右平移 8 像素，这是 inswapper 导出所期望的。增强器按 `size / 512` 缩放 FFHQ 模板。`blend.py` 把裁剪逆变换到它的包围盒上，再按蒙版合成。
 
-**模型注册表。** `model_registry.py` 记录检测器、识别器、inswapper、可选的 HyperSwap / SimSwap / Ghost / crossface 角色、GFPGAN、CodeFormer、遮挡和解析：文件名、许可键、`commercial_use`、对齐名称和输入尺寸。sha256 锁定值在配置里，默认是 null，因为本仓库不重新分发这些文件。`ensure_present()` 默认只检查换脸用的三个角色，因此增强、蒙版和额外换脸文件保持可选。`inspect-models` 每个角色打印一行。
+**模型注册表。** `model_registry.py` 记录检测器、识别器、inswapper、可选的 HyperSwap / SimSwap / BlendSwap / Ghost / crossface 角色、GFPGAN、CodeFormer、GPEN、RestoreFormer++、xseg 遮挡、`sam2_refine` 和解析：文件名、许可键、`commercial_use`、对齐名称和输入尺寸。sha256 锁定值在配置里，默认是 null，因为本仓库不重新分发这些文件。可选包的下载哈希写在 `fetch.py`。`ensure_present()` 默认只检查换脸用的三个角色，因此增强、蒙版和额外换脸文件保持可选。`inspect-models` 每个角色打印一行。每一条内置行的 `commercial_use` 都保持 false。
 
 **配置。** `config.py` 是 pydantic 模型。CLI 和界面从 YAML 加载同一个模型。相对路径相对工作目录解析。
 
@@ -172,4 +173,4 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 仍然延后
 
-这组之外的换脸器（blendswap、uniface、hififace 等），以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。`compliance.enabled` 在正式发布前保持 false。
+这组之外的换脸器（uniface、hififace 等），以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。`compliance.enabled` 在正式发布前保持 false。

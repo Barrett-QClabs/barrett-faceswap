@@ -112,11 +112,22 @@ def test_catalog_licenses_and_boost_sizes() -> None:
         "ghost_1_256",
         "ghost_2_256",
         "ghost_3_256",
+        "blendswap_256",
     }
     assert set(SWAPPERS) == names
     assert SWAPPERS["inswapper_128"].crossface_role is None
     assert SWAPPERS["inswapper_128"].embedding == "emap"
-    assert SWAPPERS["hyperswap_1a_256"].crossface_role == "crossface_hyperswap"
+    assert SWAPPERS["hyperswap_1a_256"].crossface_role is None
+    assert SWAPPERS["hyperswap_1a_256"].embedding == "arcface"
+    assert SWAPPERS["hyperswap_1a_256"].template == "arcface_128"
+    assert SWAPPERS["simswap_256"].normalize == "imagenet"
+    assert SWAPPERS["simswap_256"].template == "arcface_v1"
+    assert SWAPPERS["simswap_unofficial_512"].normalize == "zero_one"
+    assert SWAPPERS["blendswap_256"].embedding == "source_image"
+    assert SWAPPERS["blendswap_256"].source_size == 112
+    assert SWAPPERS["blendswap_256"].template == "ffhq"
+    assert SWAPPERS["ghost_1_256"].embedding_norm == "raw"
+    assert SWAPPERS["ghost_1_256"].output_denorm is True
     assert SWAPPERS["simswap_unofficial_512"].crossface_role == "crossface_simswap"
     assert SWAPPERS["ghost_3_256"].crossface_role == "crossface_ghost"
     assert SWAPPERS["simswap_256"].license_key == "models.license.simswap"

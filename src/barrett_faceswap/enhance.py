@@ -54,6 +54,32 @@ def blend_images(
     return np.clip(mixed, 0, 255).astype(np.uint8)
 
 
+def blend_region(
+    enhanced_bgr: np.ndarray,
+    original_bgr: np.ndarray,
+    amount: float,
+    region: np.ndarray,
+) -> np.ndarray:
+    """Keep ``original_bgr`` outside ``region``. ``amount`` scales the restored skin."""
+
+    factor = float(np.clip(amount, 0.0, 1.0))
+    restored = enhanced_bgr
+    if restored.shape[:2] != original_bgr.shape[:2]:
+        restored = cv2.resize(
+            restored,
+            (original_bgr.shape[1], original_bgr.shape[0]),
+            interpolation=cv2.INTER_LINEAR,
+        )
+    mask = np.asarray(region, dtype=np.float32)
+    if mask.ndim == 3:
+        mask = mask[..., 0]
+    if mask.shape[:2] != original_bgr.shape[:2]:
+        mask = cv2.resize(mask, (original_bgr.shape[1], original_bgr.shape[0]), interpolation=cv2.INTER_LINEAR)
+    alpha = factor * np.clip(mask, 0.0, 1.0)
+    mixed = restored.astype(np.float32) * alpha[..., None] + original_bgr.astype(np.float32) * (1.0 - alpha[..., None])
+    return np.clip(mixed, 0, 255).astype(np.uint8)
+
+
 def run_enhancer(session, crop_bgr: np.ndarray, *, weight: float) -> np.ndarray:
     """Restore one aligned BGR crop and return a BGR crop of the same size."""
 

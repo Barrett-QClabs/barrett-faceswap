@@ -145,7 +145,9 @@ class ModelStore:
             cached = _SESSION_CACHE.get(key)
             if cached is not None:
                 return cached
-            ort_providers = resolve_providers(self.providers, self.device_id, self.config.execution)
+            ort_providers = resolve_providers(
+                self.providers, self.device_id, self.config.execution, role=role
+            )
             if factory is None:
                 if should_rewrite(role):
                     payload, rewritten = convtranspose_cuda_bytes(path.read_bytes(), role=role)
