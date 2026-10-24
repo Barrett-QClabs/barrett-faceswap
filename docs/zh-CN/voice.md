@@ -44,7 +44,7 @@ Gradio 开关**一开始是关的**。选中一个带音轨的目标视频后，
 
 本仓库的换脸权重仍然是非商业用途。OpenVoice 的检查点本身是 MIT。本仓库不会下载它。
 
-`voice.watermark` 保持 **false**。OpenVoice 可以写入自己的水印，那需要另外的 `wavmark` 包。关掉它，这样合规水印仍是唯一的标识，而合规默认保持关闭。
+`voice.watermark` 保持 **false**。OpenVoice 可以写入自己的水印，那需要另外的 `wavmark` 包。关掉它，这样合规水印仍是唯一的标识。合规本身默认打开。
 
 ## 安装
 

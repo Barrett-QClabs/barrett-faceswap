@@ -44,7 +44,7 @@ It was chosen over the other local stacks for this machine:
 
 The face weights in this repo are still non-commercial. The OpenVoice checkpoint itself is MIT. This repository does not download it.
 
-`voice.watermark` stays **false**. OpenVoice can embed its own mark, which needs the separate `wavmark` package. Leave it off so the compliance watermark stays the only one, and compliance stays default-off.
+`voice.watermark` stays **false**. OpenVoice can embed its own mark, which needs the separate `wavmark` package. Leave it off so the compliance watermark stays the only one. Compliance itself defaults to on.
 
 ## Install
 

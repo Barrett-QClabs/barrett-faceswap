@@ -1,0 +1,12 @@
+# Copy this file to configs/local.yaml. That name is gitignored.
+# load_config merges it on top of the file you pass (usually configs/default.yaml).
+# It does not merge when the file you load is itself named local.yaml.
+#
+# Precedence for compliance.enabled:
+#   1. BARRETT_COMPLIANCE=on|1|true|yes forces on
+#   2. BARRETT_COMPLIANCE=off|0|false|no forces off
+#   3. BARRETT_DEV_MODE=1|true|yes|on forces off
+#   4. this overlay
+#   5. the shipped default, which is on
+compliance:
+  enabled: false

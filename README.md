@@ -1,28 +1,34 @@
 [English](README.md) | [中文](README.zh-CN.md)
 
+barrett-faceswap — open-source AI face swap & voice cloning in one click: deepfake-quality video, image and real-time webcam face swap with multi-face mapping, a FaceFusion / Deep-Live-Cam alternative with bilingual Chinese-English UI.
+
+barrett-faceswap —— 开源 AI 一键换脸 + 声音克隆：视频换脸、图片换脸、实时摄像头换脸与多人换脸，FaceFusion / Deep-Live-Cam 替代方案，中英双语界面。
+
 # Barrett FaceSwap
 
 Barrett FaceSwap swaps a face in a still image or a video. It wires the usual engineering path: detect a face, align it, run an ONNX identity swap, optionally restore the crop, and paste it back. It does not train a foundation model, and it does not ship model weights.
 
 The code in this repository is MIT. The InsightFace weights it knows how to run, including `inswapper_128.onnx`, are not. Those weights are published for non-commercial research, and commercial use needs a grant from InsightFace. Read [docs/COMPLIANCE.md](docs/COMPLIANCE.md) before you point the tool at a real person.
 
-## Compliance default
+## Responsible use
 
-Enforcement ships **off**.
+Enforcement ships **on**.
 
-`configs/default.yaml` sets `compliance.enabled: false`, so a local dry-run does not ask for a consent file, does not watermark the picture, and does not block on the content filter. That is a development default. Any run that uses a real likeness should turn enforcement on:
+`configs/default.yaml` sets `compliance.enabled: true`. A run refuses to start until you acknowledge authorized use. Shared output carries a visible `AI-generated` / `人工智能生成` label, the same tag in file metadata, a content-filter pass on the source and the target, and one audit line. The Gradio page shows this disclaimer above both tabs. Check **I confirm this use is authorized** / **我确认这次使用已获授权** and name the person before Start. The CLI uses `--acknowledge-authorized-use --consent-subject NAME`, or `--consent-file` instead of those two. Do not pass both.
 
-- set `compliance.enabled: true`, or
-- pass `--enable-compliance`
+Use a face only when that person authorized this use. Do not make sexual content, anything involving minors, or material meant to defraud or impersonate someone. Label synthetic output when you share it. This is not legal advice.
 
-With enforcement on, the pipeline requires a consent record, writes an `AI-generated` / `人工智能生成` label plus file metadata, runs the content filter, and appends an audit line. The module is fully implemented either way. Tests force it on. Production should too.
+The shipped filter provider is `stub`. It allows the frame and logs that no detector is loaded. It is not an NSFW detector and it does not classify age. `content_filter.provider: nudenet` is the optional detector after you install that package. NudeNet does not classify age. `block_on_minor` stays true for a provider that can report it.
+
+Local work turns the master switch off without editing a tracked file. See [CONTRIBUTING.md](CONTRIBUTING.md): `BARRETT_DEV_MODE=1`, `BARRETT_COMPLIANCE=off`, or a gitignored `configs/local.yaml`. `BARRETT_COMPLIANCE=on` forces it back on. The Advanced checkbox cannot turn a true config off. `--no-watermark` is the logged way to skip the visible label while enforcement stays on.
 
 ## Acceptable use
 
-Use a face only when that person has authorized the specific use. Do not create non-consensual swaps, sexual deepfakes, sexual content involving minors, or material meant to defraud or impersonate someone. Label synthetic output when you share it. The compliance gate is there to make those rules executable. It is not legal advice, and a stub filter is not a substitute for consent.
+Use a face only when that person has authorized the specific use. Do not create non-consensual swaps, sexual content, anything involving minors, or material meant to defraud or impersonate someone. Label synthetic output when you share it. The compliance gate is there to make those rules executable. It is not legal advice, and the stub filter is not a substitute for consent.
 
 ## Features
 
+- **中英双语界面 / Bilingual UI (中文 default, English).** The header control labeled 语言 switches every label, including both tabs. `barrett-faceswap ui` opens in Chinese. `barrett-faceswap ui --lang en` opens in English
 - SCRFD-style ONNX detection (`det_10g`), ArcFace embedding (`w600k_r50`), and selectable swappers via `--face-swapper-model`: `hyperswap_1a_256` (default), `hyperswap_1b/1c_256`, `inswapper_128`, `simswap_256`, `simswap_unofficial_512`, `blendswap_256`, and `ghost_1/2/3_256`. Each graph uses its own template, mean, and standard deviation. SimSwap and Ghost still need a crossface ONNX. HyperSwap uses the normalized ArcFace vector directly. BlendSwap takes a 112 px source crop. Every registry row stays `commercial_use: false`. The project is for non-commercial use. Weights stay user-downloaded
 - Pixel boost: a larger aligned crop is split into interleaved full-face subsamples of the native size, inferred, and stitched (128 / 256 / 512 / 768 / 1024 when that size divides cleanly for the chosen model). A 512 crop on a 256 network is four views of the whole face, not four quarters
 - Face selection: one face by index, every face (`--many-faces`), a reference face by ArcFace cosine similarity, or a JSON source-to-target map. Video keeps that choice with a small IoU tracker
@@ -38,7 +44,7 @@ Use a face only when that person has authorized the specific use. Do not create 
 - Model registry with license, commercial-use flag, alignment name, input size, and an optional sha256 pin checked on load
 - Pydantic config shared by the CLI, the video pipeline, and the UI
 - English and Chinese catalogs (`--lang`, `ui.language`, `BARRETT_FACESWAP_LANG`). The Gradio header toggle switches every label. The shipped UI language is zh-CN
-- Opt-in compliance package: consent, watermark, pluggable content filter, append-only audit log. On a video it runs once up front, samples frames for the filter, watermarks every output frame when enforcement is on, and writes one audit line. A live session uses the same hooks: consent on the first frame, a watermark on each output frame, and one audit line per session
+- Responsible-use package, on by default: consent, watermark, pluggable content filter, append-only audit log. On a video it runs once up front, samples frames for the filter, watermarks every output frame, and writes one audit line. A live session uses the same hooks: consent on the first frame, a watermark on each output frame, and one audit line per session. Local off switches are in [CONTRIBUTING.md](CONTRIBUTING.md)
 - Realtime webcam: `barrett-faceswap live` runs capture, detect, swap, and output on three threads. Bounded queues drop stale frames. Detection runs every few frames and the cache interpolates the rest. The source embedding is computed once. Output can open a preview and, on Linux, a v4l2loopback device. The Gradio page has a webcam tab that uses the same session object
 - `--commercial` refuses every registry row with `commercial_use: false`. The built-in rows stay false. `scripts/train_swapper.py` only checks a local `commercial-ok` manifest and prints a plan. It does not train or download
 - `barrett-faceswap download-models` fetches `buffalo_l` and `inswapper_128`, checks sha256, resumes, and tries the next mirror. Each mirror connect waits at most 15 seconds. `--from-dir` copies matching ONNX files before any download. `--with-gfpgan`, `--with-masks`, and `--with-landmarks` are optional. The quality set is `download-models --swapper hyperswap_1a_256 --with-masks --with-landmarks`. The mask files are facefusion-assets `xseg_1.onnx` and `bisenet_resnet_34.onnx`; their licenses are unverified and likely non-commercial. `2dfan4.onnx` is the MIT FAN landmark weight. CI does not run the download. `barrett-faceswap doctor` prints providers, CUDA/cuDNN preload, and local model hashes, and warns when both ONNX Runtime wheels are installed
@@ -50,7 +56,7 @@ Use a face only when that person has authorized the specific use. Do not create 
 - Video does not stop on a frame with no face. It retries a lower threshold, rotations, and an upscale, then fills landmarks from neighbors inside `video.max_face_gap` (default 10). `--eye-mode blend` (the default) keeps most of the target eyes. `--with-enhancer` adds GFPGAN or CodeFormer with a stronger eye blend. `--pixel-boost 256` or `512` tiles inswapper for a still or a video
 - Bilingual docs site under `docs/en` and `docs/zh-CN` (MkDocs Material). CI builds it and does not deploy
 
-Still later: uniface, hififace, and frame-exact pipe resume. `compliance.enabled` stays false until an official launch.
+Still later: uniface, hififace, and frame-exact pipe resume.
 
 ## Install
 
@@ -87,7 +93,7 @@ Voice clone is a separate optional extra (OpenVoice V2, not installed by `[ui]`)
 
 ## Quickstart
 
-From the repository root, with enforcement left off:
+From the repository root. The shipped config requires an acknowledgement. `BARRETT_DEV_MODE=1` skips that check locally; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
 python examples/make_synthetic.py
@@ -95,8 +101,12 @@ barrett-faceswap swap \
   --source examples/synthetic/source.png \
   --target examples/synthetic/target.png \
   --output outputs/dry-run.png \
-  --dry-run
+  --dry-run \
+  --acknowledge-authorized-use \
+  --consent-subject synthetic
 ```
+
+The same two flags belong on the later `swap`, `live`, and `jobs submit` examples unless dev mode is on. `jobs resume` reuses the acknowledgement saved at submit.
 
 `python -m barrett_faceswap swap ...` is the same entry point. The synthetic images are colored cards, not faces. `--dry-run` skips ONNX. A real swap needs the weights in `scripts/download_models.md` and a photograph you are allowed to use.
 
@@ -109,7 +119,9 @@ barrett-faceswap swap \
   --output outputs/clip.mp4 \
   --dry-run \
   --trim-start 1.0 \
-  --trim-end 4.0
+  --trim-end 4.0 \
+  --acknowledge-authorized-use \
+  --consent-subject synthetic
 ```
 
 Add face restoration when `models/gfpgan_1.4.onnx` is on disk:
@@ -130,9 +142,10 @@ Gradio:
 
 ```bash
 barrett-faceswap ui
+barrett-faceswap ui --lang en
 ```
 
-The page is a dark app (`#0B0D10` background, `#14181F` cards, `#2563EB` primary button). The shipped language is zh-CN. The header toggle switches to English and rewrites every label, including both tabs. The main path is source face, target, swapper, and a quality preset (Fast, Balanced, High, Custom), then Preview only and Start swap. Balanced is selected on open. Fast and High use that same stack and leave the enhancer off. The result preview is the large pane. The voice panel sits on its right and does not crowd the face steps. On a narrow screen the preview moves above the controls, then the voice panel. A sticky action row keeps the buttons reachable on a phone. Balanced uses `hyperswap_1a_256`, enhancer off, occluder `xseg_1`, and pixel boost 0. Advanced stays collapsed: detect score threshold, face selection, enhancer, mask and occluder, video, execution, compliance, and output path. A long video fills a progress bar. The camera tab uses the same source choices (a video of face and voice, a photo, or a photo plus audio) and the same swapper, pixel boost, occluder, enhancer, and execution provider. Voice conversion there runs only while the camera and the microphone are both on and a reference exists; otherwise the preview stays face-only. `barrett-faceswap ui --lang en` starts in English. A video preview processes the first frame only. The encoder and the video-mode controls apply on Start swap when the target is a video. A still-image run ignores them. Compliance stays off unless the checkbox or the config turns it on. The camera tab does not open a device until the browser grants the camera. Start arms the session. The first frame runs the consent check. Stop writes the audit line when compliance is on.
+The page is a dark app (`#0B0D10` background, `#14181F` cards, `#2563EB` primary button). The shipped language is zh-CN. The header toggle switches to English and rewrites every label, including both tabs. The main path is source face, target, swapper, and a quality preset (Fast, Balanced, High, Custom), then Preview only and Start swap. Balanced is selected on open. Fast and High use that same stack and leave the enhancer off. The result preview is the large pane. The voice panel sits on its right and does not crowd the face steps. On a narrow screen the preview moves above the controls, then the voice panel. A sticky action row keeps the buttons reachable on a phone. Balanced uses `hyperswap_1a_256`, enhancer off, occluder `xseg_1`, and pixel boost 0. Advanced stays collapsed: detect score threshold, face selection, enhancer, mask and occluder, video, execution, compliance, and output path. A long video fills a progress bar. The camera tab uses the same source choices (a video of face and voice, a photo, or a photo plus audio) and the same swapper, pixel boost, occluder, enhancer, and execution provider. Voice conversion there runs only while the camera and the microphone are both on and a reference exists; otherwise the preview stays face-only. `barrett-faceswap ui --lang en` starts in English. A video preview processes the first frame only. The encoder and the video-mode controls apply on Start swap when the target is a video. A still-image run ignores them. Check **I confirm this use is authorized** and name the person before Start or the camera Start. Unchecking the Advanced compliance box does not turn enforcement off while the shipped config is on. The header control labeled 语言 switches every label. The camera tab does not open a device until the browser grants the camera. Start arms the session. The first frame runs the consent check. Stop writes the audit line when compliance is on.
 
 ```bash
 barrett-faceswap swap \
@@ -157,7 +170,9 @@ barrett-faceswap jobs submit \
   --target path/to/authorized-clip.mp4 \
   --output outputs/clip.mp4 \
   --dry-run \
-  --job-id clip-a
+  --job-id clip-a \
+  --acknowledge-authorized-use \
+  --consent-subject synthetic
 barrett-faceswap jobs list
 barrett-faceswap jobs resume clip-a
 ```
@@ -184,7 +199,9 @@ barrett-faceswap live \
   --source examples/synthetic/source.png \
   --frames 8 \
   --no-preview \
-  --dry-run
+  --dry-run \
+  --acknowledge-authorized-use \
+  --consent-subject synthetic
 ```
 
 `--virtual-camera /dev/video2` writes raw frames when that v4l2loopback device exists. A missing device is logged and the session continues. `--commercial` on `swap` or `live` refuses the built-in weights:
@@ -195,6 +212,8 @@ barrett-faceswap swap \
   --target examples/synthetic/target.png \
   --output outputs/dry-run.png \
   --dry-run \
+  --acknowledge-authorized-use \
+  --consent-subject synthetic \
   --commercial
 ```
 
@@ -216,14 +235,13 @@ python scripts/build_cli_reference.py --check
 mkdocs build --strict
 ```
 
-Production-like command:
+A consent file instead of the acknowledgement flags. The shipped default is already on, so `--enable-compliance` is only needed when a local file turned it off:
 
 ```bash
 barrett-faceswap swap \
   --source path/to/authorized-source.png \
   --target path/to/authorized-target.png \
   --output outputs/swap.png \
-  --enable-compliance \
   --consent-file path/to/consent.json
 ```
 

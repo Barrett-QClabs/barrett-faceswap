@@ -136,6 +136,32 @@ def test_source_modes_show_one_upload_set() -> None:
     assert source_files_ready("library", None, None, None, "target.mp4", "ada") is True
     assert source_files_ready("library", None, None, None, "target.mp4") is False
     assert source_files_ready("library", None, None, None, "target.mp4", "  ") is False
+    assert source_files_ready("video", "clip.mp4", None, None, "target.mp4", compliance_on=True) is False
+    assert (
+        source_files_ready(
+            "video",
+            "clip.mp4",
+            None,
+            None,
+            "target.mp4",
+            compliance_on=True,
+            ack=True,
+            subject="ada",
+        )
+        is True
+    )
+    assert (
+        source_files_ready(
+            "video",
+            "clip.mp4",
+            None,
+            None,
+            "target.mp4",
+            compliance_on=True,
+            consent="consent.json",
+        )
+        is True
+    )
     assert _voice_reference_for_mode("video", None, Path("override.wav")) == Path("override.wav")
     assert _voice_reference_for_mode("video", None, None) is None
     assert _voice_reference_for_mode("photo", Path("clip.wav"), Path("override.wav")) is None

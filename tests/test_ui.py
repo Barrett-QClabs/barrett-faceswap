@@ -159,6 +159,13 @@ def _radio_value(demo, label: str):
     return None
 
 
+def test_tab_language_script_forwards_both_inputs() -> None:
+    from barrett_faceswap.ui.app import _tab_button_script
+
+    script = _tab_button_script()
+    assert "return [lang, sourceMode];" in script
+
+
 def test_gradio_blocks_build() -> None:
     pytest.importorskip("gradio")
     from barrett_faceswap.i18n import get_language
@@ -222,10 +229,26 @@ def test_gradio_blocks_build() -> None:
     assert library_blocks
     assert all(getattr(block, "visible", True) is False for block in library_blocks)
     assert "识别脸" in values
+    assert any(isinstance(item, str) and "只有在对方授权了这次用途时才使用其人脸" in item for item in values)
+    ack_boxes = [block for block in demo.blocks.values() if getattr(block, "label", None) == "我确认这次使用已获授权"]
+    assert ack_boxes
+    assert all(getattr(block, "value", None) is False for block in ack_boxes)
+    compliance_boxes = [
+        block
+        for block in demo.blocks.values()
+        if getattr(block, "label", None) == "合规" and type(block).__name__ == "Checkbox"
+    ]
+    assert len(compliance_boxes) == 2
+    assert all(getattr(block, "value", None) is True for block in compliance_boxes)
     face_one = [block for block in demo.blocks.values() if getattr(block, "label", None) == "脸 1"]
     assert face_one
     assert all(getattr(block, "visible", True) is False for block in face_one)
     assert "Find faces" in english_values
+    assert "I confirm this use is authorized" in english_labels
+    assert any(
+        isinstance(item, str) and "Use a face only when that person authorized this use" in item
+        for item in english_values
+    )
     english_face = [block for block in english.blocks.values() if getattr(block, "label", None) == "Face 1"]
     assert english_face
     assert all(getattr(block, "visible", True) is False for block in english_face)

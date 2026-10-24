@@ -6,18 +6,18 @@
 
 ## 总开关
 
-`compliance.enabled` 默认是 **false**。
+`compliance.enabled` 默认是 **true**。
 
-它为 false 时，`CompliancePolicy.before_process` 和 `after_process` 仍然会运行，但会跳过同意要求、水印、内容过滤拦截和审计日志。它们会留下一条警告：强制已关闭，真实肖像需要打开它。即使 YAML 写着 false，`--enable-compliance` 也会为这一轮打开强制。没有一个参数能把写着 true 的配置再关掉。
+它为 false 时，`CompliancePolicy.before_process` 和 `after_process` 仍然会运行，但会跳过同意要求、水印、内容过滤拦截和审计日志。它们会留下一条警告：强制已关闭。即使 YAML 写着 false，`--enable-compliance` 也会为这一轮打开强制。没有一个命令行参数能把写着 true 的配置再关掉。本地关闭方式是 `BARRETT_DEV_MODE=1`、`BARRETT_COMPLIANCE=off`，以及被 git 忽略的 `configs/local.yaml`。`BARRETT_COMPLIANCE` 优先于开发模式。见 `CONTRIBUTING.md`。
 
-`configs/default.yaml` 里的嵌套块是开关打开之后生效的配置：
+`configs/default.yaml` 里的嵌套块是默认生效的配置：
 
 - 必须有同意记录
 - 写入可见标识和内嵌元数据
 - 运行内容过滤（默认提供者 `stub`）
 - 每一次完成、拒绝或失败都追加一行 JSON
 
-单元测试会构造 `enabled: true` 的配置并走这些路径。直接干跑随仓库提供的文件则不会。
+直接干跑随仓库提供的文件会要求确认，写入标识，并追加一行审计。随仓库提供的过滤提供者是 `stub`：放行该帧，并写明没有加载检测器。它不是 NSFW 检测器，也不判断年龄。`nudenet` 是可选项，不是依赖。NudeNet 不判断年龄。
 
 ## 可接受的使用
 

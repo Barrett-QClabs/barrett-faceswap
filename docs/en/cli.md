@@ -69,7 +69,8 @@ options:
   --config CONFIG       Path to the YAML config. Relative paths inside it resolve from the working
                         directory.
   --dry-run             Skip ONNX inference. Useful when weights are not downloaded yet.
-  --enable-compliance   Turn on consent, watermark, content filter, and audit for this run.
+  --enable-compliance   Force consent, watermark, content filter, and audit for this run. The
+                        shipped default is already on.
   --lang LANG           Interface language: en or zh-CN. Overrides BARRETT_FACESWAP_LANG and
                         ui.language.
   --consent-file CONSENT_FILE
@@ -185,7 +186,10 @@ usage: barrett-faceswap jobs submit [-h] --source SOURCE --target TARGET --outpu
                                     [--blend-mode {alpha,poisson}]
                                     [--color-transfer {none,mean_std,lab,histogram}]
                                     [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
-                                    [--with-enhancer] [--job-id JOB_ID]
+                                    [--with-enhancer] [--job-id JOB_ID] [--enable-compliance]
+                                    [--consent-file CONSENT_FILE] [--acknowledge-authorized-use]
+                                    [--consent-subject CONSENT_SUBJECT]
+                                    [--consent-statement CONSENT_STATEMENT]
 
 options:
   -h, --help            show this help message and exit
@@ -229,6 +233,16 @@ options:
                         target.
   --with-enhancer       Also run face_enhancer. Eye regions use enhancer.eye_blend.
   --job-id JOB_ID       Job id. Letters, digits, underscore, and hyphen.
+  --enable-compliance   Force consent, watermark, content filter, and audit for this run. The
+                        shipped default is already on.
+  --consent-file CONSENT_FILE
+                        JSON consent manifest for the source likeness.
+  --acknowledge-authorized-use
+                        State that you are authorized to use the source likeness.
+  --consent-subject CONSENT_SUBJECT
+                        Subject id recorded with --acknowledge-authorized-use.
+  --consent-statement CONSENT_STATEMENT
+                        Optional acknowledgement text. A default sentence is stored when omitted.
 
 usage: barrett-faceswap jobs resume [-h] [--config CONFIG] [--lang LANG] job_id
 
@@ -292,7 +306,8 @@ options:
   --virtual-camera VIRTUAL_CAMERA
                         Optional v4l2loopback device, such as /dev/video2.
   --dry-run             Skip ONNX inference. Useful when weights are not downloaded yet.
-  --enable-compliance   Turn on consent, watermark, content filter, and audit for this run.
+  --enable-compliance   Force consent, watermark, content filter, and audit for this run. The
+                        shipped default is already on.
   --consent-file CONSENT_FILE
                         JSON consent manifest for the source likeness.
   --acknowledge-authorized-use

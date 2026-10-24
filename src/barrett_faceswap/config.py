@@ -585,12 +585,13 @@ class AuditConfig(_Model):
 class ComplianceConfig(_Model):
     """Production profile.
 
-    ``enabled`` is the master switch. Nested fields apply only after an
-    operator turns enforcement on. The shipped default is off so local
-    dry-runs are not blocked.
+    ``enabled`` is the master switch. The published default is on: consent,
+    a visible label, embedded metadata, the content filter, and an audit
+    line. Local development turns it off with ``BARRETT_DEV_MODE=1``,
+    ``BARRETT_COMPLIANCE=off``, or a gitignored ``configs/local.yaml``.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     consent: ConsentConfig = Field(default_factory=ConsentConfig)
     watermark: WatermarkConfig = Field(default_factory=WatermarkConfig)
     content_filter: ContentFilterConfig = Field(default_factory=ContentFilterConfig)
@@ -818,7 +819,12 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
 
 
 def load_config(path: str | Path) -> AppConfig:
-    """Read and validate a YAML config file."""
+    """Read and validate a YAML config file.
+
+    A ``local.yaml`` beside that file is merged on top and is meant to stay
+    gitignored. ``BARRETT_COMPLIANCE`` then wins, and ``BARRETT_DEV_MODE=1``
+    turns compliance off when that variable is unset.
+    """
 
     config_path = Path(path)
     if not config_path.is_file():
@@ -829,7 +835,47 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError(t("config.parse_error", path=config_path, error=exc)) from exc
     if not isinstance(raw, dict):
         raise ConfigError(t("config.not_mapping", path=config_path))
+    local_path = config_path.parent / "local.yaml"
+    if local_path.is_file() and local_path.resolve() != config_path.resolve():
+        try:
+            overlay = yaml.safe_load(local_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ConfigError(t("config.parse_error", path=local_path, error=exc)) from exc
+        if not isinstance(overlay, dict):
+            raise ConfigError(t("config.not_mapping", path=local_path))
+        raw = _merge_mapping(raw, overlay)
+    raw = _apply_compliance_env(raw)
     try:
         return AppConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(t("config.validation", detail=exc)) from exc
+
+
+def _merge_mapping(base: dict, overlay: dict) -> dict:
+    merged = dict(base)
+    for key, value in overlay.items():
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = _merge_mapping(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _apply_compliance_env(raw: dict) -> dict:
+    """Env overrides the YAML master switch. Explicit compliance wins over dev mode."""
+
+    import os
+
+    updated = dict(raw)
+    compliance = dict(updated.get("compliance") or {})
+    dev_mode = os.environ.get("BARRETT_DEV_MODE", "").strip().lower()
+    explicit = os.environ.get("BARRETT_COMPLIANCE", "").strip().lower()
+    if explicit in {"0", "off", "false", "no"}:
+        compliance["enabled"] = False
+    elif explicit in {"1", "on", "true", "yes"}:
+        compliance["enabled"] = True
+    elif dev_mode in {"1", "true", "yes", "on"}:
+        compliance["enabled"] = False
+    updated["compliance"] = compliance
+    return updated

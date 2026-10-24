@@ -352,6 +352,9 @@ class ControlSpec:
 CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.brand", "value"),
     ControlSpec("ui.language", "label"),
+    ControlSpec("ui.disclaimer", "value"),
+    ControlSpec("ui.ack", "label"),
+    ControlSpec("ui.ack_subject", "label"),
     ControlSpec("ui.media_tab", "label"),
     ControlSpec("ui.steps", "value"),
     ControlSpec("ui.source_mode", "label"),
@@ -586,6 +589,28 @@ def _mapping_ready(rest: tuple[object, ...]) -> bool:
     return mapping_is_complete(rest[:MAP_SLOTS], rest[MAP_SLOTS : MAP_SLOTS * 2])
 
 
+def acknowledgement_ready(compliance_on: bool, ack: object, subject: object, consent: object = None) -> bool:
+    """True when this run may start under the loaded compliance switch."""
+
+    if not compliance_on:
+        return True
+    if _as_path(consent) is not None:
+        return True
+    return bool(ack) and bool(str(subject or "").strip())
+
+
+def _gate_from_rest(rest: tuple[object, ...]) -> tuple[bool, str, object]:
+    """Ack checkbox, subject text, and optional consent file after the map widgets."""
+
+    offset = MAP_SLOTS * 2
+    if len(rest) < offset + 4:
+        return False, "", None
+    visible = str(rest[offset + 1] or "").strip()
+    advanced = str(rest[offset + 3] or "").strip()
+    acknowledged = bool(rest[offset]) or bool(advanced)
+    return acknowledged, visible or advanced, rest[offset + 2]
+
+
 def source_files_ready(
     mode: str | None,
     video: object,
@@ -595,23 +620,32 @@ def source_files_ready(
     profile: object = None,
     *,
     mapped: bool = False,
+    compliance_on: bool = False,
+    ack: object = None,
+    subject: object = None,
+    consent: object = None,
 ) -> bool:
     """True when the uploads for the selected source mode, and a target, are set."""
 
     if _as_path(target) is None:
         return False
     if mapped:
-        return True
-    flags = source_mode_visibility(mode)
-    if flags["library"]:
-        return bool(str(profile or "").strip())
-    if flags["video"]:
-        return _as_path(video) is not None
-    if _as_path(photo) is None:
+        files_ready = True
+    else:
+        flags = source_mode_visibility(mode)
+        if flags["library"]:
+            files_ready = bool(str(profile or "").strip())
+        elif flags["video"]:
+            files_ready = _as_path(video) is not None
+        elif _as_path(photo) is None:
+            files_ready = False
+        elif flags["audio"]:
+            files_ready = _as_path(audio) is not None
+        else:
+            files_ready = True
+    if not files_ready:
         return False
-    if flags["audio"]:
-        return _as_path(audio) is not None
-    return True
+    return acknowledgement_ready(compliance_on, ack, subject, consent)
 
 
 def _quality_choices() -> list[tuple[str, str]]:
@@ -828,8 +862,19 @@ def build_demo(config_path: str | Path, language: str | None = None):
         return enabled, message
 
     def _files_ready(mode, video, photo, audio, target, profile=None, *rest):
+        acknowledged, subject, consent = _gate_from_rest(rest)
         ready = source_files_ready(
-            mode, video, photo, audio, target, profile, mapped=_mapping_ready(rest)
+            mode,
+            video,
+            photo,
+            audio,
+            target,
+            profile,
+            mapped=_mapping_ready(rest),
+            compliance_on=bool(initial.compliance.enabled),
+            ack=acknowledged,
+            subject=subject,
+            consent=consent,
         )
         return gr.update(interactive=ready), gr.update(interactive=ready)
 
@@ -983,6 +1028,8 @@ def build_demo(config_path: str | Path, language: str | None = None):
         map_file_2: object,
         map_file_3: object,
         map_file_4: object,
+        ack_box: bool,
+        ack_subject_value: str,
         preview_only: bool,
         progress=gr.Progress(track_tqdm=False),
     ):
@@ -1067,7 +1114,14 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     if is_video(target_path) and output.suffix.lower() not in VIDEO_OUTPUT_SUFFIXES:
                         output = output.with_suffix(".mp4")
                 consent_path = _as_path(consent)
-                subject_text = (subject or "").strip()
+                visible_subject = str(ack_subject_value or "").strip()
+                advanced_subject = str(subject or "").strip()
+                subject_text = visible_subject or advanced_subject
+                acknowledged = bool(ack_box) or bool(advanced_subject)
+                will_enforce = bool(initial.compliance.enabled or compliance)
+                if will_enforce and consent_path is None and not (acknowledged and subject_text):
+                    yield None, t("ui.ack_need"), 0, t("ui.voice_idle")
+                    return
                 selected_face_map = _as_path(face_map)
                 uploaded_voice = None if preview_only else _as_path(voice_clip)
                 if rows:
@@ -1084,7 +1138,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     dry_run=bool(dry_run),
                     enable_compliance=bool(compliance),
                     consent_file=consent_path,
-                    acknowledge_authorized_use=bool(subject_text) and consent_path is None,
+                    acknowledge_authorized_use=consent_path is None and acknowledged and bool(subject_text),
                     consent_subject=subject_text or None,
                     processors=list(processors),
                     execution_providers=list(providers) if providers else None,
@@ -1153,6 +1207,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 value=active_language,
                 label=t("ui.language"),
             )
+        disclaimer = gr.Markdown(t("ui.disclaimer"))
+        with gr.Row():
+            ack = gr.Checkbox(value=False, label=t("ui.ack"))
+            ack_subject = gr.Textbox(value="", label=t("ui.ack_subject"))
         with gr.Tabs():
             with gr.Tab(t("ui.media_tab")) as media_tab:
                 with gr.Row(elem_classes=["bf-layout"]):
@@ -1455,10 +1513,15 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 weight,
                 execution,
                 detect_score,
+                ack,
+                ack_subject,
             )
         labeled = [
             brand,
             language,
+            disclaimer,
+            ack,
+            ack_subject,
             media_tab,
             steps,
             source_mode,
@@ -1603,6 +1666,8 @@ def build_demo(config_path: str | Path, language: str | None = None):
             map_state,
             *map_picks,
             *map_files,
+            ack,
+            ack_subject,
         ]
         if len(labeled) != len(CONTROLS):
             raise BarrettFaceswapError(t("ui.control_mismatch", found=len(labeled), expected=len(CONTROLS)))
@@ -1626,6 +1691,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
             library_profile,
             *map_picks,
             *map_files,
+            ack,
+            ack_subject,
+            consent,
+            subject,
         ]
         library_outputs = [
             library_status,
@@ -1749,6 +1818,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
             target,
             *map_picks,
             *map_files,
+            ack,
+            ack_subject,
+            consent,
+            subject,
         ]
         map_root = Path(tempfile.mkdtemp(prefix="barrett-map-"))
         scan_count = {"n": 0}
@@ -1855,6 +1928,8 @@ def build_demo(config_path: str | Path, language: str | None = None):
             inputs=mode_inputs,
             outputs=[preview_button, run_button, voice_enable, voice_status],
         )
+        for widget in (ack, ack_subject, consent, subject):
+            widget.change(_files_ready, inputs=mode_inputs, outputs=[preview_button, run_button])
         library_profile.change(
             on_library_pick,
             inputs=[library_profile, *library_action_inputs],
@@ -1900,7 +1975,7 @@ def _tab_button_script() -> str:
     live_en = captured["live-en"]
     live_zh = captured["live-zh-CN"]
     return (
-        "(lang) => {"
+        "(lang, sourceMode) => {"
         f" const media = lang === 'zh-CN' ? {media_zh!r} : {media_en!r};"
         f" const live = lang === 'zh-CN' ? {live_zh!r} : {live_en!r};"
         " const known = new Map(["
@@ -1917,7 +1992,7 @@ def _tab_button_script() -> str:
         " paint();"
         " setTimeout(paint, 0);"
         " setTimeout(paint, 250);"
-        " return lang;"
+        " return [lang, sourceMode];"
         "}"
     )
 
@@ -1935,6 +2010,8 @@ def _live_tab(
     weight,
     execution,
     detect_score,
+    ack,
+    ack_subject,
 ):
     """Webcam tab. The source choices match the media tab. Voice needs the mic."""
 
@@ -2080,6 +2157,8 @@ def _live_tab(
         profile,
         dry_run: bool,
         compliance: bool,
+        ack_on: bool,
+        subject_text: str,
         swapper: str,
         boost: int,
         occluder: str,
@@ -2091,6 +2170,10 @@ def _live_tab(
         detect_score: float,
     ) -> tuple[str, Path, Path | None, SwapRequest]:
         selected, source_path, mode_audio, embedding = _source_choice(mode, video, photo, audio_file, profile)
+        subject = str(subject_text or "").strip()
+        acknowledged = bool(ack_on) and bool(subject)
+        if bool(initial.compliance.enabled or compliance) and not acknowledged:
+            raise BarrettFaceswapError(t("ui.ack_need"))
         processors = ["face_swapper"]
         if enhancer_enabled:
             processors.append("face_enhancer")
@@ -2101,7 +2184,8 @@ def _live_tab(
             dry_run=bool(dry_run),
             enable_compliance=bool(compliance),
             live_session=True,
-            acknowledge_authorized_use=False,
+            acknowledge_authorized_use=acknowledged,
+            consent_subject=subject or None,
             processors=processors,
             swapper_model=swapper,
             pixel_boost=int(boost),
@@ -2117,7 +2201,7 @@ def _live_tab(
         )
         return selected, source_path, mode_audio, request
 
-    def _signature(mode, video, photo, audio_file, profile, override, dry_run, compliance, *model_args):
+    def _signature(mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args):
         swapper, boost, occluder, enhancer_enabled, model, blend_value, weight_value, providers, detect_score = model_args
         return (
             str(mode),
@@ -2128,6 +2212,8 @@ def _live_tab(
             str(_as_path(override)),
             bool(dry_run),
             bool(compliance),
+            bool(ack_on),
+            str(subject_text or "").strip(),
             str(swapper),
             int(boost),
             str(occluder),
@@ -2151,10 +2237,10 @@ def _live_tab(
         detect_score,
     ]
 
-    def _arm(mode, video, photo, audio_file, profile, override, dry_run, compliance, *model_args):
+    def _arm(mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args):
         _close()
         selected, source_path, mode_audio, request = _request(
-            mode, video, photo, audio_file, profile, dry_run, compliance, *model_args
+            mode, video, photo, audio_file, profile, dry_run, compliance, ack_on, subject_text, *model_args
         )
         work = Path(tempfile.mkdtemp(prefix="barrett-live-"))
         config = apply_request_overrides(load_config(config_file), request)
@@ -2177,31 +2263,49 @@ def _live_tab(
         holder["converter"] = None
         holder["armed"] = True
         holder["camera_on"] = False
-        holder["sig"] = _signature(mode, video, photo, audio_file, profile, override, dry_run, compliance, *model_args)
+        holder["sig"] = _signature(
+            mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args
+        )
         if reference is None:
             return t("ui.live_ready"), t("ui.live_face_only")
         if dry_run:
             return t("ui.live_ready"), t("ui.live_voice_dry")
         return t("ui.live_ready"), t("ui.live_voice_wait")
 
-    def on_start(mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, *model_args):
+    def on_start(mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, ack_on, subject_text, *model_args):
         try:
-            status, voice = _arm(mode, video, photo, audio_file, profile, override, dry_run, compliance, *model_args)
+            status, voice = _arm(
+                mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args
+            )
         except (BarrettFaceswapError, ValidationError, LanguageError) as exc:
             _close()
             return str(exc), t("ui.live_face_only")
         return status, voice
 
-    def on_frame(frame, mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, *model_args):
+    def on_frame(frame, mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, ack_on, subject_text, *model_args):
         if frame is None:
             return None
         try:
             if not holder.get("armed"):
                 return frame
-            signature = _signature(mode, video, photo, audio_file, profile, override, dry_run, compliance, *model_args)
+            signature = _signature(
+                mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args
+            )
             session = holder.get("session")
             if session is None or holder.get("sig") != signature:
-                _arm(mode, video, photo, audio_file, profile, override, dry_run, compliance, *model_args)
+                _arm(
+                    mode,
+                    video,
+                    photo,
+                    audio_file,
+                    profile,
+                    override,
+                    dry_run,
+                    compliance,
+                    ack_on,
+                    subject_text,
+                    *model_args,
+                )
                 request = holder.get("request")
                 config = holder.get("config")
                 if not isinstance(request, SwapRequest) or config is None:
@@ -2219,8 +2323,8 @@ def _live_tab(
             _close()
             return None
 
-    def on_mic(audio, mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, *model_args):
-        del mode, video, photo, audio_file, profile, override, compliance, model_args
+    def on_mic(audio, mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, ack_on, subject_text, *model_args):
+        del mode, video, photo, audio_file, profile, override, compliance, ack_on, subject_text, model_args
         samples, sample_rate = _mic_chunk(audio)
         reference = holder.get("reference")
         reference_path = reference if isinstance(reference, Path) else None
@@ -2276,10 +2380,23 @@ def _live_tab(
         _close()
         return t("ui.live_stopped", path=result.output_path), t("ui.live_face_only")
 
-    def _mode_view(mode, video, photo, audio_file, profile, override):
+    def _live_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box) -> bool:
+        return source_files_ready(
+            mode,
+            video,
+            photo,
+            audio_file,
+            "camera",
+            profile,
+            compliance_on=bool(initial.compliance.enabled or compliance_box),
+            ack=ack_on,
+            subject=subject_text,
+        )
+
+    def _mode_view(mode, video, photo, audio_file, profile, override, ack_on, subject_text, compliance_box):
         del override
         flags = source_mode_visibility(mode)
-        ready = source_files_ready(mode, video, photo, audio_file, "camera", profile)
+        ready = _live_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box)
         return (
             gr.update(visible=flags["video"]),
             gr.update(visible=flags["photo"]),
@@ -2289,30 +2406,31 @@ def _live_tab(
             gr.update(interactive=ready),
         )
 
-    def _files_ready(mode, video, photo, audio_file, profile):
-        ready = source_files_ready(mode, video, photo, audio_file, "camera", profile)
+    def _files_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box):
+        ready = _live_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box)
         return gr.update(interactive=ready)
 
+    gate_inputs = [ack, ack_subject, live_compliance]
     live_source_mode.change(
         _mode_view,
-        inputs=source_inputs,
+        inputs=[*source_inputs, *gate_inputs],
         outputs=[live_source_video, live_source, live_source_audio, live_library, live_voice_override, live_start],
     )
-    for widget in (live_source_video, live_source, live_source_audio, live_library):
-        widget.change(_files_ready, inputs=source_inputs[:5], outputs=live_start)
+    for widget in (live_source_video, live_source, live_source_audio, live_library, ack, ack_subject, live_compliance):
+        widget.change(_files_ready, inputs=[*source_inputs[:5], *gate_inputs], outputs=live_start)
     live_start.click(
         on_start,
-        inputs=[*source_inputs, live_dry, live_compliance, *shared],
+        inputs=[*source_inputs, live_dry, live_compliance, ack, ack_subject, *shared],
         outputs=[live_status, live_voice],
     )
     live_camera.stream(
         on_frame,
-        inputs=[live_camera, *source_inputs, live_dry, live_compliance, *shared],
+        inputs=[live_camera, *source_inputs, live_dry, live_compliance, ack, ack_subject, *shared],
         outputs=live_preview,
     )
     live_mic.stream(
         on_mic,
-        inputs=[live_mic, *source_inputs, live_dry, live_compliance, *shared],
+        inputs=[live_mic, *source_inputs, live_dry, live_compliance, ack, ack_subject, *shared],
         outputs=[live_speaker, live_voice],
     )
     live_stop.click(on_stop, outputs=[live_status, live_voice])

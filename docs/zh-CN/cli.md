@@ -63,7 +63,7 @@ options:
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --dry-run             跳过 ONNX 推理。权重还没下载时可以用它走通命令。
-  --enable-compliance   为本轮打开同意校验、水印、内容过滤和审计。
+  --enable-compliance   为本轮强制打开同意校验、水印、内容过滤和审计。随仓库提供的默认值已经是打开。
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
   --consent-file CONSENT_FILE
                         源人脸的 JSON 同意清单。
@@ -160,7 +160,10 @@ usage: barrett-faceswap jobs submit [-h] --source SOURCE --target TARGET --outpu
                                     [--blend-mode {alpha,poisson}]
                                     [--color-transfer {none,mean_std,lab,histogram}]
                                     [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
-                                    [--with-enhancer] [--job-id JOB_ID]
+                                    [--with-enhancer] [--job-id JOB_ID] [--enable-compliance]
+                                    [--consent-file CONSENT_FILE] [--acknowledge-authorized-use]
+                                    [--consent-subject CONSENT_SUBJECT]
+                                    [--consent-statement CONSENT_STATEMENT]
 
 options:
   -h, --help            show this help message and exit
@@ -195,6 +198,15 @@ options:
                         眼部处理：swap、blend（默认，尽量保留目标眼睛）或 target。
   --with-enhancer       同时运行 face_enhancer。眼部使用 enhancer.eye_blend。
   --job-id JOB_ID       任务编号。字母、数字、下划线和连字符。
+  --enable-compliance   为本轮强制打开同意校验、水印、内容过滤和审计。随仓库提供的默认值已经是打开。
+  --consent-file CONSENT_FILE
+                        源人脸的 JSON 同意清单。
+  --acknowledge-authorized-use
+                        声明你已获授权使用源人脸。
+  --consent-subject CONSENT_SUBJECT
+                        与 --acknowledge-authorized-use 一起记录的主体编号。
+  --consent-statement CONSENT_STATEMENT
+                        可选的确认语句。省略时会记入一句默认声明。
 
 usage: barrett-faceswap jobs resume [-h] [--config CONFIG] [--lang LANG] job_id
 
@@ -248,7 +260,7 @@ options:
   --virtual-camera VIRTUAL_CAMERA
                         可选的 v4l2loopback 设备，例如 /dev/video2。
   --dry-run             跳过 ONNX 推理。权重还没下载时可以用它走通命令。
-  --enable-compliance   为本轮打开同意校验、水印、内容过滤和审计。
+  --enable-compliance   为本轮强制打开同意校验、水印、内容过滤和审计。随仓库提供的默认值已经是打开。
   --consent-file CONSENT_FILE
                         源人脸的 JSON 同意清单。
   --acknowledge-authorized-use

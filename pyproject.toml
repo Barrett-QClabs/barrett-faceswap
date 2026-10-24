@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "barrett-faceswap"
 version = "0.4.0"
-description = "Face-swap toolkit: live webcam, multiple swappers, video, jobs, a bilingual Gradio UI, and an opt-in compliance gate."
+description = "barrett-faceswap — open-source AI face swap & voice cloning in one click: deepfake-quality video, image and real-time webcam face swap with multi-face mapping, a FaceFusion / Deep-Live-Cam alternative with bilingual Chinese-English UI."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

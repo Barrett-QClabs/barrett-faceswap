@@ -152,6 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
     _add_phase3_flags(submit)
     submit.add_argument("--job-id", default=None, help=t("cli.job_id"))
+    submit.add_argument("--enable-compliance", action="store_true", help=t("cli.enable_compliance"))
+    submit.add_argument("--consent-file", type=Path, default=None, help=t("cli.consent_file"))
+    submit.add_argument("--acknowledge-authorized-use", action="store_true", help=t("cli.acknowledge"))
+    submit.add_argument("--consent-subject", default=None, help=t("cli.consent_subject"))
+    submit.add_argument("--consent-statement", default=None, help=t("cli.consent_statement"))
     resume = job_cmds.add_parser("resume", help=t("cli.jobs_resume"))
     resume.add_argument("job_id", help=t("cli.job_id"))
     resume.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
@@ -521,6 +526,11 @@ def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None
         target_path=namespace.target,
         output_path=namespace.output,
         dry_run=bool(getattr(namespace, "dry_run", False)),
+        enable_compliance=bool(getattr(namespace, "enable_compliance", False)),
+        consent_file=getattr(namespace, "consent_file", None),
+        acknowledge_authorized_use=bool(getattr(namespace, "acknowledge_authorized_use", False)),
+        consent_subject=getattr(namespace, "consent_subject", None),
+        consent_statement=getattr(namespace, "consent_statement", None),
         processors=processors,
         execution_providers=getattr(namespace, "execution_provider", None),
         swapper_model=namespace.swapper_model,

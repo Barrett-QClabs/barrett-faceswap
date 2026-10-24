@@ -42,7 +42,7 @@ barrett-faceswap download-models --swapper hyperswap_1a_256 --with-masks --with-
 - <https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/2dfan4.onnx>
 - <https://huggingface.co/facefusion/models-3.0.0/resolve/main/2dfan4.onnx>
 
-这份权重是 Adrian Bulat（breadbread1984）2018 年的 FAN 模型，MIT 许可，经 facefusion-assets 再分发。`commercial_use` 保持 false。文件缺失时保留检测器关键点。`compliance.enabled` 保持 false。
+这份权重是 Adrian Bulat（breadbread1984）2018 年的 FAN 模型，MIT 许可，经 facefusion-assets 再分发。`commercial_use` 保持 false。文件缺失时保留检测器关键点。
 
 期望的文件名：
 

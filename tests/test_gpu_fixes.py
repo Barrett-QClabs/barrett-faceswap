@@ -111,10 +111,10 @@ def test_landmark_hull_is_feathered_and_not_the_ellipse() -> None:
     assert not np.allclose(hull, ellipse)
 
 
-def test_default_color_is_lab_and_compliance_stays_off() -> None:
+def test_default_color_is_lab_and_compliance_stays_on() -> None:
     config = load_config(REPO / "configs" / "default.yaml")
     assert config.blend.color == "lab"
-    assert config.compliance.enabled is False
+    assert config.compliance.enabled is True
 
 
 def test_prepare_runtime_does_not_raise_on_the_cpu_wheel() -> None:

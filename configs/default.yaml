@@ -268,7 +268,9 @@ processors:
 # The nested block is the production profile. It stays dormant while the
 # master switch is false, so local dry-runs are not blocked.
 compliance:
-  enabled: false
+  # Published default. Turn off locally with BARRETT_DEV_MODE=1,
+  # BARRETT_COMPLIANCE=off, or a gitignored configs/local.yaml.
+  enabled: true
   consent:
     required: true
   watermark:

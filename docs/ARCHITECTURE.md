@@ -4,7 +4,7 @@
 
 `FaceSwapPipeline.run` is the public call for a file. Phase 4 adds a realtime webcam loop, TensorRT and CUDA-graph options that stay idle on CPU, an fp16 sibling lookup, a commercial-use gate, and a training scaffold that does not train. Phase 3's selectable swappers, pixel boost, multi-face selection, Poisson blending, resumable jobs, and optional diskless pipe stay in place. A video target is handed to `VideoPipeline`. File and live paths call `CompliancePolicy` before and after the processors, including a resumed job and pipe mode. Processors return frames. They do not write the output file, so a watermark cannot be skipped by a processor that saves early.
 
-`compliance.enabled` stays `false` in `configs/default.yaml`. The policy object still runs. With that default it logs that enforcement is off and writes an unmarked file.
+`compliance.enabled` is `true` in `configs/default.yaml`. The policy object still runs when a local switch turns it off, and then it logs that enforcement is off and writes an unmarked file. Local switches are `BARRETT_DEV_MODE=1`, `BARRETT_COMPLIANCE=off`, and a gitignored `configs/local.yaml`.
 
 Background reading for the first cut is in [RESEARCH.md](RESEARCH.md).
 
@@ -181,7 +181,7 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 
 - MIT code, no vendored FaceFusion, Deep-Live-Cam, roop, or SimSwap sources
 - `download-models` is an explicit command. The installer, the UI, and CI do not download weights
-- Compliance is a real package and is off unless the operator opts in
+- Compliance is a real package and is on unless a local switch turns it off
 - Messages go through catalogs in English and Chinese
 - Hash pins are optional until the operator sets them
 - The content filter default is a stub that allows the frame and logs that no detector is loaded
@@ -189,4 +189,4 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 
 ## Still deferred
 
-Swappers beyond this set (uniface, hififace, and others), and frame-exact pipe resume. Pipe resume still seeks by timestamp. The Chinese watermark covers `人工智能生成` with original bitmaps; any other character needs `compliance.watermark.font_path`. The training scaffold does not train or export a weight. TensorRT and CUDA graph capture run only when those providers are installed. `compliance.enabled` stays false until an official launch.
+Swappers beyond this set (uniface, hififace, and others), and frame-exact pipe resume. Pipe resume still seeks by timestamp. The Chinese watermark covers `人工智能生成` with original bitmaps; any other character needs `compliance.watermark.font_path`. The training scaffold does not train or export a weight. TensorRT and CUDA graph capture run only when those providers are installed.

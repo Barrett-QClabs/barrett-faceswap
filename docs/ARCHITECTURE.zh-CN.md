@@ -4,7 +4,7 @@
 
 对文件的公开调用是 `FaceSwapPipeline.run`。第四阶段加上实时摄像头循环、在 CPU 上保持空闲的 TensorRT 与 CUDA 图选项、fp16 旁路文件查找、商业使用门禁，以及一个不实际训练的训练脚手架。第三阶段的可选换脸图、像素提升、多人脸选择、泊松融合、可续跑任务和可选的无磁盘管道仍然保留。视频目标会交给 `VideoPipeline`。文件路径和实时路径都会在处理器前后调用 `CompliancePolicy`，续跑的任务和管道模式也一样。处理器只返回帧，不写输出文件，因此不能靠某个处理器提前存盘来绕过水印。
 
-`configs/default.yaml` 里的 `compliance.enabled` 保持 `false`。策略对象仍然会执行。在这个默认值下，它会记录强制已关闭，并写出不带标记的文件。
+`configs/default.yaml` 里的 `compliance.enabled` 是 `true`。本地开关把它关掉时，策略对象仍然会执行，记录强制已关闭，并写出不带标记的文件。本地开关是 `BARRETT_DEV_MODE=1`、`BARRETT_COMPLIANCE=off`，以及被 git 忽略的 `configs/local.yaml`。
 
 第一阶段的背景阅读在 [RESEARCH.zh-CN.md](RESEARCH.zh-CN.md)。
 
@@ -181,7 +181,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 - 代码是 MIT，没有打包 FaceFusion、Deep-Live-Cam、roop 或 SimSwap 的源码
 - `download-models` 是显式命令。安装器、界面和 CI 都不会下载权重
-- 合规是完整的包，操作者不打开就保持关闭
+- 合规是完整的包，除非本地开关把它关掉，否则保持打开
 - 文案走英文和中文目录
 - 哈希锁定在操作者填写之前是可选的
 - 内容过滤的默认提供者是 stub：放行该帧，并写明没有加载检测器
@@ -189,4 +189,4 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 仍然延后
 
-这组之外的换脸器（uniface、hififace 等），以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。`compliance.enabled` 在正式发布前保持 false。
+这组之外的换脸器（uniface、hififace 等），以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。

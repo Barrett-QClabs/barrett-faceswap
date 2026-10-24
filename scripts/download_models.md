@@ -42,7 +42,7 @@ Optional 68-point landmark refiner. `--with-landmarks` stores it at `models/2dfa
 - <https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/2dfan4.onnx>
 - <https://huggingface.co/facefusion/models-3.0.0/resolve/main/2dfan4.onnx>
 
-The weight is the 2018 FAN model by Adrian Bulat (breadbread1984), MIT, redistributed via facefusion-assets. `commercial_use` stays false. A missing file leaves the detector landmarks in place. `compliance.enabled` stays false.
+The weight is the 2018 FAN model by Adrian Bulat (breadbread1984), MIT, redistributed via facefusion-assets. `commercial_use` stays false. A missing file leaves the detector landmarks in place.
 
 Expected names:
 
