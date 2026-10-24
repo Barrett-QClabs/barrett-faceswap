@@ -7,7 +7,9 @@ tracker so a video can keep that choice from frame to frame.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -17,11 +19,19 @@ from barrett_faceswap.i18n import t
 
 @dataclass
 class FaceMapEntry:
-    """One row of a face-map file."""
+    """One row of a face-map file.
+
+    ``source`` is the identity to paste. ``embedding`` is that identity when it
+    was already fused (a library profile). ``match`` is the target person to
+    find. ``reference`` is a still of that person when ``match`` is absent.
+    ``target_index`` locks a largest-first slot instead of matching.
+    """
 
     source: str
     target_index: int | None = None
     reference: str | None = None
+    embedding: tuple[float, ...] | None = None
+    match: tuple[float, ...] | None = None
 
 
 @dataclass
@@ -141,10 +151,7 @@ def assign_slots(
 
 
 def load_face_map(path: str) -> list[FaceMapEntry]:
-    """Read a JSON list of ``{source, target_index?, reference?}`` rows."""
-
-    import json
-    from pathlib import Path
+    """Read a JSON list of source, match, and optional embedding rows."""
 
     file_path = Path(path)
     try:
@@ -163,6 +170,19 @@ def load_face_map(path: str) -> list[FaceMapEntry]:
                 source=str(row["source"]),
                 target_index=None if index is None else int(index),
                 reference=None if row.get("reference") is None else str(row["reference"]),
+                embedding=_map_vector(row.get("embedding"), file_path, "embedding"),
+                match=_map_vector(row.get("match"), file_path, "match"),
             )
         )
     return entries
+
+
+def _map_vector(raw: object, path: Path, field_name: str) -> tuple[float, ...] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ConfigError(t("swap.map_vector", path=path, field=field_name))
+    try:
+        return tuple(float(value) for value in raw)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(t("swap.map_vector", path=path, field=field_name)) from exc

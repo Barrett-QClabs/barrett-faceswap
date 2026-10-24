@@ -221,4 +221,12 @@ def test_gradio_blocks_build() -> None:
             library_blocks.append(block)
     assert library_blocks
     assert all(getattr(block, "visible", True) is False for block in library_blocks)
+    assert "识别脸" in values
+    face_one = [block for block in demo.blocks.values() if getattr(block, "label", None) == "脸 1"]
+    assert face_one
+    assert all(getattr(block, "visible", True) is False for block in face_one)
+    assert "Find faces" in english_values
+    english_face = [block for block in english.blocks.values() if getattr(block, "label", None) == "Face 1"]
+    assert english_face
+    assert all(getattr(block, "visible", True) is False for block in english_face)
     assert any(isinstance(item, str) and "false positives" in item for item in english_values)

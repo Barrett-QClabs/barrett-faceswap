@@ -189,17 +189,25 @@ class FaceSwapper:
         entries = self._map_entries(ctx)
         slots: list[_Slot] = []
         for entry in entries:
-            image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
-            hint = ctx.source_face if not entry.source else None
-            prepared = ctx.source_embedding if not entry.source else None
-            if prepared is not None:
-                arc = _unit_embedding(prepared)
+            use_saved = entry.embedding and self._spec.embedding != "source_image"
+            if use_saved:
+                arc = _unit_embedding(np.asarray(entry.embedding, dtype=np.float32))
                 source_score = 1.0
             else:
-                arc, source_score = self._embed_image(backend, image, hint)
-            match = arc
-            if entry.reference:
+                image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
+                hint = ctx.source_face if not entry.source else None
+                prepared = ctx.source_embedding if not entry.source else None
+                if prepared is not None:
+                    arc = _unit_embedding(prepared)
+                    source_score = 1.0
+                else:
+                    arc, source_score = self._embed_image(backend, image, hint)
+            if entry.match:
+                match = _unit_embedding(np.asarray(entry.match, dtype=np.float32))
+            elif entry.reference:
                 match, _reference_score = self._embed_image(backend, read_image(Path(entry.reference)))
+            else:
+                match = arc
             if self._spec.embedding in {"emap", "source_image"}:
                 latent = arc
             else:

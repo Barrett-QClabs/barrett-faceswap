@@ -14,7 +14,7 @@ Speech for the clone is the same source video, with silence and noise-like stret
 
 ## Camera
 
-The camera tab uses the same choices, in the same order, and adds a saved profile at the end. **Video (face + voice, recommended)** is selected when the tab opens. Only the uploads for the selected choice are shown. Profiles are managed on the image and video tab.
+The camera tab uses the same choices, in the same order, and adds a saved profile at the end. **Video (face + voice, recommended)** is selected when the tab opens. Only the uploads for the selected choice are shown. Profiles are managed on the image and video tab. Multi-face mapping stays on the image and video tab.
 
 Voice on that tab runs while the camera is on, the microphone is sending audio, and a reference exists. The reference is an uploaded clip when one is set. Otherwise it is speech trimmed from the source video. Photo mode has no reference. Photo + audio uses the clip next to the photo. An uploaded clip wins over speech taken from the source video.
 

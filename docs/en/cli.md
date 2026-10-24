@@ -138,7 +138,10 @@ options:
   --many-faces          Replace every detected face with the source identity.
   --reference REFERENCE
                         Reference still. The target face closest to this identity is replaced.
-  --face-map FACE_MAP   JSON file mapping source images to target indexes or reference stills.
+  --face-map FACE_MAP   JSON file mapping each source to a target face. A row is {source,
+                        target_index?, reference?, embedding?, match?}. embedding is the source
+                        identity. match is the target person. The image and video page writes this
+                        file for one run.
   --blend-mode {alpha,poisson}
                         Paste mode: alpha or poisson.
   --color-transfer {none,mean_std,lab,histogram}
@@ -211,7 +214,10 @@ options:
   --many-faces          Replace every detected face with the source identity.
   --reference REFERENCE
                         Reference still. The target face closest to this identity is replaced.
-  --face-map FACE_MAP   JSON file mapping source images to target indexes or reference stills.
+  --face-map FACE_MAP   JSON file mapping each source to a target face. A row is {source,
+                        target_index?, reference?, embedding?, match?}. embedding is the source
+                        identity. match is the target person. The image and video page writes this
+                        file for one run.
   --blend-mode {alpha,poisson}
                         Paste mode: alpha or poisson.
   --color-transfer {none,mean_std,lab,histogram}
@@ -314,7 +320,10 @@ options:
   --many-faces          Replace every detected face with the source identity.
   --reference REFERENCE
                         Reference still. The target face closest to this identity is replaced.
-  --face-map FACE_MAP   JSON file mapping source images to target indexes or reference stills.
+  --face-map FACE_MAP   JSON file mapping each source to a target face. A row is {source,
+                        target_index?, reference?, embedding?, match?}. embedding is the source
+                        identity. match is the target person. The image and video page writes this
+                        file for one run.
   --blend-mode {alpha,poisson}
                         Paste mode: alpha or poisson.
   --color-transfer {none,mean_std,lab,histogram}

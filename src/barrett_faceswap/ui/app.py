@@ -26,6 +26,15 @@ from barrett_faceswap.config import (
 from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import LanguageError, get_language, normalize_language, set_language, t
 from barrett_faceswap.library import library_from_config, parts_from_file
+from barrett_faceswap.mapping import (
+    KEEP,
+    MAP_SLOTS,
+    UPLOAD,
+    compile_assignments,
+    detect_target_faces,
+    mapping_is_complete,
+    write_face_map,
+)
 from barrett_faceswap.media.ffmpeg import VIDEO_OUTPUT_SUFFIXES, read_first_frame
 from barrett_faceswap.pipeline import FaceSwapPipeline
 from barrett_faceswap.sourceprep import reference_for_mode, resolve_live_reference, source_mode_visibility
@@ -359,6 +368,21 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.library_delete", "value"),
     ControlSpec("ui.library_status", "label"),
     ControlSpec("ui.target", "label"),
+    ControlSpec("ui.map_title", "value"),
+    ControlSpec("ui.map_scan", "value"),
+    ControlSpec("ui.map_status", "label"),
+    ControlSpec("ui.map_face_1", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
+    ControlSpec("ui.map_face_2", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
+    ControlSpec("ui.map_face_3", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
+    ControlSpec("ui.map_face_4", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
     ControlSpec("ui.swapper_model", "label"),
     ControlSpec("ui.swapper_hint", "value"),
     ControlSpec("ui.quality", "label"),
@@ -549,6 +573,19 @@ def _profile_summary(config_file: Path, profile: object):
     return next((item for item in rows if item.id == key or item.name.casefold() == key.casefold()), None)
 
 
+def _map_choices(config_file: Path) -> list[tuple[str, str]]:
+    choices = [(t("ui.map_keep"), KEEP), (t("ui.map_upload"), UPLOAD)]
+    for summary in library_from_config(load_config(config_file)).list_profiles():
+        choices.append((summary.name, summary.id))
+    return choices
+
+
+def _mapping_ready(rest: tuple[object, ...]) -> bool:
+    if len(rest) < MAP_SLOTS * 2:
+        return False
+    return mapping_is_complete(rest[:MAP_SLOTS], rest[MAP_SLOTS : MAP_SLOTS * 2])
+
+
 def source_files_ready(
     mode: str | None,
     video: object,
@@ -556,11 +593,15 @@ def source_files_ready(
     audio: object,
     target: object,
     profile: object = None,
+    *,
+    mapped: bool = False,
 ) -> bool:
     """True when the uploads for the selected source mode, and a target, are set."""
 
     if _as_path(target) is None:
         return False
+    if mapped:
+        return True
     flags = source_mode_visibility(mode)
     if flags["library"]:
         return bool(str(profile or "").strip())
@@ -723,6 +764,8 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 data["choices"] = _source_mode_choices()
             elif spec.key == "ui.library_profile":
                 data["choices"] = _profile_choice_pairs(config_file)
+            elif spec.key == "ui.map_source":
+                data["choices"] = _map_choices(config_file)
             elif spec.key == "ui.voice_hint":
                 data["value"] = t(_voice_hint_key(source_mode))
             wrapped.append(gr.update(**data))
@@ -784,19 +827,25 @@ def build_demo(config_path: str | Path, language: str | None = None):
             message = t("ui.voice_ready_audio")
         return enabled, message
 
-    def _files_ready(mode, video, photo, audio, target, profile=None):
-        ready = source_files_ready(mode, video, photo, audio, target, profile)
+    def _files_ready(mode, video, photo, audio, target, profile=None, *rest):
+        ready = source_files_ready(
+            mode, video, photo, audio, target, profile, mapped=_mapping_ready(rest)
+        )
         return gr.update(interactive=ready), gr.update(interactive=ready)
 
-    def _target_changed(mode, video, photo, audio, target, profile=None):
-        preview_button_update, run_button_update = _files_ready(mode, video, photo, audio, target, profile)
+    def _target_changed(mode, video, photo, audio, target, profile=None, *rest):
+        preview_button_update, run_button_update = _files_ready(
+            mode, video, photo, audio, target, profile, *rest
+        )
         enabled, message = _voice_for_mode(mode, _as_path(target), profile)
         return preview_button_update, run_button_update, gr.update(value=enabled), message
 
-    def _mode_view(mode, video, photo, audio, target, profile=None):
+    def _mode_view(mode, video, photo, audio, target, profile=None, *rest):
         flags = source_mode_visibility(mode)
         shown = flags["library"]
-        preview_button_update, run_button_update = _files_ready(mode, video, photo, audio, target, profile)
+        preview_button_update, run_button_update = _files_ready(
+            mode, video, photo, audio, target, profile, *rest
+        )
         enabled, message = _voice_for_mode(mode, _as_path(target), profile)
         samples = _sample_choice_pairs(config_file, profile)
         return (
@@ -925,6 +974,15 @@ def build_demo(config_path: str | Path, language: str | None = None):
         voice_clip: object,
         voice_strength_value: float,
         voice_tau_value: float,
+        map_state: object,
+        map_pick_1: object,
+        map_pick_2: object,
+        map_pick_3: object,
+        map_pick_4: object,
+        map_file_1: object,
+        map_file_2: object,
+        map_file_3: object,
+        map_file_4: object,
         preview_only: bool,
         progress=gr.Progress(track_tqdm=False),
     ):
@@ -934,7 +992,26 @@ def build_demo(config_path: str | Path, language: str | None = None):
             flags = source_mode_visibility(mode)
             target_path = _as_path(target)
             library_embedding = None
-            if flags["library"]:
+            mode_audio = None
+            map_voice: Path | None = None
+            rows = compile_assignments(
+                map_state,
+                [map_pick_1, map_pick_2, map_pick_3, map_pick_4],
+                [map_file_1, map_file_2, map_file_3, map_file_4],
+                library_from_config(load_config(config_file)),
+            )
+            if rows:
+                if target_path is None:
+                    yield None, t("ui.need_files"), 0, t("ui.voice_idle")
+                    return
+                source_path = Path(rows[0].source)
+                voiced = next((row.voice for row in rows if row.voice), None)
+                map_voice = Path(voiced) if voiced else None
+                if mode == "photo_audio":
+                    mode_audio = map_voice or _as_path(source_audio)
+                elif mode == "library":
+                    mode_audio = map_voice
+            elif flags["library"]:
                 key = str(library_profile or "").strip()
                 if not key:
                     yield None, t("ui.library_need_profile"), 0, t("ui.voice_idle")
@@ -991,6 +1068,15 @@ def build_demo(config_path: str | Path, language: str | None = None):
                         output = output.with_suffix(".mp4")
                 consent_path = _as_path(consent)
                 subject_text = (subject or "").strip()
+                selected_face_map = _as_path(face_map)
+                uploaded_voice = None if preview_only else _as_path(voice_clip)
+                if rows:
+                    selected_face_map = temp / "face-map.json"
+                    write_face_map(selected_face_map, rows)
+                    if mode == "video" and uploaded_voice is None and map_voice is not None:
+                        uploaded_voice = map_voice
+                    elif mode in {"photo_audio", "library"} and uploaded_voice is not None:
+                        mode_audio = uploaded_voice
                 request = SwapRequest(
                     source_path=source_path,
                     target_path=request_target,
@@ -1014,7 +1100,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     pixel_boost=int(pixel_boost),
                     many_faces=bool(many_faces),
                     reference_path=_as_path(reference),
-                    face_map=_as_path(face_map),
+                    face_map=selected_face_map,
                     blend_mode=blend_mode,
                     color_transfer=color_transfer,
                     eye_mode=eye_mode,
@@ -1025,11 +1111,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     detect_score=float(detect_score),
                     source_embedding=library_embedding,
                     voice_enabled=False if mode == "photo" or preview_only else bool(voice_on),
-                    voice_reference=_voice_reference_for_mode(
-                        mode,
-                        mode_audio,
-                        None if preview_only else _as_path(voice_clip),
-                    ),
+                    voice_reference=_voice_reference_for_mode(mode, mode_audio, uploaded_voice),
                     voice_strength=float(voice_strength_value),
                     voice_tau=float(voice_tau_value),
                 )
@@ -1131,6 +1213,44 @@ def build_demo(config_path: str | Path, language: str | None = None):
                             visible=False,
                         )
                         target = gr.File(type="filepath", label=t("ui.target"), file_count="single")
+                        map_title = gr.Markdown(t("ui.map_title"))
+                        map_scan = gr.Button(t("ui.map_scan"))
+                        map_status = gr.Textbox(
+                            value=t("ui.map_idle"),
+                            label=t("ui.map_status"),
+                            interactive=False,
+                        )
+                        map_state = gr.State(None)
+                        map_rows: list = []
+                        map_images: list = []
+                        map_picks: list = []
+                        map_files: list = []
+                        for index in range(1, MAP_SLOTS + 1):
+                            with gr.Row(visible=False) as map_row:
+                                map_image = gr.Image(
+                                    type="numpy",
+                                    interactive=False,
+                                    height=128,
+                                    label=t(f"ui.map_face_{index}"),
+                                    visible=False,
+                                )
+                                map_pick = gr.Dropdown(
+                                    choices=_map_choices(config_file),
+                                    value=KEEP,
+                                    label=t("ui.map_source"),
+                                    visible=False,
+                                )
+                                map_file = gr.File(
+                                    type="filepath",
+                                    file_count="single",
+                                    file_types=[".png", ".jpg", ".jpeg", ".webp", ".bmp"],
+                                    label=t("ui.map_file"),
+                                    visible=False,
+                                )
+                            map_rows.append(map_row)
+                            map_images.append(map_image)
+                            map_picks.append(map_pick)
+                            map_files.append(map_file)
                         swapper_model = gr.Dropdown(
                             choices=list(SWAPPER_NAMES),
                             value=initial.swap.model,
@@ -1355,6 +1475,21 @@ def build_demo(config_path: str | Path, language: str | None = None):
             library_delete,
             library_status,
             target,
+            map_title,
+            map_scan,
+            map_status,
+            map_images[0],
+            map_picks[0],
+            map_files[0],
+            map_images[1],
+            map_picks[1],
+            map_files[1],
+            map_images[2],
+            map_picks[2],
+            map_files[2],
+            map_images[3],
+            map_picks[3],
+            map_files[3],
             swapper_model,
             swapper_hint,
             quality,
@@ -1465,6 +1600,9 @@ def build_demo(config_path: str | Path, language: str | None = None):
             voice_reference,
             voice_strength,
             voice_tau,
+            map_state,
+            *map_picks,
+            *map_files,
         ]
         if len(labeled) != len(CONTROLS):
             raise BarrettFaceswapError(t("ui.control_mismatch", found=len(labeled), expected=len(CONTROLS)))
@@ -1479,7 +1617,16 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 inputs=[quality, swapper_model, pixel_boost, enhancer_on, occluder_model],
                 outputs=quality,
             )
-        mode_inputs = [source_mode, source_video, source_photo, source_audio, target, library_profile]
+        mode_inputs = [
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
+            target,
+            library_profile,
+            *map_picks,
+            *map_files,
+        ]
         library_outputs = [
             library_status,
             library_profile,
@@ -1489,17 +1636,19 @@ def build_demo(config_path: str | Path, language: str | None = None):
             run_button,
             voice_enable,
             voice_status,
+            *map_picks,
         ]
 
         def _profile_pair(selected):
             choices = _profile_choice_pairs(config_file)
             return gr.update(choices=choices, value=selected), gr.update(choices=choices, value=selected)
 
-        def _after_library(mode, video, photo, audio, target, selected, status_line):
+        def _after_library(mode, video, photo, audio, target, selected, status_line, *rest):
             media_profile, live_profile = _profile_pair(selected)
-            preview_update, run_update = _files_ready(mode, video, photo, audio, target, selected)
+            preview_update, run_update = _files_ready(mode, video, photo, audio, target, selected, *rest)
             enabled, message = _voice_for_mode(mode, _as_path(target), selected)
             samples = gr.update(choices=_sample_choice_pairs(config_file, selected), value=None)
+            map_choice_updates = tuple(gr.update(choices=_map_choices(config_file)) for _pick in map_picks)
             return (
                 status_line,
                 media_profile,
@@ -1509,26 +1658,29 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 run_update,
                 gr.update(value=enabled),
                 message,
+                *map_choice_updates,
             )
 
-        def on_library_create(name, mode, video, photo, audio, target):
+        def on_library_create(name, mode, video, photo, audio, target, *rest):
             try:
                 summary = library_from_config(load_config(config_file)).create(str(name or ""))
             except (BarrettFaceswapError, ValidationError) as exc:
-                return (str(exc),) + (gr.skip(),) * 7
-            return _after_library(mode, video, photo, audio, target, summary.id, t("ui.library_created", name=summary.name))
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
+            return _after_library(
+                mode, video, photo, audio, target, summary.id, t("ui.library_created", name=summary.name), *rest
+            )
 
-        def on_library_add(profile, sample_file, mode, video, photo, audio, target):
+        def on_library_add(profile, sample_file, mode, video, photo, audio, target, *rest):
             path = _as_path(sample_file)
             if not str(profile or "").strip():
-                return (t("ui.library_need_profile"),) + (gr.skip(),) * 7
+                return (t("ui.library_need_profile"),) + (gr.skip(),) * (len(library_outputs) - 1)
             if path is None:
-                return (t("ui.library_need_sample"),) + (gr.skip(),) * 7
+                return (t("ui.library_need_sample"),) + (gr.skip(),) * (len(library_outputs) - 1)
             try:
                 parts = parts_from_file(load_config(config_file), path)
                 summary = library_from_config(load_config(config_file)).add_sample(str(profile), parts)
             except (BarrettFaceswapError, ValidationError) as exc:
-                return (str(exc),) + (gr.skip(),) * 7
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
             return _after_library(
                 mode,
                 video,
@@ -1537,17 +1689,18 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 target,
                 summary.id,
                 t("ui.library_added", name=summary.name, count=summary.samples),
+                *rest,
             )
 
-        def on_library_remove(profile, sample_id, mode, video, photo, audio, target):
+        def on_library_remove(profile, sample_id, mode, video, photo, audio, target, *rest):
             if not str(profile or "").strip():
-                return (t("ui.library_need_profile"),) + (gr.skip(),) * 7
+                return (t("ui.library_need_profile"),) + (gr.skip(),) * (len(library_outputs) - 1)
             if not str(sample_id or "").strip():
-                return (t("ui.library_need_sample"),) + (gr.skip(),) * 7
+                return (t("ui.library_need_sample"),) + (gr.skip(),) * (len(library_outputs) - 1)
             try:
                 summary = library_from_config(load_config(config_file)).remove_sample(str(profile), str(sample_id))
             except (BarrettFaceswapError, ValidationError) as exc:
-                return (str(exc),) + (gr.skip(),) * 7
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
             return _after_library(
                 mode,
                 video,
@@ -1556,23 +1709,26 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 target,
                 summary.id,
                 t("ui.library_removed", name=summary.name, count=summary.samples),
+                *rest,
             )
 
-        def on_library_delete(profile, mode, video, photo, audio, target):
+        def on_library_delete(profile, mode, video, photo, audio, target, *rest):
             key = str(profile or "").strip()
             if not key:
-                return (t("ui.library_need_profile"),) + (gr.skip(),) * 7
+                return (t("ui.library_need_profile"),) + (gr.skip(),) * (len(library_outputs) - 1)
             summary = _profile_summary(config_file, key)
             if summary is None:
-                return (t("library.missing", name=key),) + (gr.skip(),) * 7
+                return (t("library.missing", name=key),) + (gr.skip(),) * (len(library_outputs) - 1)
             try:
                 library_from_config(load_config(config_file)).delete(key)
             except (BarrettFaceswapError, ValidationError) as exc:
-                return (str(exc),) + (gr.skip(),) * 7
-            return _after_library(mode, video, photo, audio, target, None, t("ui.library_deleted", name=summary.name))
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
+            return _after_library(
+                mode, video, photo, audio, target, None, t("ui.library_deleted", name=summary.name), *rest
+            )
 
-        def on_library_pick(profile, mode, video, photo, audio, target):
-            preview_update, run_update = _files_ready(mode, video, photo, audio, target, profile)
+        def on_library_pick(profile, mode, video, photo, audio, target, *rest):
+            preview_update, run_update = _files_ready(mode, video, photo, audio, target, profile, *rest)
             enabled, message = _voice_for_mode(mode, _as_path(target), profile)
             _media, live_profile = _profile_pair(profile or None)
             return (
@@ -1585,7 +1741,89 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 live_profile,
             )
 
-        library_action_inputs = [source_mode, source_video, source_photo, source_audio, target]
+        library_action_inputs = [
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
+            target,
+            *map_picks,
+            *map_files,
+        ]
+        map_root = Path(tempfile.mkdtemp(prefix="barrett-map-"))
+        scan_count = {"n": 0}
+
+        def _map_cleared():
+            choices = _map_choices(config_file)
+            updates = []
+            for _index in range(MAP_SLOTS):
+                updates.extend(
+                    [
+                        gr.update(visible=False),
+                        gr.update(value=None, visible=False),
+                        gr.update(value=KEEP, choices=choices, visible=False),
+                        gr.update(value=None, visible=False),
+                    ]
+                )
+            return updates
+
+        def on_map_scan(target_file):
+            cleared = _map_cleared()
+            path = _as_path(target_file)
+            if path is None:
+                return (t("ui.map_need_target"), None, *cleared)
+            try:
+                image = read_first_frame(path) if is_video(path) else read_image(path)
+                scan_count["n"] += 1
+                result = detect_target_faces(load_config(config_file), image, map_root / str(scan_count["n"]))
+            except (BarrettFaceswapError, ValidationError) as exc:
+                return (str(exc), None, *cleared)
+            if not result.faces:
+                return (t("ui.map_none"), [], *cleared)
+            choices = _map_choices(config_file)
+            state = []
+            updates = []
+            for index in range(MAP_SLOTS):
+                if index < len(result.faces):
+                    face = result.faces[index]
+                    state.append({"match": list(face.match), "reference": face.reference})
+                    updates.extend(
+                        [
+                            gr.update(visible=True),
+                            gr.update(value=cv2.cvtColor(face.thumb, cv2.COLOR_BGR2RGB), visible=True),
+                            gr.update(value=KEEP, choices=choices, visible=True),
+                            gr.update(value=None, visible=False),
+                        ]
+                    )
+                else:
+                    updates.extend(
+                        [
+                            gr.update(visible=False),
+                            gr.update(value=None, visible=False),
+                            gr.update(value=KEEP, choices=choices, visible=False),
+                            gr.update(value=None, visible=False),
+                        ]
+                    )
+            if result.total > len(result.faces):
+                message = t("ui.map_found_more", count=result.total, shown=len(result.faces))
+            else:
+                message = t("ui.map_found", count=result.total)
+            return (message, state, *updates)
+
+        def on_map_pick(mode, video, photo, audio, target_file, profile, *rest):
+            picks = rest[:MAP_SLOTS]
+            preview_update, run_update = _files_ready(mode, video, photo, audio, target_file, profile, *rest)
+            file_updates = [gr.update(visible=str(pick or KEEP) == UPLOAD) for pick in picks]
+            return (*file_updates, preview_update, run_update)
+
+        scan_outputs = [map_status, map_state]
+        for map_row, map_image, map_pick, map_file in zip(map_rows, map_images, map_picks, map_files, strict=True):
+            scan_outputs.extend([map_row, map_image, map_pick, map_file])
+        map_scan.click(on_map_scan, inputs=[target], outputs=scan_outputs)
+        for map_pick in map_picks:
+            map_pick.change(on_map_pick, inputs=mode_inputs, outputs=[*map_files, preview_button, run_button])
+        for map_file in map_files:
+            map_file.change(on_map_pick, inputs=mode_inputs, outputs=[*map_files, preview_button, run_button])
         source_mode.change(
             _mode_view,
             inputs=mode_inputs,

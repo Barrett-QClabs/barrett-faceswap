@@ -92,9 +92,13 @@ ffprobe
 
 `library.dir`（默认 `library/`，已被 git 忽略）存放命名资料。每个样本是同一个人的视频、照片或音频。脸向量走 `select_identity`，和源视频用的是同一套留出核对平均。视频样本存的是这一段已经融合好的向量。照片存一张脸的向量。音频不改变脸。裁好的人声按样本顺序接在一起，只保留最新的 `library.voice_seconds` 秒（默认 24），采样率 16 kHz。预览静图用质量最高的那张。换脸用 `still.png`、融合后的向量，以及存在时的 `voice.wav`。一次性上传仍然可用。`barrett-faceswap library` 用来新建、补充、列出和删除。`swap --library 名字` 和 `live --library 名字` 代替 `--source`。两者只能提供一个。
 
+## 多脸对应
+
+图像·视频页可以在一次导出里把每张脸换到不同的源。识别脸读取静图，或视频的第一帧，最多列出四张最大的脸。每一行可以不换、选一份已保存的资料，或上传一张照片。点一次开始，会为这一次运行写出临时的人脸映射 JSON，不会写进 `default.yaml`。一行是 `{source, embedding?, match, reference?}`。`embedding` 是融合后的源身份。`match` 是目标里的那个人，后面的帧先按这个人匹配，再由跟踪保持槽位。选了不换的脸，以及没有对上的人，都保持原样。空镜头保持原样。摄像头页仍然是一张身份。整段只用一个参考音色：第一份带人声的已映射资料，除非另外上传了参考音色，或当前是照片模式。BlendSwap 不用融合向量，而是嵌入源静图。命令行上的 JSON 文件不限四行。
+
 ## 选脸
 
-`swap.selector` 为 `index`（默认，先按面积从大到小，`--target-face-index`）、`many`（每一张检测到的脸，一个源）、`reference`（对参考图做余弦相似度；没有参考图时对源脸），或 `map`。映射文件是 JSON 列表，每项为 `{source, target_index, reference}`。锁定的 `target_index` 直接分配，顺序是面积从大到小。其余脸在 `swap.similarity`（默认 0.45）以上一对一匹配。没有匹配时抛出 `swap.no_match`。
+`swap.selector` 为 `index`（默认，先按面积从大到小，`--target-face-index`）、`many`（每一张检测到的脸，一个源）、`reference`（对参考图做余弦相似度；没有参考图时对源脸），或 `map`。映射文件是 JSON 列表，每项为 `{source, target_index?, reference?, embedding?, match?}`。锁定的 `target_index` 直接分配，顺序是面积从大到小。其余脸在 `swap.similarity`（默认 0.45）以上一对一匹配。没有匹配时抛出 `swap.no_match`，除非这一帧允许在没有脸时原样通过。
 
 `FaceTracker` 是贪心 IoU（`swap.track_iou`，默认 0.3，连续错过 8 帧后丢掉）。一条轨迹一旦分到源槽，后面的帧就保持这个槽。参考和映射默认打开跟踪。
 

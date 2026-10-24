@@ -119,7 +119,8 @@ options:
   --many-faces          用源身份替换每一张检测到的脸。
   --reference REFERENCE
                         参考静态图。替换与这张身份最接近的目标脸。
-  --face-map FACE_MAP   JSON 文件，把源图像映射到目标序号或参考图。
+  --face-map FACE_MAP   JSON 文件，把每个源对应到一张目标脸。一行是 {source, target_index?, reference?, embedding?,
+                        match?}。embedding 是源身份，match 是目标里的人。图像·视频页会为这一次运行写出这个文件。
   --blend-mode {alpha,poisson}
                         贴回方式：alpha 或 poisson。
   --color-transfer {none,mean_std,lab,histogram}
@@ -182,7 +183,8 @@ options:
   --many-faces          用源身份替换每一张检测到的脸。
   --reference REFERENCE
                         参考静态图。替换与这张身份最接近的目标脸。
-  --face-map FACE_MAP   JSON 文件，把源图像映射到目标序号或参考图。
+  --face-map FACE_MAP   JSON 文件，把每个源对应到一张目标脸。一行是 {source, target_index?, reference?, embedding?,
+                        match?}。embedding 是源身份，match 是目标里的人。图像·视频页会为这一次运行写出这个文件。
   --blend-mode {alpha,poisson}
                         贴回方式：alpha 或 poisson。
   --color-transfer {none,mean_std,lab,histogram}
@@ -269,7 +271,8 @@ options:
   --many-faces          用源身份替换每一张检测到的脸。
   --reference REFERENCE
                         参考静态图。替换与这张身份最接近的目标脸。
-  --face-map FACE_MAP   JSON 文件，把源图像映射到目标序号或参考图。
+  --face-map FACE_MAP   JSON 文件，把每个源对应到一张目标脸。一行是 {source, target_index?, reference?, embedding?,
+                        match?}。embedding 是源身份，match 是目标里的人。图像·视频页会为这一次运行写出这个文件。
   --blend-mode {alpha,poisson}
                         贴回方式：alpha 或 poisson。
   --color-transfer {none,mean_std,lab,histogram}
