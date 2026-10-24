@@ -220,6 +220,16 @@ expression:
   mar_closed: 0.012
   blur: 9
 
+# Target sunglasses. Stage 1 is a fuller identity paste with expression off,
+# so eye landmarks under the lenses are not used. Stage 2 may mix a mild
+# mouth from the other landmarks. The mid-face is covered by the swap.
+# It is not inpainted. Set enabled to false to keep the normal expression path.
+sunglasses:
+  enabled: true
+  box_inset: 0.04
+  expression: true
+  mouth_scale: 0.45
+
 jobs:
   root: jobs
 

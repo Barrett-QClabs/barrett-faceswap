@@ -123,6 +123,7 @@ config:
   builder_level: "tensorrt.builder_optimization_level 必须在 0 到 5 之间。"
   landmark_refine: "landmarks.refine 必须是以下之一：{allowed}，不能是“{mode}”。"
   expression_range: "表情参数 {field} 必须大于或等于 0。"
+  sunglasses_inset: "sunglasses.box_inset 必须在 0 到 0.45 之间。"
   precision: "execution.precision 必须是 fp32 或 fp16，不能是“{value}”。"
   live_positive: "live.queue_size 和 live.detect_every 至少为 1。"
   regions_unknown: "未知的解析区域 {unknown}。可用：{allowed}。"
@@ -403,6 +404,8 @@ identity:
   dry_frame: "干跑只取了源视频中间的一帧，没有平均人脸。"
   speech: "参考音色是从源视频里截出的人声。"
   no_speech: "源视频里没有干净的人声，只换脸。"
+sunglasses:
+  path: "目标戴着墨镜。先做更完整的身份替换，再轻度贴回嘴部。不拿镜片下的眼睛做表情。"
 landmarks:
   missing: "磁盘上没有 2DFAN4（{path}）。保留检测器关键点。"
   failed: "2DFAN4 细化失败（{error}）。保留检测器关键点。"

@@ -123,6 +123,7 @@ config:
   builder_level: "tensorrt.builder_optimization_level must be between 0 and 5."
   landmark_refine: "landmarks.refine must be one of: {allowed}, not '{mode}'."
   expression_range: "Expression setting {field} must be zero or greater."
+  sunglasses_inset: "sunglasses.box_inset must be between 0 and 0.45."
   precision: "execution.precision must be fp32 or fp16, not '{value}'."
   live_positive: "live.queue_size and live.detect_every must be at least 1."
   regions_unknown: "Unknown parsing region(s) {unknown}. Use: {allowed}."
@@ -403,6 +404,8 @@ identity:
   dry_frame: "Dry run used one frame from the source video and did not average faces."
   speech: "Reference voice is speech trimmed from the source video."
   no_speech: "No clean speech in the source video. Face only."
+sunglasses:
+  path: "Sunglasses on the target. Fuller identity swap, then a mild mouth. Eyes under the glasses are not used for expression."
 landmarks:
   missing: "2DFAN4 is not on disk ({path}). Detector landmarks stay."
   failed: "2DFAN4 refine failed ({error}). Detector landmarks stay."

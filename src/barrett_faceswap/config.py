@@ -440,6 +440,29 @@ class ExpressionConfig(_Model):
         return int(value)
 
 
+class SunglassesConfig(_Model):
+    """Fuller identity swap, then an optional mild mouth. Eyes under the lenses stay off."""
+
+    enabled: bool = True
+    box_inset: float = 0.04
+    expression: bool = True
+    mouth_scale: float = 0.45
+
+    @field_validator("box_inset")
+    @classmethod
+    def _inset(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 0.45:
+            raise ValueError(t("config.sunglasses_inset"))
+        return float(value)
+
+    @field_validator("mouth_scale")
+    @classmethod
+    def _mouth_scale(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
+
+
 class VideoConfig(_Model):
     """Disk frame pipeline by default. ``mode: pipe`` keeps frames off disk."""
 
@@ -663,6 +686,7 @@ class AppConfig(_Model):
     masks: MasksConfig = Field(default_factory=MasksConfig)
     landmarks: LandmarkConfig = Field(default_factory=LandmarkConfig)
     expression: ExpressionConfig = Field(default_factory=ExpressionConfig)
+    sunglasses: SunglassesConfig = Field(default_factory=SunglassesConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     live: LiveConfig = Field(default_factory=LiveConfig)

@@ -86,6 +86,8 @@ ffprobe
 
 `expression.enabled`（默认 true）用这 68 个点把目标眼睛和抿起的嘴贴回去。眼睛的量是 `0.05 + 0.85 * closedness`，嘴的量是 `0.55 * pursedness`，使用 `ear_open` 0.24、`ear_closed` 0.15、`mar_open` 0.045、`mar_closed` 0.012。凸包是眼与眉、以及嘴，画在对齐后的裁剪里。这条路径运行时会跳过 `blend.eye_mode`，因为那个混合会在张开的五点脸上把大部分目标眼睛贴回去。没有 68 个点时，`blend.eye_mode` 仍然运行。增强器把 `1 - closedness` 当作 `eye_openness`。视频默认仍然不跑 `face_enhancer`，除非 `--with-enhancer` 或处理器列表把它加进去。
 
+`sunglasses.enabled`（默认 true）是目标裁剪戴着墨镜时的路径。解析结果里有一条横跨眼线的眼镜，或者双眼之间有一条明显深于额头和脸颊的暗带，就会打开。一整张都暗的裁剪不会打开。第一阶段把贴回加宽到更完整的头（`box_inset` 0.04），并关掉表情，包括 `--eye-mode`，因此不会用镜片下面的关键点。蒙版在中脸的空洞由这次身份覆盖补上，不做修复式填充。第二阶段在 `sunglasses.expression` 打开且有 68 个点时，只混合嘴，强度乘 `mouth_scale`（默认 0.45）。增强器被告知眼睛是张开的，这样不会把镜片当成闭上的眼睑。静态图、视频和实时都走这条换脸路径。
+
 ## 选脸
 
 `swap.selector` 为 `index`（默认，先按面积从大到小，`--target-face-index`）、`many`（每一张检测到的脸，一个源）、`reference`（对参考图做余弦相似度；没有参考图时对源脸），或 `map`。映射文件是 JSON 列表，每项为 `{source, target_index, reference}`。锁定的 `target_index` 直接分配，顺序是面积从大到小。其余脸在 `swap.similarity`（默认 0.45）以上一对一匹配。没有匹配时抛出 `swap.no_match`。

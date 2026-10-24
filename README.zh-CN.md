@@ -44,6 +44,7 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - `barrett-faceswap download-models` 下载 `buffalo_l` 和 `inswapper_128`，校验 sha256，支持断点续传，并在镜像之间重试。每个镜像的连接最多等 15 秒。`--from-dir` 会在下载前复制匹配的 ONNX 文件。`--with-gfpgan`、`--with-masks` 和 `--with-landmarks` 是可选项。质量组合是 `download-models --swapper hyperswap_1a_256 --with-masks --with-landmarks`。蒙版文件是 facefusion-assets 的 `xseg_1.onnx` 和 `bisenet_resnet_34.onnx`，许可未经核实，很可能不能用于商业用途。`2dfan4.onnx` 是 MIT 的 FAN 关键点权重。CI 不会运行下载。`barrett-faceswap doctor` 打印提供者、CUDA/cuDNN 预加载状态和本地模型哈希，并在同时安装两个 ONNX Runtime 轮子时发出警告
 - 2DFAN4（`landmarks.refine: auto`）在 `models/2dfan4.onnx` 存在时运行。侧脸和低分人脸会替换五个对齐点。正面脸保留检测器的点。68 个点留给表情使用。文件缺失时保留检测器关键点。`commercial_use` 保持 false
 - 表情贴回（`expression.enabled`，默认打开）按 EAR/MAR 门控。闭上的眼睛更多地保留目标。张开的眼睛留在换脸结果上（眼睛基线 0.05）。抿起的嘴轻度混入（最高 0.55）。张开的嘴留在换脸上。有 68 个点时这条路径代替 `--eye-mode`。没有时仍使用 `--eye-mode blend`
+- 目标戴墨镜时（`sunglasses.enabled`，默认打开）走两段。身份贴回覆盖更完整的头，不用镜片下的眼睛做表情。之后可以用非眼部关键点轻度贴回嘴部（`mouth_scale` 0.45）。中脸不做修复式填充
 - 视频不会因为某一帧没有脸而中止。它会降低阈值、旋转并放大后重试，然后在 `video.max_face_gap`（默认 10）以内用相邻帧补上关键点。`--eye-mode blend`（默认）尽量保留目标眼睛。`--with-enhancer` 加上 GFPGAN 或 CodeFormer，眼部混合更强。`--pixel-boost 256` 或 `512` 会把 inswapper 切块，静态图和视频都一样
 - `docs/en` 与 `docs/zh-CN` 下的双语文档站（MkDocs Material）。CI 会构建，不会部署
 

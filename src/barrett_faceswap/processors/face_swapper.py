@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,9 +25,12 @@ from barrett_faceswap.pixel_boost import run_tiled
 from barrett_faceswap.processors.registry import register_processor
 from barrett_faceswap.recover import map_points, search_faces
 from barrett_faceswap.preprocess import normalize_crop
+from barrett_faceswap.sunglasses import apply_sunglass_mask, sunglass_plan
 from barrett_faceswap.swap import GraphSwapper, IdentitySwapper, embed_arcface
 from barrett_faceswap.swap_catalog import output_size, swapper_by_name
 from barrett_faceswap.types import Face, ProcessContext
+
+logger = logging.getLogger(__name__)
 from barrett_faceswap.vision import read_image
 
 
@@ -54,6 +58,7 @@ class FaceSwapper:
         self._detector_obj: FaceDetector | None = None
         self._backend_impl = None
         self._landmarker: LandmarkRefiner | None = None
+        self._sunglass_noted = False
         self.stage_seconds = {
             "detect": 0.0,
             "align": 0.0,
@@ -332,12 +337,36 @@ class FaceSwapper:
             face_width=max(float(face.bbox[2]) - float(face.bbox[0]), 1.0),
         )
         self.stage_seconds["mask"] += time.perf_counter() - started
+        plan = sunglass_plan(
+            self.config.sunglasses,
+            crop,
+            template,
+            labels=getattr(self.masks, "labels", None),
+        )
+        if plan.active:
+            mask = apply_sunglass_mask(mask, side, self.config.blend.mask_blur, template, plan.box_inset)
+            self._note_sunglasses(ctx)
         started = time.perf_counter()
         colored = apply_color(self.config.blend.color, swapped, crop, mask)
         expressed = None
-        if self.config.expression.enabled and face.landmarks_68 is not None:
-            expressed = preserve_expression(colored, crop, face.landmarks_68, matrix, self.config.expression)
-        if expressed is None:
+        use_expression = self.config.expression.enabled and face.landmarks_68 is not None
+        if plan.active and not plan.expression:
+            use_expression = False
+        if use_expression:
+            expressed = preserve_expression(
+                colored,
+                crop,
+                face.landmarks_68,
+                matrix,
+                self.config.expression,
+                include_eyes=not plan.active,
+                mouth_scale=plan.mouth_scale if plan.active else 1.0,
+            )
+        if plan.active:
+            if expressed is not None:
+                colored, _ignored = expressed
+            ctx.eye_openness = 1.0
+        elif expressed is None:
             eye_points = map_points(points, matrix) if points.shape[0] >= 106 else template
             openness = eye_openness(eye_points)
             ctx.eye_openness = openness
@@ -362,6 +391,16 @@ class FaceSwapper:
             pasted = paste_back(frame, colored, matrix, mask)
         self.stage_seconds["paste"] += time.perf_counter() - started
         return pasted
+
+    def _note_sunglasses(self, ctx: ProcessContext) -> None:
+        if self._sunglass_noted:
+            return
+        self._sunglass_noted = True
+        message = t("sunglasses.path")
+        if ctx.log_every_frame:
+            ctx.notes.append(message)
+        else:
+            logger.info(message)
 
 
 def _unit_embedding(vector: np.ndarray) -> np.ndarray:
