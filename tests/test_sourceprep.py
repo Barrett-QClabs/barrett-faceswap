@@ -119,7 +119,10 @@ def test_source_modes_show_one_upload_set() -> None:
         "photo": False,
         "audio": False,
         "voice_override": True,
+        "library": False,
     }
+    assert source_mode_visibility("library")["library"] is True
+    assert source_mode_visibility("library")["video"] is False
     assert source_mode_visibility("photo")["photo"] is True
     assert source_mode_visibility("photo")["audio"] is False
     assert source_mode_visibility("photo")["voice_override"] is False
@@ -130,10 +133,14 @@ def test_source_modes_show_one_upload_set() -> None:
     assert source_files_ready("photo", None, "face.png", None, "target.mp4") is True
     assert source_files_ready("photo_audio", None, "face.png", None, "target.mp4") is False
     assert source_files_ready("photo_audio", None, "face.png", "voice.wav", "target.mp4") is True
+    assert source_files_ready("library", None, None, None, "target.mp4", "ada") is True
+    assert source_files_ready("library", None, None, None, "target.mp4") is False
+    assert source_files_ready("library", None, None, None, "target.mp4", "  ") is False
     assert _voice_reference_for_mode("video", None, Path("override.wav")) == Path("override.wav")
     assert _voice_reference_for_mode("video", None, None) is None
     assert _voice_reference_for_mode("photo", Path("clip.wav"), Path("override.wav")) is None
     assert _voice_reference_for_mode("photo_audio", Path("clip.wav"), Path("override.wav")) == Path("clip.wav")
+    assert _voice_reference_for_mode("library", Path("profile.wav"), Path("override.wav")) == Path("profile.wav")
 
 
 def test_prepared_embedding_is_what_the_swapper_uses(tmp_path: Path) -> None:

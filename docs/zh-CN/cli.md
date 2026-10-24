@@ -4,13 +4,13 @@
 
 ```text
 usage: barrett-faceswap [-h] [--version] [--lang LANG]
-                        {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models}
+                        {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models,library}
                         ...
 
 对静态图像或视频换脸。开发默认关闭合规强制，避免挡住本地试跑。
 
 positional arguments:
-  {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models}
+  {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models,library}
     swap                做人脸检测、对齐、替换并贴回。目标若是视频，则逐帧处理。
     jobs                把换脸放进队列，中断后可以续跑。
     live                运行实时摄像头循环。源脸向量只计算一次。
@@ -21,16 +21,17 @@ positional arguments:
     benchmark           为处理器链计时，并打印每秒帧数。
     doctor              报告执行提供者、CUDA 与 cuDNN 库，以及模型文件。
     download-models     下载 buffalo_l 和 inswapper_128，校验 sha256，并在镜像之间重试。
+    library             新建、补充、列出和删除已保存的源资料。
 
 options:
   -h, --help            show this help message and exit
   --version             show program's version number and exit
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
-usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPUT
-                             [--config CONFIG] [--dry-run] [--enable-compliance] [--lang LANG]
-                             [--consent-file CONSENT_FILE] [--acknowledge-authorized-use]
-                             [--consent-subject CONSENT_SUBJECT]
+usage: barrett-faceswap swap [-h] [--source SOURCE] [--library LIBRARY] --target TARGET --output
+                             OUTPUT [--config CONFIG] [--dry-run] [--enable-compliance]
+                             [--lang LANG] [--consent-file CONSENT_FILE]
+                             [--acknowledge-authorized-use] [--consent-subject CONSENT_SUBJECT]
                              [--consent-statement CONSENT_STATEMENT] [--no-watermark]
                              [--disable-content-filter]
                              [--content-filter-provider {none,stub,nudenet,custom}]
@@ -57,6 +58,7 @@ options:
   -h, --help            show this help message and exit
   --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
                         reference。
+  --library LIBRARY     已保存的源资料。用它代替 --source。融合后的脸和声音就是身份。
   --target TARGET       目标图像或视频。这个文件里的人脸会被替换。
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
@@ -216,8 +218,8 @@ options:
   --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
-usage: barrett-faceswap live [-h] --source SOURCE [--config CONFIG] [--lang LANG]
-                             [--camera CAMERA] [--frames FRAMES] [--no-preview]
+usage: barrett-faceswap live [-h] [--source SOURCE] [--library LIBRARY] [--config CONFIG]
+                             [--lang LANG] [--camera CAMERA] [--frames FRAMES] [--no-preview]
                              [--virtual-camera VIRTUAL_CAMERA] [--dry-run] [--enable-compliance]
                              [--consent-file CONSENT_FILE] [--acknowledge-authorized-use]
                              [--consent-subject CONSENT_SUBJECT]
@@ -235,6 +237,7 @@ options:
   -h, --help            show this help message and exit
   --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
                         reference。
+  --library LIBRARY     已保存的源资料。用它代替 --source。融合后的脸和声音就是身份。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
   --camera CAMERA       OpenCV 摄像头序号。默认是 live.camera。
@@ -375,4 +378,63 @@ options:
                         同时下载这个遮挡模型。不会下载 sam2_refine。
   --force               即使本地文件已经匹配，也重新下载。
   --from-dir FROM_DIR   下载前先从这个目录复制匹配的 ONNX 文件。仍会校验 SHA-256。
+
+usage: barrett-faceswap library [-h] [--config CONFIG] [--lang LANG]
+                                {create,add,list,delete,remove-sample} ...
+
+positional arguments:
+  {create,add,list,delete,remove-sample}
+    create              新建一份空的命名资料。
+    add                 加入一段视频、照片或音频，并融合进这份资料。
+    list                列出已保存的资料。
+    delete              删除一份资料及其样本。
+    remove-sample       移除一个样本，并重新融合剩下的。
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library create [-h] --name NAME [--config CONFIG] [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library add [-h] --name NAME --source SOURCE [--config CONFIG]
+                                    [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --source SOURCE  要加入的视频、照片或音频。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library list [-h] [--config CONFIG] [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library delete [-h] --name NAME [--config CONFIG] [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library remove-sample [-h] --name NAME --sample SAMPLE [--config CONFIG]
+                                              [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --sample SAMPLE  要移除的样本编号。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 ```

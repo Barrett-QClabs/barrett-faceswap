@@ -63,12 +63,13 @@ def source_mode_visibility(mode: str | None) -> dict[str, bool]:
     for a source video, where the extracted speech is the default reference.
     """
 
-    selected = mode if mode in {"video", "photo", "photo_audio"} else "video"
+    selected = mode if mode in {"video", "photo", "photo_audio", "library"} else "video"
     return {
         "video": selected == "video",
         "photo": selected in {"photo", "photo_audio"},
         "audio": selected == "photo_audio",
         "voice_override": selected == "video",
+        "library": selected == "library",
     }
 
 
@@ -174,6 +175,37 @@ def trim_speech(samples: np.ndarray, sample_rate: int, *, min_seconds: float = 0
     return trimmed.astype(np.float32)
 
 
+def embed_still(config: AppConfig, image: np.ndarray) -> tuple[np.ndarray, float, np.ndarray]:
+    """Embed the best face in a still. Returns the vector, quality, and a padded crop."""
+
+    request = SwapRequest(
+        source_path=Path("library-source.png"),
+        target_path=Path("library-target.png"),
+        output_path=Path("library-out.png"),
+    )
+    detect, embed = _resolvers(config, request, None, None)
+    faces = list(detect(image))
+    if not faces:
+        raise NoFaceError(t("identity.no_face"))
+    face = max(faces, key=lambda item: face_quality(image, item))
+    vector = np.asarray(embed(image, face), dtype=np.float32)
+    return vector, face_quality(image, face), _padded_crop(image, face)
+
+
+def _padded_crop(image: np.ndarray, face: Face) -> np.ndarray:
+    height, width = int(image.shape[0]), int(image.shape[1])
+    x1, y1, x2, y2 = [float(value) for value in face.bbox]
+    pad_x = 0.25 * max(1.0, x2 - x1)
+    pad_y = 0.25 * max(1.0, y2 - y1)
+    left = max(0, int(np.floor(x1 - pad_x)))
+    top = max(0, int(np.floor(y1 - pad_y)))
+    right = min(width, int(np.ceil(x2 + pad_x)))
+    bottom = min(height, int(np.ceil(y2 + pad_y)))
+    if right <= left or bottom <= top:
+        return image
+    return image[top:bottom, left:right].copy()
+
+
 def prepare_source(
     config: AppConfig,
     request: SwapRequest,
@@ -254,7 +286,7 @@ def reference_for_mode(mode: str, mode_audio: Path | None, override: Path | None
 
     if mode == "photo":
         return None
-    if mode == "photo_audio":
+    if mode in {"photo_audio", "library"}:
         return mode_audio
     return override
 

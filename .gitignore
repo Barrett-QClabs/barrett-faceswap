@@ -36,6 +36,10 @@ models/**
 outputs/**
 !outputs/.gitkeep
 
+# Saved source identities. These are private likenesses.
+library/**
+!library/.gitkeep
+
 # Generated local samples (no real faces; recreate with examples/make_synthetic.py)
 examples/synthetic/
 

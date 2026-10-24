@@ -662,6 +662,25 @@ class VoiceConfig(_Model):
         return float(value)
 
 
+class LibraryConfig(_Model):
+    """On-disk source profiles. ``dir`` is relative to the working directory."""
+
+    dir: Path = Field(default_factory=lambda: resolve_config_path("library"))
+    voice_seconds: float = 24.0
+
+    @field_validator("dir", mode="before")
+    @classmethod
+    def _dir(cls, value: object) -> Path:
+        return resolve_config_path(value)
+
+    @field_validator("voice_seconds")
+    @classmethod
+    def _voice_seconds(cls, value: float) -> float:
+        if float(value) <= 0.0:
+            raise ValueError(t("config.library_voice_seconds"))
+        return float(value)
+
+
 class JobsConfig(_Model):
     """Directory that stores job specs and in-progress frames."""
 
@@ -687,6 +706,7 @@ class AppConfig(_Model):
     landmarks: LandmarkConfig = Field(default_factory=LandmarkConfig)
     expression: ExpressionConfig = Field(default_factory=ExpressionConfig)
     sunglasses: SunglassesConfig = Field(default_factory=SunglassesConfig)
+    library: LibraryConfig = Field(default_factory=LibraryConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     live: LiveConfig = Field(default_factory=LiveConfig)

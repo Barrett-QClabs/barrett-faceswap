@@ -230,6 +230,12 @@ sunglasses:
   expression: true
   mouth_scale: 0.45
 
+# Named source profiles. New video, photo, and audio samples are fused into
+# the same identity. The directory is private and is not committed.
+library:
+  dir: library
+  voice_seconds: 24
+
 jobs:
   root: jobs
 

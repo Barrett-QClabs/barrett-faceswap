@@ -179,6 +179,7 @@ def test_gradio_blocks_build() -> None:
     assert "声音克隆" in values
     assert "启用声音克隆" in labels
     assert _choice_labels(demo).count("视频（脸+声音，推荐）") == 2
+    assert _choice_labels(demo).count("资料库") == 2
     assert _radio_value(demo, "视频（脸+声音，推荐）") == "video"
     assert "麦克风" in labels
     assert "覆盖参考音色" in labels
@@ -194,6 +195,7 @@ def test_gradio_blocks_build() -> None:
     assert "Voice clone" in english_values
     assert "Enable voice clone" in english_labels
     assert _choice_labels(english).count("Video (face + voice, recommended)") == 2
+    assert _choice_labels(english).count("Library") == 2
     assert "Microphone" in english_labels
     assert "Override reference" in english_labels
     hidden = [
@@ -209,4 +211,14 @@ def test_gradio_blocks_build() -> None:
     overrides = [block for block in demo.blocks.values() if getattr(block, "label", None) == "覆盖参考音色"]
     assert overrides
     assert all(getattr(block, "visible", True) is not False for block in overrides)
+    library_blocks = []
+    for block in demo.blocks.values():
+        label = getattr(block, "label", None)
+        value = getattr(block, "value", None)
+        if label in {"资料", "新名字", "样本", "样本列表", "资料库"}:
+            library_blocks.append(block)
+        elif isinstance(value, str) and value in {"新建", "加入样本", "移除样本", "删除资料"}:
+            library_blocks.append(block)
+    assert library_blocks
+    assert all(getattr(block, "visible", True) is False for block in library_blocks)
     assert any(isinstance(item, str) and "false positives" in item for item in english_values)

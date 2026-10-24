@@ -10,9 +10,11 @@ Averaging is used only when it earns it. The lowest-quality third of those faces
 
 Speech for the clone is the same source video, with silence and noise-like stretches removed. The voice panel on the right uses that clip automatically. Upload a file there to override it. **Photo** swaps the face only. **Photo + audio** uses the photo plus the separate clip shown next to it. A target with no audio never converts voice, even when the source video has speech.
 
+**Library** is a fourth choice. A named profile keeps the same person: more video, photo, or audio is fused into one identity and one speech clip. The image and video tab creates the profile, adds samples, removes a sample, and deletes the profile. The camera tab only selects a profile. Swap from that profile, or keep using a one-shot upload. Profiles are stored under `library/` and are not committed.
+
 ## Camera
 
-The camera tab uses the same three choices, in the same order. **Video (face + voice, recommended)** is selected when the tab opens. Only the uploads for the selected choice are shown.
+The camera tab uses the same choices, in the same order, and adds a saved profile at the end. **Video (face + voice, recommended)** is selected when the tab opens. Only the uploads for the selected choice are shown. Profiles are managed on the image and video tab.
 
 Voice on that tab runs while the camera is on, the microphone is sending audio, and a reference exists. The reference is an uploaded clip when one is set. Otherwise it is speech trimmed from the source video. Photo mode has no reference. Photo + audio uses the clip next to the photo. An uploaded clip wins over speech taken from the source video.
 
@@ -111,4 +113,4 @@ barrett-faceswap swap \
   --output outputs/clip.mp4
 ```
 
-A source video turns voice on. Speech trimmed from it is the reference. `--voice-reference` replaces that clip. `--no-voice` forces face-only. A still source does not convert voice unless you pass `--voice-reference`. `--voice-strength` and `--voice-tau` override the config for that run. A target with no audio stays face-only either way.
+A source video turns voice on. Speech trimmed from it is the reference. `--voice-reference` replaces that clip. `--no-voice` forces face-only. A still source does not convert voice unless you pass `--voice-reference`. `--library NAME` uses a saved profile instead of `--source`. Its fused face is the identity, and its saved speech is the reference unless you pass `--voice-reference` or `--no-voice`. `--voice-strength` and `--voice-tau` override the config for that run. A target with no audio stays face-only either way.

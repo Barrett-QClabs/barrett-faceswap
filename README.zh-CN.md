@@ -45,6 +45,7 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - 2DFAN4（`landmarks.refine: auto`）在 `models/2dfan4.onnx` 存在时运行。侧脸和低分人脸会替换五个对齐点。正面脸保留检测器的点。68 个点留给表情使用。文件缺失时保留检测器关键点。`commercial_use` 保持 false
 - 表情贴回（`expression.enabled`，默认打开）按 EAR/MAR 门控。闭上的眼睛更多地保留目标。张开的眼睛留在换脸结果上（眼睛基线 0.05）。抿起的嘴轻度混入（最高 0.55）。张开的嘴留在换脸上。有 68 个点时这条路径代替 `--eye-mode`。没有时仍使用 `--eye-mode blend`
 - 目标戴墨镜时（`sunglasses.enabled`，默认打开）走两段。身份贴回覆盖更完整的头，不用镜片下的眼睛做表情。之后可以用非眼部关键点轻度贴回嘴部（`mouth_scale` 0.45）。中脸不做修复式填充
+- 源资料库：命名资料放在 `library/`（已被 git 忽略）。可以继续为同一个人加入视频、照片或音频。脸向量用和源视频一样的留出核对平均。裁好的人声按顺序接在一起，只保留最新的 `library.voice_seconds` 秒（默认 24）。Gradio 的源可以选一份资料，也可以一次上传。`barrett-faceswap library` 用来新建和补充。`swap --library 名字` 和 `live --library 名字` 用来代替 `--source`
 - 视频不会因为某一帧没有脸而中止。它会降低阈值、旋转并放大后重试，然后在 `video.max_face_gap`（默认 10）以内用相邻帧补上关键点。`--eye-mode blend`（默认）尽量保留目标眼睛。`--with-enhancer` 加上 GFPGAN 或 CodeFormer，眼部混合更强。`--pixel-boost 256` 或 `512` 会把 inswapper 切块，静态图和视频都一样
 - `docs/en` 与 `docs/zh-CN` 下的双语文档站（MkDocs Material）。CI 会构建，不会部署
 
