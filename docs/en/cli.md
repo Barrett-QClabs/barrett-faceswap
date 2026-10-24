@@ -58,7 +58,9 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       Source image. The face identity comes from this file.
+  --source SOURCE       Source face. A still photo, or a video of that person (face and voice). A
+                        video is sampled for an identity. When the target has audio, speech from
+                        that video is the voice reference unless --voice-reference is set.
   --target TARGET       Target image or video. The face in this file is replaced.
   --output OUTPUT       Where to write the image or video.
   --config CONFIG       Path to the YAML config. Relative paths inside it resolve from the working
@@ -102,8 +104,8 @@ options:
                         How many frames to process at once.
   --no-audio            Drop the source audio instead of muxing it back.
   --voice-reference VOICE_REFERENCE
-                        Reference voice clip (wav, mp3, or m4a). When the target video has audio,
-                        convert its timbre to this speaker.
+                        Reference clip (wav, mp3, or m4a). Overrides speech taken from a source
+                        video. The target must already have audio.
   --no-voice            Do not convert voice, even if a reference clip and the config would.
   --voice-strength VOICE_STRENGTH
                         Clone strength from 0 to 1. 1 replaces the timbre. 0 keeps the original
@@ -181,7 +183,9 @@ usage: barrett-faceswap jobs submit [-h] --source SOURCE --target TARGET --outpu
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       Source image. The face identity comes from this file.
+  --source SOURCE       Source face. A still photo, or a video of that person (face and voice). A
+                        video is sampled for an identity. When the target has audio, speech from
+                        that video is the voice reference unless --voice-reference is set.
   --target TARGET       Target image or video. The face in this file is replaced.
   --output OUTPUT       Where to write the image or video.
   --config CONFIG       Path to the YAML config. Relative paths inside it resolve from the working
@@ -264,7 +268,9 @@ usage: barrett-faceswap live [-h] --source SOURCE [--config CONFIG] [--lang LANG
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       Source image. The face identity comes from this file.
+  --source SOURCE       Source face. A still photo, or a video of that person (face and voice). A
+                        video is sampled for an identity. When the target has audio, speech from
+                        that video is the voice reference unless --voice-reference is set.
   --config CONFIG       Path to the YAML config. Relative paths inside it resolve from the working
                         directory.
   --lang LANG           Interface language: en or zh-CN. Overrides BARRETT_FACESWAP_LANG and
@@ -323,7 +329,9 @@ usage: barrett-faceswap compare [-h] --source SOURCE --target TARGET --output OU
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       Source image. The face identity comes from this file.
+  --source SOURCE       Source face. A still photo, or a video of that person (face and voice). A
+                        video is sampled for an identity. When the target has audio, speech from
+                        that video is the voice reference unless --voice-reference is set.
   --target TARGET       Target image or video. The face in this file is replaced.
   --output OUTPUT       Where to write the image or video.
   --config CONFIG       Path to the YAML config. Relative paths inside it resolve from the working

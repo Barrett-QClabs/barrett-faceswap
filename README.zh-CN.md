@@ -33,7 +33,7 @@ Barrett FaceSwap 可以对静态图像或视频换脸。它把常见的工程路
 - `--face-enhancer-model`：GFPGAN 1.4（模型默认）、CodeFormer（保真默认 0.7）、GPEN BFR 512/1024/2048 或 RestoreFormer++。有解析文件时，修复结果只混合到皮肤类别，眼睛和眉毛保留普通换脸。视频默认不跑增强器。静态图需要修复时用 `--with-enhancer`，或把 `face_enhancer` 加进 `processors`。CodeFormer 权重 0.7 加上解析文件会保留眼睛和眉毛。GFPGAN 会把眼睛画窄并过度平滑皮肤，所以它不是视频默认。类型为 `tensor(double)` 的 CodeFormer 输入以 float64 送入
 - `barrett-faceswap compare` 为换脸器和增强器的组合写出带标签的联系表和耗时表。`--dry-run` 不加载权重
 - 实时关键点在对齐之前做与视频相同的 One-Euro 平滑。视频已经在人脸流里、对齐之前平滑
-- 视频：ffprobe、抽帧、线程池走同一套处理器、`libx264` 或 `h264_nvenc`，再把原音轨混回去。可以裁剪时间段。可选的 OpenVoice V2 会在这之后替换音色。只有打开声音、提供了参考音色、并且目标有音轨时才会跑。没有音轨就只换脸
+- 视频：ffprobe、抽帧、线程池走同一套处理器、`libx264` 或 `h264_nvenc`，再把原音轨混回去。可以裁剪时间段。Gradio 的源默认是一段同时有脸和声音的视频。它会抽样人脸，只有平均向量在留出的帧上胜过最好的一帧时才用平均。从这段视频里截出的人声是参考音色，除非你另外上传。另外两种是照片，以及照片加一段单独的音频。可选的 OpenVoice V2 会在这之后替换目标音轨的音色。只有打开声音、有参考音色、并且目标有音轨时才会跑。没有音轨就只换脸
 - ONNX Runtime 会话按模型哈希、提供者列表、设备、精度和 CUDA 图标记缓存。默认提供者是 CUDA，然后是 CPU。同时列出 CUDA 和 TensorRT 时 CUDA 仍在前面。`--execution-provider tensorrt` 会在 `.cache/tensorrt/engines` 建立引擎缓存，每个角色使用自己的前缀。`tensorrt.fp16` 默认是 false，因为 fp16 会改变身份。`execution.precision: fp16` 选用同目录的 `*_fp16.onnx`，文件不存在时退回 fp32。CUDA 会话会复用 IO binding。只有 `execution.cuda_graph` 打开时才请求 CUDA 图捕获
 - 模型注册表包含许可、商业标记、对齐名称、输入尺寸，以及加载时可选的 sha256 校验
 - CLI、视频流水线和界面共用的 Pydantic 配置

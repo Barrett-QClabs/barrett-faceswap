@@ -25,6 +25,7 @@ from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import LanguageError, get_language, normalize_language, set_language, t
 from barrett_faceswap.media.ffmpeg import VIDEO_OUTPUT_SUFFIXES, read_first_frame
 from barrett_faceswap.pipeline import FaceSwapPipeline
+from barrett_faceswap.sourceprep import source_mode_visibility
 from barrett_faceswap.voice import target_has_audio, voice_toggle_for_target
 from barrett_faceswap.swap_catalog import (
     BLEND_MODES,
@@ -137,6 +138,18 @@ footer {{ display: none !important; }}
   border-radius: 14px;
   padding: 4px 8px 8px;
   min-width: 260px;
+}}
+.bf-source-mode fieldset,
+.bf-source-mode .wrap {{
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}}
+.bf-source-mode label:has(input[type="radio"]) {{
+  flex: 1 1 140px !important;
+  justify-content: center !important;
+  text-align: center !important;
+  min-height: 52px !important;
 }}
 .gradio-container button.primary,
 .gradio-container .bf-cta {{
@@ -329,7 +342,10 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.language", "label"),
     ControlSpec("ui.media_tab", "label"),
     ControlSpec("ui.steps", "value"),
+    ControlSpec("ui.source_mode", "label"),
+    ControlSpec("ui.source_video", "label"),
     ControlSpec("ui.source", "label"),
+    ControlSpec("ui.source_audio", "label"),
     ControlSpec("ui.target", "label"),
     ControlSpec("ui.swapper_model", "label"),
     ControlSpec("ui.swapper_hint", "value"),
@@ -454,6 +470,36 @@ def launch_ui(
 
     demo = build_demo(config_path, language=language)
     demo.launch(server_name=host, server_port=int(port), share=share)
+
+
+def _source_mode_choices() -> list[tuple[str, str]]:
+    return [
+        (t("ui.source_mode_video"), "video"),
+        (t("ui.source_mode_photo"), "photo"),
+        (t("ui.source_mode_photo_audio"), "photo_audio"),
+    ]
+
+
+def _voice_hint_key(mode: str | None) -> str:
+    return {
+        "photo": "ui.voice_hint_photo",
+        "photo_audio": "ui.voice_hint_audio",
+    }.get(str(mode or "video"), "ui.voice_hint_video")
+
+
+def source_files_ready(mode: str | None, video: object, photo: object, audio: object, target: object) -> bool:
+    """True when the uploads for the selected source mode, and a target, are set."""
+
+    if _as_path(target) is None:
+        return False
+    flags = source_mode_visibility(mode)
+    if flags["video"]:
+        return _as_path(video) is not None
+    if _as_path(photo) is None:
+        return False
+    if flags["audio"]:
+        return _as_path(audio) is not None
+    return True
 
 
 def _quality_choices() -> list[tuple[str, str]]:
@@ -593,7 +639,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
         initial.masks.occluder_model,
     )
 
-    def on_language(selected: str):
+    def on_language(selected: str, source_mode: str):
         updates = language_updates(selected)
         wrapped = []
         for spec, payload in zip(CONTROLS, updates, strict=True):
@@ -602,6 +648,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 data["choices"] = _language_choices()
             elif spec.key == "ui.quality":
                 data["choices"] = _quality_choices()
+            elif spec.key == "ui.source_mode":
+                data["choices"] = _source_mode_choices()
+            elif spec.key == "ui.voice_hint":
+                data["value"] = t(_voice_hint_key(source_mode))
             wrapped.append(gr.update(**data))
         return wrapped
 
@@ -640,17 +690,38 @@ def build_demo(config_path: str | Path, language: str | None = None):
             return gr.skip()
         return gr.update(value=nxt)
 
-    def _files_ready(source, target):
-        ready = _as_path(source) is not None and _as_path(target) is not None
+    def _voice_for_mode(mode: str | None, target: Path | None) -> tuple[bool, str]:
+        if mode == "photo":
+            return False, t("ui.voice_hint_photo")
+        enabled, message = voice_toggle_for_target(target, auto_enable=bool(initial.voice.enabled))
+        if mode == "photo_audio" and enabled:
+            message = t("ui.voice_ready_audio")
+        return enabled, message
+
+    def _files_ready(mode, video, photo, audio, target):
+        ready = source_files_ready(mode, video, photo, audio, target)
         return gr.update(interactive=ready), gr.update(interactive=ready)
 
-    def _target_changed(source, target):
-        preview_button_update, run_button_update = _files_ready(source, target)
-        enabled, message = voice_toggle_for_target(
-            _as_path(target),
-            auto_enable=bool(initial.voice.enabled),
-        )
+    def _target_changed(mode, video, photo, audio, target):
+        preview_button_update, run_button_update = _files_ready(mode, video, photo, audio, target)
+        enabled, message = _voice_for_mode(mode, _as_path(target))
         return preview_button_update, run_button_update, gr.update(value=enabled), message
+
+    def _mode_view(mode, video, photo, audio, target):
+        flags = source_mode_visibility(mode)
+        preview_button_update, run_button_update = _files_ready(mode, video, photo, audio, target)
+        enabled, message = _voice_for_mode(mode, _as_path(target))
+        return (
+            gr.update(visible=flags["video"]),
+            gr.update(visible=flags["photo"]),
+            gr.update(visible=flags["audio"]),
+            gr.update(visible=flags["voice_override"]),
+            t(_voice_hint_key(mode)),
+            gr.update(value=enabled),
+            message,
+            preview_button_update,
+            run_button_update,
+        )
 
     def _preview_array(path: Path):
         image = read_first_frame(path) if is_video(path) else read_image(path)
@@ -720,7 +791,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
 
     def on_execute(
         selected_language: str,
-        source: object,
+        source_mode: str,
+        source_video: object,
+        source_photo: object,
+        source_audio: object,
         target: object,
         output_text: str,
         swapper_model: str,
@@ -758,10 +832,22 @@ def build_demo(config_path: str | Path, language: str | None = None):
     ):
         try:
             language_updates(selected_language or get_language())
-            source_path = _as_path(source)
+            mode = source_mode if source_mode in {"video", "photo", "photo_audio"} else "video"
+            flags = source_mode_visibility(mode)
+            source_path = _as_path(source_video) if flags["video"] else _as_path(source_photo)
             target_path = _as_path(target)
             if source_path is None or target_path is None:
                 yield None, t("ui.need_files"), 0, t("ui.voice_idle")
+                return
+            if flags["video"] and not is_video(source_path):
+                yield None, t("ui.need_source_video"), 0, t("ui.voice_idle")
+                return
+            if not flags["video"] and is_video(source_path):
+                yield None, t("ui.need_source_photo"), 0, t("ui.voice_idle")
+                return
+            mode_audio = _as_path(source_audio) if flags["audio"] else None
+            if flags["audio"] and mode_audio is None:
+                yield None, t("ui.need_source_audio"), 0, t("ui.voice_idle")
                 return
             processors = ["face_swapper"]
             if enhancer_on:
@@ -825,16 +911,23 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     target_face_index=int(target_index or 0),
                     with_enhancer=bool(enhancer_on),
                     detect_score=float(detect_score),
-                    voice_enabled=bool(voice_on) and not preview_only,
-                    voice_reference=None if preview_only else _as_path(voice_clip),
+                    voice_enabled=False if mode == "photo" or preview_only else bool(voice_on),
+                    voice_reference=_voice_reference_for_mode(
+                        mode,
+                        mode_audio,
+                        None if preview_only else _as_path(voice_clip),
+                    ),
                     voice_strength=float(voice_strength_value),
                     voice_tau=float(voice_tau_value),
                 )
                 full_video = is_video(target_path) and not preview_only
+                will_reference = request.voice_reference is not None or (
+                    mode == "video" and bool(request.voice_enabled)
+                )
                 voice_planned = (
                     full_video
-                    and bool(voice_on)
-                    and request.voice_reference is not None
+                    and bool(request.voice_enabled)
+                    and will_reference
                     and not dry_run
                     and target_has_audio(target_path)
                 )
@@ -870,10 +963,29 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 with gr.Row(elem_classes=["bf-layout"]):
                     with gr.Column(scale=38, elem_classes=["bf-controls"]):
                         steps = gr.Markdown(t("ui.steps"))
-                        source = gr.Image(
+                        source_mode = gr.Radio(
+                            choices=_source_mode_choices(),
+                            value="video",
+                            label=t("ui.source_mode"),
+                            elem_classes=["bf-source-mode"],
+                        )
+                        source_video = gr.File(
+                            type="filepath",
+                            file_count="single",
+                            file_types=[".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"],
+                            label=t("ui.source_video"),
+                        )
+                        source_photo = gr.Image(
                             type="filepath",
                             sources=["upload", "clipboard"],
                             label=t("ui.source"),
+                            visible=False,
+                        )
+                        source_audio = gr.Audio(
+                            type="filepath",
+                            sources=["upload"],
+                            label=t("ui.source_audio"),
+                            visible=False,
                         )
                         target = gr.File(type="filepath", label=t("ui.target"), file_count="single")
                         swapper_model = gr.Dropdown(
@@ -1078,7 +1190,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
             language,
             media_tab,
             steps,
-            source,
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
             target,
             swapper_model,
             swapper_hint,
@@ -1145,7 +1260,10 @@ def build_demo(config_path: str | Path, language: str | None = None):
         ]
         form = [
             language,
-            source,
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
             target,
             output,
             swapper_model,
@@ -1182,7 +1300,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
         if len(labeled) != len(CONTROLS):
             raise BarrettFaceswapError(t("ui.control_mismatch", found=len(labeled), expected=len(CONTROLS)))
         tab_js = _tab_button_script()
-        language.change(on_language, inputs=[language], outputs=labeled, js=tab_js)
+        language.change(on_language, inputs=[language, source_mode], outputs=labeled, js=tab_js)
         preset_inputs = [quality, swapper_model, pixel_boost, enhancer_on, enhancer, blend, weight, occluder_model]
         preset_outputs = [swapper_model, pixel_boost, enhancer_on, enhancer, blend, weight, occluder_model]
         quality.change(apply_preset, inputs=preset_inputs, outputs=preset_outputs)
@@ -1192,10 +1310,27 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 inputs=[quality, swapper_model, pixel_boost, enhancer_on, occluder_model],
                 outputs=quality,
             )
-        source.change(_files_ready, inputs=[source, target], outputs=[preview_button, run_button])
+        mode_inputs = [source_mode, source_video, source_photo, source_audio, target]
+        source_mode.change(
+            _mode_view,
+            inputs=mode_inputs,
+            outputs=[
+                source_video,
+                source_photo,
+                source_audio,
+                voice_reference,
+                voice_hint,
+                voice_enable,
+                voice_status,
+                preview_button,
+                run_button,
+            ],
+        )
+        for widget in (source_video, source_photo, source_audio):
+            widget.change(_files_ready, inputs=mode_inputs, outputs=[preview_button, run_button])
         target.change(
             _target_changed,
-            inputs=[source, target],
+            inputs=mode_inputs,
             outputs=[preview_button, run_button, voice_enable, voice_status],
         )
         preview_button.click(on_preview, inputs=form, outputs=[preview, status, progress_bar, voice_status])
@@ -1437,6 +1572,21 @@ def _live_tab(
         live_camera,
         live_preview,
     )
+
+
+def _voice_reference_for_mode(mode: str, mode_audio: Path | None, override: Path | None) -> Path | None:
+    """The clip the voice step should use for this source mode.
+
+    Video uses an uploaded override, or None so the pipeline can trim speech
+    from the source video. Photo never carries a reference. Photo + audio
+    uses the clip next to the photo.
+    """
+
+    if mode == "photo":
+        return None
+    if mode == "photo_audio":
+        return mode_audio
+    return override
 
 
 def _as_path(value: object) -> Path | None:

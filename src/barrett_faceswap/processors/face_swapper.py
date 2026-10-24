@@ -186,7 +186,12 @@ class FaceSwapper:
         for entry in entries:
             image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
             hint = ctx.source_face if not entry.source else None
-            arc, source_score = self._embed_image(backend, image, hint)
+            prepared = ctx.source_embedding if not entry.source else None
+            if prepared is not None:
+                arc = _unit_embedding(prepared)
+                source_score = 1.0
+            else:
+                arc, source_score = self._embed_image(backend, image, hint)
             match = arc
             if entry.reference:
                 match, _reference_score = self._embed_image(backend, read_image(Path(entry.reference)))
@@ -357,6 +362,14 @@ class FaceSwapper:
             pasted = paste_back(frame, colored, matrix, mask)
         self.stage_seconds["paste"] += time.perf_counter() - started
         return pasted
+
+
+def _unit_embedding(vector: np.ndarray) -> np.ndarray:
+    array = np.asarray(vector, dtype=np.float32).reshape(-1)
+    norm = float(np.linalg.norm(array))
+    if norm <= 0.0:
+        raise NoFaceError(t("identity.no_face"))
+    return array / norm
 
 
 def _area(face: Face) -> float:

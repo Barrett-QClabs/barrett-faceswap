@@ -55,7 +55,8 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
   --target TARGET       目标图像或视频。这个文件里的人脸会被替换。
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
@@ -94,7 +95,7 @@ options:
                         同时处理的帧数。
   --no-audio            丢弃源音轨，不再混回输出。
   --voice-reference VOICE_REFERENCE
-                        参考音色（wav、mp3 或 m4a）。目标视频有音轨时，把说话人音色换成这段声音。
+                        参考音色（wav、mp3 或 m4a）。会覆盖从源视频里取出的人声。目标必须本来就有音轨。
   --no-voice            不要做声音转换，即使提供了参考音色、配置也打开了。
   --voice-strength VOICE_STRENGTH
                         克隆强度，0 到 1。1 替换音色。0 保留原音轨。默认 1。
@@ -160,7 +161,8 @@ usage: barrett-faceswap jobs submit [-h] --source SOURCE --target TARGET --outpu
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
   --target TARGET       目标图像或视频。这个文件里的人脸会被替换。
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
@@ -231,7 +233,8 @@ usage: barrett-faceswap live [-h] --source SOURCE [--config CONFIG] [--lang LANG
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
   --camera CAMERA       OpenCV 摄像头序号。默认是 live.camera。
@@ -282,7 +285,8 @@ usage: barrett-faceswap compare [-h] --source SOURCE --target TARGET --output OU
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
   --target TARGET       目标图像或视频。这个文件里的人脸会被替换。
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。

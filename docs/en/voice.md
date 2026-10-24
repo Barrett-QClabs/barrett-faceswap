@@ -2,6 +2,14 @@
 
 Face swap stays the main path. Voice conversion is a second step for a **video that already has speech**.
 
+## Source
+
+The page opens on **Video (face + voice, recommended)**. Upload one clip of the person. The run samples frames across it, scores each face for size, sharpness, and how frontal it is, and embeds the best ones.
+
+Averaging is used only when it earns it. The lowest-quality third of those faces is held out. If the average of the rest matches those held-out faces better than the single best face, the identity is the average. Otherwise the best face is the identity. One usable face stays that face. BlendSwap wants a source crop, so it always uses the best frame.
+
+Speech for the clone is the same source video, with silence and noise-like stretches removed. The voice panel on the right uses that clip automatically. Upload a file there to override it. **Photo** swaps the face only. **Photo + audio** uses the photo plus the separate clip shown next to it. A target with no audio never converts voice, even when the source video has speech.
+
 It runs only when all of these are true:
 
 - the voice switch is on (or you passed `--voice-reference`)
@@ -88,10 +96,9 @@ Length: a small duration gap (about 15%) is time-stretched so the words stay nea
 
 ```bash
 barrett-faceswap swap \
-  --source path/to/authorized-source.png \
+  --source path/to/authorized-source.mp4 \
   --target path/to/authorized-clip.mp4 \
-  --output outputs/clip.mp4 \
-  --voice-reference path/to/reference.wav
+  --output outputs/clip.mp4
 ```
 
-`--no-voice` forces face-only. `--voice-strength` and `--voice-tau` override the config for that run. Without `--voice-reference`, a normal swap does not convert voice, even though `voice.enabled` is true.
+A source video turns voice on. Speech trimmed from it is the reference. `--voice-reference` replaces that clip. `--no-voice` forces face-only. A still source does not convert voice unless you pass `--voice-reference`. `--voice-strength` and `--voice-tau` override the config for that run. A target with no audio stays face-only either way.

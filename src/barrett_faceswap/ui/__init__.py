@@ -10,6 +10,15 @@ from barrett_faceswap.i18n import t
 
 UI_KEYS = (
     "ui.source",
+    "ui.source_mode",
+    "ui.source_mode_video",
+    "ui.source_mode_photo",
+    "ui.source_mode_photo_audio",
+    "ui.source_video",
+    "ui.source_audio",
+    "ui.need_source_video",
+    "ui.need_source_photo",
+    "ui.need_source_audio",
     "ui.target",
     "ui.output",
     "ui.processors",

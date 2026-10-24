@@ -33,6 +33,7 @@ from barrett_faceswap.i18n import LanguageError, activate_language, t
 from barrett_faceswap.model_registry import describe_models
 from barrett_faceswap.pipeline import FaceSwapPipeline, list_processor_names
 from barrett_faceswap.types import SwapRequest
+from barrett_faceswap.vision import is_video
 
 _DEFAULT_CONFIG = "configs/default.yaml"
 
@@ -382,7 +383,7 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         video_threads=namespace.video_threads,
         keep_audio=False if namespace.no_audio else None,
         voice_reference=namespace.voice_reference,
-        voice_enabled=False if namespace.no_voice else (True if namespace.voice_reference else None),
+        voice_enabled=_voice_enabled(namespace),
         voice_strength=namespace.voice_strength,
         voice_tau=namespace.voice_tau,
         filter_every_n_frames=namespace.filter_every,
@@ -500,6 +501,20 @@ def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None
         job_id=job_id,
         resume=resume,
     )
+
+
+def _voice_enabled(namespace: argparse.Namespace) -> bool | None:
+    """A source video opts into voice unless ``--no-voice`` is set.
+
+    An uploaded ``--voice-reference`` still wins inside the pipeline. A still
+    source stays face-only until a reference is passed.
+    """
+
+    if namespace.no_voice:
+        return False
+    if namespace.voice_reference is not None or is_video(namespace.source):
+        return True
+    return None
 
 
 def _dispatch_live(namespace: argparse.Namespace) -> int:

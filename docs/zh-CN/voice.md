@@ -2,6 +2,14 @@
 
 换脸仍是主路径。声音转换是后面一步，只处理**本来就有人声的视频**。
 
+## 源
+
+页面默认是 **视频（脸+声音，推荐）**。上传一段这个人的视频。运行时会在整段里抽帧，按脸的大小、清晰度和正脸程度打分，再对最好的几张做向量。
+
+平均不是默认就用。分数较低的约三分之一张脸会留出来做核对。如果其余脸的平均向量比「最好的一张」更接近这些留出的脸，身份就用平均；否则用最好的一张。只有一张可用的脸时就用那一张。BlendSwap 要的是源脸裁剪，所以始终用最好的一帧。
+
+克隆用的人声也来自这段源视频，会去掉静音和像噪声的片段。右侧声音面板默认用这段人声。在那里上传文件可以覆盖。**照片**只换脸。**照片 + 音频**用照片，再加上旁边那一段单独的音频。目标没有音轨时绝不做声音转换，即使源视频里有人声。
+
 只有下面几条同时成立才会跑：
 
 - 声音开关是开的（或命令行传了 `--voice-reference`）
@@ -88,10 +96,9 @@ models/openvoice_v2/converter/checkpoint.pth
 
 ```bash
 barrett-faceswap swap \
-  --source path/to/authorized-source.png \
+  --source path/to/authorized-source.mp4 \
   --target path/to/authorized-clip.mp4 \
-  --output outputs/clip.mp4 \
-  --voice-reference path/to/reference.wav
+  --output outputs/clip.mp4
 ```
 
-`--no-voice` 强制只换脸。`--voice-strength` 和 `--voice-tau` 覆盖这一次的配置。没有 `--voice-reference` 时，普通换脸不会做声音转换，即使 `voice.enabled` 是 true。
+源是视频时会打开声音转换，参考音色是从这段视频里截出的人声。`--voice-reference` 会换掉这段人声。`--no-voice` 强制只换脸。源是静态图时，除非传了 `--voice-reference`，否则不做声音转换。`--voice-strength` 和 `--voice-tau` 覆盖这一次的配置。目标没有音轨时，两种情况都只换脸。

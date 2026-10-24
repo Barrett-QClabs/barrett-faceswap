@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -40,32 +42,38 @@ class FaceSwapPipeline:
         store = JobStore(self.config.jobs.root)
         job = open_for_run(store, request)
         try:
-            if is_video(request.target_path):
-                from barrett_faceswap.video import VideoPipeline
-                from barrett_faceswap.voice import apply_voice, check_voice
+            with tempfile.TemporaryDirectory(prefix="barrett-source-") as directory:
+                from barrett_faceswap.sourceprep import prepare_source
 
-                check_voice(self.config, request, converter=self.voice_converter)
-                result = VideoPipeline(self.config, admin_path=self.policy.admin_path).run(
-                    request,
-                    job=job,
-                    store=store,
-                    on_progress=on_progress,
-                )
-                return apply_voice(
-                    self.config,
-                    request,
-                    result,
-                    converter=self.voice_converter,
-                    on_stage=on_stage,
-                )
-            if request.trim_start is not None or request.trim_end is not None or request.video_encoder is not None:
-                raise ConfigError(t("video.flags_need_video"))
-            if request.video_mode == "pipe":
-                raise ConfigError(t("video.pipe_needs_video"))
-            result = self._run_image(request, job, store)
-            from barrett_faceswap.voice import apply_voice
+                request, source_notes = prepare_source(self.config, request, Path(directory))
+                if is_video(request.target_path):
+                    from barrett_faceswap.video import VideoPipeline
+                    from barrett_faceswap.voice import apply_voice, check_voice
 
-            return apply_voice(self.config, request, result, converter=self.voice_converter)
+                    check_voice(self.config, request, converter=self.voice_converter)
+                    result = VideoPipeline(self.config, admin_path=self.policy.admin_path).run(
+                        request,
+                        job=job,
+                        store=store,
+                        on_progress=on_progress,
+                    )
+                    result = apply_voice(
+                        self.config,
+                        request,
+                        result,
+                        converter=self.voice_converter,
+                        on_stage=on_stage,
+                    )
+                    return _prepend_notes(result, source_notes)
+                if request.trim_start is not None or request.trim_end is not None or request.video_encoder is not None:
+                    raise ConfigError(t("video.flags_need_video"))
+                if request.video_mode == "pipe":
+                    raise ConfigError(t("video.pipe_needs_video"))
+                result = self._run_image(request, job, store)
+                from barrett_faceswap.voice import apply_voice
+
+                result = apply_voice(self.config, request, result, converter=self.voice_converter)
+                return _prepend_notes(result, source_notes)
         except Exception as exc:
             if job is not None and job.state != "done":
                 job.state = "interrupted"
@@ -100,11 +108,14 @@ class FaceSwapPipeline:
             self.config.execution.providers
         )
         processors = [create_processor(name, self.config, providers) for name in names]
+        from barrett_faceswap.sourceprep import embedding_array
+
         context = ProcessContext(
             source_bgr=source,
             dry_run=request.dry_run,
             target_face_index=request.target_face_index,
             notes=notes,
+            source_embedding=embedding_array(request),
         )
         for processor in processors:
             processor.pre_check(context)
@@ -117,6 +128,12 @@ class FaceSwapPipeline:
 
 def list_processor_names() -> list[str]:
     return available_processors()
+
+
+def _prepend_notes(result, notes: list[str]):
+    if notes:
+        result.notes = list(notes) + list(result.notes)
+    return result
 
 
 def _dry_run_banner(image: np.ndarray, text: str) -> np.ndarray:

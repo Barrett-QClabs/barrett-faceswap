@@ -294,6 +294,7 @@ def extract_audio(
     *,
     trim_start: float | None,
     trim_end: float | None,
+    sample_rate: int | None = None,
 ) -> None:
     """Write the first audio stream as mono 16-bit PCM WAV."""
 
@@ -303,10 +304,73 @@ def extract_audio(
         command += ["-ss", _seconds(trim_start)]
     if trim_end is not None:
         command += ["-to", _seconds(trim_end)]
-    command += ["-i", str(source), "-map", "0:a:0", "-ac", "1", "-c:a", "pcm_s16le", str(dest)]
+    command += ["-i", str(source), "-map", "0:a:0", "-ac", "1"]
+    if sample_rate is not None:
+        command += ["-ar", str(int(sample_rate))]
+    command += ["-c:a", "pcm_s16le", str(dest)]
     _run(command)
     if not dest.is_file():
         raise MediaToolError(t("video.ffmpeg_failed", detail="audio missing"))
+
+
+def sample_video_frames(source: Path, directory: Path, count: int) -> list[Path]:
+    """Save up to ``count`` frames spread across the clip.
+
+    The fps filter keeps a long video from writing every frame. The list is
+    sorted by filename and is shorter when the clip itself is shorter.
+    """
+
+    if int(count) < 1:
+        raise MediaToolError(t("video.no_frames", path=source))
+    directory.mkdir(parents=True, exist_ok=True)
+    duration = media_duration(source)
+    rate = float(count) / max(duration, 1e-3)
+    pattern = directory / "sample_%03d.png"
+    _run(
+        [
+            _ffmpeg_bin(),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(source),
+            "-vf",
+            f"fps={rate:.6f}",
+            "-frames:v",
+            str(int(count)),
+            str(pattern),
+        ]
+    )
+    frames = sorted(directory.glob("sample_*.png"))
+    if not frames:
+        raise MediaToolError(t("video.no_frames", path=source))
+    return frames
+
+
+def save_middle_frame(source: Path, dest: Path) -> None:
+    """Write one frame from the middle of ``source``. Dry-run uses this still."""
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    duration = media_duration(source)
+    _run(
+        [
+            _ffmpeg_bin(),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(source),
+            "-ss",
+            _seconds(max(0.0, duration / 2.0)),
+            "-frames:v",
+            "1",
+            str(dest),
+        ]
+    )
+    if not dest.is_file():
+        raise MediaToolError(t("video.no_frames", path=source))
 
 
 def render_wav(source: Path, dest: Path, *, audio_filter: str) -> None:
