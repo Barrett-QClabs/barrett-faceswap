@@ -10,7 +10,17 @@ Averaging is used only when it earns it. The lowest-quality third of those faces
 
 Speech for the clone is the same source video, with silence and noise-like stretches removed. The voice panel on the right uses that clip automatically. Upload a file there to override it. **Photo** swaps the face only. **Photo + audio** uses the photo plus the separate clip shown next to it. A target with no audio never converts voice, even when the source video has speech.
 
-It runs only when all of these are true:
+## Camera
+
+The camera tab uses the same three choices, in the same order. **Video (face + voice, recommended)** is selected when the tab opens. Only the uploads for the selected choice are shown.
+
+Voice on that tab runs while the camera is on, the microphone is sending audio, and a reference exists. The reference is an uploaded clip when one is set. Otherwise it is speech trimmed from the source video. Photo mode has no reference. Photo + audio uses the clip next to the photo. An uploaded clip wins over speech taken from the source video.
+
+No microphone, or no reference, stays face-only. That path does not play the microphone back. Dry run does not convert. If the OpenVoice converter is not installed, the preview keeps swapping the face and the voice line says the model is missing.
+
+`barrett-faceswap live` captures the camera only. It does not read a microphone. Use the camera tab for one-stop face and voice.
+
+On a file, voice runs only when all of these are true:
 
 - the voice switch is on (or you passed `--voice-reference`)
 - a reference clip is set (wav, mp3, or m4a)

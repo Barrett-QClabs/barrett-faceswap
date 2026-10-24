@@ -12,12 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import numpy as np
 from pydantic import ValidationError
 
 from barrett_faceswap.config import (
     ENHANCER_MODELS,
     EXECUTION_PROVIDERS,
     VIDEO_ENCODERS,
+    AppConfig,
     apply_request_overrides,
     load_config,
 )
@@ -25,7 +27,7 @@ from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import LanguageError, get_language, normalize_language, set_language, t
 from barrett_faceswap.media.ffmpeg import VIDEO_OUTPUT_SUFFIXES, read_first_frame
 from barrett_faceswap.pipeline import FaceSwapPipeline
-from barrett_faceswap.sourceprep import source_mode_visibility
+from barrett_faceswap.sourceprep import reference_for_mode, resolve_live_reference, source_mode_visibility
 from barrett_faceswap.voice import target_has_audio, voice_toggle_for_target
 from barrett_faceswap.swap_catalog import (
     BLEND_MODES,
@@ -400,14 +402,21 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.status", "label"),
     ControlSpec("ui.live_tab", "label"),
     ControlSpec("ui.live_intro", "value"),
-    ControlSpec("ui.live_source", "label"),
+    ControlSpec("ui.source_mode", "label"),
+    ControlSpec("ui.source_video", "label"),
+    ControlSpec("ui.source", "label"),
+    ControlSpec("ui.source_audio", "label"),
+    ControlSpec("ui.live_voice_override", "label"),
     ControlSpec("ui.live_start", "value"),
     ControlSpec("ui.live_stop", "value"),
     ControlSpec("ui.live_status", "label"),
+    ControlSpec("ui.live_voice", "label"),
     ControlSpec("ui.advanced", "label"),
     ControlSpec("ui.dry_run", "label"),
     ControlSpec("ui.compliance", "label"),
     ControlSpec("ui.live_camera", "label"),
+    ControlSpec("ui.live_mic", "label"),
+    ControlSpec("ui.live_speaker", "label"),
     ControlSpec("ui.live_preview", "label"),
 )
 
@@ -1162,14 +1171,21 @@ def build_demo(config_path: str | Path, language: str | None = None):
             (
                 live_tab,
                 live_intro,
+                live_source_mode,
+                live_source_video,
                 live_source,
+                live_source_audio,
+                live_voice_override,
                 live_start,
                 live_stop,
                 live_status,
+                live_voice,
                 live_advanced,
                 live_dry,
                 live_compliance,
                 live_camera,
+                live_mic,
+                live_speaker,
                 live_preview,
             ) = _live_tab(
                 gr,
@@ -1248,14 +1264,21 @@ def build_demo(config_path: str | Path, language: str | None = None):
             status,
             live_tab,
             live_intro,
+            live_source_mode,
+            live_source_video,
             live_source,
+            live_source_audio,
+            live_voice_override,
             live_start,
             live_stop,
             live_status,
+            live_voice,
             live_advanced,
             live_dry,
             live_compliance,
             live_camera,
+            live_mic,
+            live_speaker,
             live_preview,
         ]
         form = [
@@ -1389,24 +1412,73 @@ def _live_tab(
     execution,
     detect_score,
 ):
-    """Webcam tab. Model controls are the ones on the image/video tab."""
+    """Webcam tab. The source choices match the media tab. Voice needs the mic."""
+
+    import shutil
+    import tempfile
 
     from barrett_faceswap.live import LiveSession
+    from barrett_faceswap.live_voice import apply_live_chunk
+    from barrett_faceswap.sourceprep import prepare_source
 
-    holder: dict[str, object] = {"session": None, "armed": False, "sig": None}
+    holder: dict[str, object] = {
+        "session": None,
+        "armed": False,
+        "sig": None,
+        "camera_on": False,
+        "work": None,
+        "request": None,
+        "config": None,
+        "reference": None,
+        "converter": None,
+    }
     with gr.Tab(t("ui.live_tab")) as live_tab:
         live_intro = gr.Markdown(t("ui.live_intro"))
         with gr.Row(elem_classes=["bf-layout"]):
             with gr.Column(scale=38, elem_classes=["bf-controls"]):
+                live_source_mode = gr.Radio(
+                    choices=_source_mode_choices(),
+                    value="video",
+                    label=t("ui.source_mode"),
+                    elem_classes=["bf-source-mode"],
+                )
+                live_source_video = gr.File(
+                    type="filepath",
+                    file_count="single",
+                    file_types=[".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"],
+                    label=t("ui.source_video"),
+                )
                 live_source = gr.Image(
                     type="filepath",
                     sources=["upload", "clipboard"],
-                    label=t("ui.live_source"),
+                    label=t("ui.source"),
+                    visible=False,
+                )
+                live_source_audio = gr.Audio(
+                    type="filepath",
+                    sources=["upload"],
+                    label=t("ui.source_audio"),
+                    visible=False,
+                )
+                live_voice_override = gr.Audio(
+                    type="filepath",
+                    sources=["upload"],
+                    label=t("ui.live_voice_override"),
                 )
                 with gr.Row(elem_classes=["bf-actions"]):
-                    live_start = gr.Button(t("ui.live_start"), variant="primary", elem_classes=["bf-cta"])
+                    live_start = gr.Button(
+                        t("ui.live_start"),
+                        variant="primary",
+                        elem_classes=["bf-cta"],
+                        interactive=False,
+                    )
                     live_stop = gr.Button(t("ui.live_stop"), variant="secondary")
                 live_status = gr.Textbox(label=t("ui.live_status"), interactive=False)
+                live_voice = gr.Textbox(
+                    value=t("ui.live_face_only"),
+                    label=t("ui.live_voice"),
+                    interactive=False,
+                )
                 with gr.Accordion(t("ui.advanced"), open=False) as live_advanced:
                     live_dry = gr.Checkbox(value=True, label=t("ui.dry_run"))
                     live_compliance = gr.Checkbox(
@@ -1421,6 +1493,17 @@ def _live_tab(
                     label=t("ui.live_camera"),
                     height=220,
                 )
+                live_mic = gr.Audio(
+                    sources=["microphone"],
+                    streaming=True,
+                    type="numpy",
+                    label=t("ui.live_mic"),
+                )
+                live_speaker = gr.Audio(
+                    label=t("ui.live_speaker"),
+                    interactive=False,
+                    autoplay=True,
+                )
                 live_preview = gr.Image(
                     type="numpy",
                     label=t("ui.live_preview"),
@@ -1428,8 +1511,34 @@ def _live_tab(
                     elem_classes=["bf-preview"],
                 )
 
+    source_inputs = [
+        live_source_mode,
+        live_source_video,
+        live_source,
+        live_source_audio,
+        live_voice_override,
+    ]
+
+    def _source_choice(mode, video, photo, audio_file):
+        selected = mode if mode in {"video", "photo", "photo_audio"} else "video"
+        flags = source_mode_visibility(selected)
+        source_path = _as_path(video) if flags["video"] else _as_path(photo)
+        if source_path is None:
+            raise BarrettFaceswapError(t("ui.need_files"))
+        if flags["video"] and not is_video(source_path):
+            raise BarrettFaceswapError(t("ui.need_source_video"))
+        if not flags["video"] and is_video(source_path):
+            raise BarrettFaceswapError(t("ui.need_source_photo"))
+        mode_audio = _as_path(audio_file) if flags["audio"] else None
+        if flags["audio"] and mode_audio is None:
+            raise BarrettFaceswapError(t("ui.need_source_audio"))
+        return selected, source_path, mode_audio
+
     def _request(
-        source,
+        mode,
+        video,
+        photo,
+        audio_file,
         dry_run: bool,
         compliance: bool,
         swapper: str,
@@ -1441,14 +1550,12 @@ def _live_tab(
         enhancer_weight: float,
         providers: list[str] | None,
         detect_score: float,
-    ) -> SwapRequest:
-        source_path = _as_path(source)
-        if source_path is None:
-            raise BarrettFaceswapError(t("ui.need_files"))
+    ) -> tuple[str, Path, Path | None, SwapRequest]:
+        selected, source_path, mode_audio = _source_choice(mode, video, photo, audio_file)
         processors = ["face_swapper"]
         if enhancer_enabled:
             processors.append("face_enhancer")
-        return SwapRequest(
+        request = SwapRequest(
             source_path=source_path,
             target_path=Path("camera-ui"),
             output_path=Path("outputs/live-ui-session.txt"),
@@ -1466,11 +1573,18 @@ def _live_tab(
             execution_providers=list(providers) if providers else None,
             with_enhancer=bool(enhancer_enabled),
             detect_score=float(detect_score),
+            voice_enabled=False,
         )
+        return selected, source_path, mode_audio, request
 
-    def _signature(source, dry_run, compliance, swapper, boost, occluder, enhancer_enabled, model, blend_value, weight_value, providers, detect_score):
+    def _signature(mode, video, photo, audio_file, override, dry_run, compliance, *model_args):
+        swapper, boost, occluder, enhancer_enabled, model, blend_value, weight_value, providers, detect_score = model_args
         return (
-            str(_as_path(source)),
+            str(mode),
+            str(_as_path(video)),
+            str(_as_path(photo)),
+            str(_as_path(audio_file)),
+            str(_as_path(override)),
             bool(dry_run),
             bool(compliance),
             str(swapper),
@@ -1496,97 +1610,221 @@ def _live_tab(
         detect_score,
     ]
 
-    def on_start(source, dry_run: bool, compliance: bool, *model_args):
+    def _arm(mode, video, photo, audio_file, override, dry_run, compliance, *model_args):
         _close()
-        try:
-            _request(source, dry_run, compliance, *model_args)
-        except BarrettFaceswapError as exc:
-            return str(exc)
+        selected, source_path, mode_audio, request = _request(
+            mode, video, photo, audio_file, dry_run, compliance, *model_args
+        )
+        work = Path(tempfile.mkdtemp(prefix="barrett-live-"))
+        config = apply_request_overrides(load_config(config_file), request)
+        prepared, _notes = prepare_source(
+            config,
+            request.model_copy(update={"voice_enabled": False}),
+            work,
+        )
+        reference, _kind = resolve_live_reference(
+            selected,
+            source_path,
+            _as_path(override),
+            mode_audio,
+            work,
+        )
+        holder["work"] = work
+        holder["config"] = config
+        holder["request"] = prepared
+        holder["reference"] = reference
+        holder["converter"] = None
         holder["armed"] = True
-        return t("ui.live_ready")
+        holder["camera_on"] = False
+        holder["sig"] = _signature(mode, video, photo, audio_file, override, dry_run, compliance, *model_args)
+        if reference is None:
+            return t("ui.live_ready"), t("ui.live_face_only")
+        if dry_run:
+            return t("ui.live_ready"), t("ui.live_voice_dry")
+        return t("ui.live_ready"), t("ui.live_voice_wait")
 
-    def on_frame(frame, source, dry_run: bool, compliance: bool, *model_args):
+    def on_start(mode, video, photo, audio_file, override, dry_run: bool, compliance: bool, *model_args):
+        try:
+            status, voice = _arm(mode, video, photo, audio_file, override, dry_run, compliance, *model_args)
+        except (BarrettFaceswapError, ValidationError, LanguageError) as exc:
+            _close()
+            return str(exc), t("ui.live_face_only")
+        return status, voice
+
+    def on_frame(frame, mode, video, photo, audio_file, override, dry_run: bool, compliance: bool, *model_args):
         if frame is None:
             return None
         try:
             if not holder.get("armed"):
                 return frame
-            signature = _signature(source, dry_run, compliance, *model_args)
+            signature = _signature(mode, video, photo, audio_file, override, dry_run, compliance, *model_args)
             session = holder.get("session")
             if session is None or holder.get("sig") != signature:
-                _close()
-                config = load_config(config_file)
-                request = _request(source, dry_run, compliance, *model_args)
-                config = apply_request_overrides(config, request)
+                _arm(mode, video, photo, audio_file, override, dry_run, compliance, *model_args)
+                request = holder.get("request")
+                config = holder.get("config")
+                if not isinstance(request, SwapRequest) or config is None:
+                    return frame
                 session = LiveSession(config, request)
                 bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 session.start(bgr)
                 holder["session"] = session
-                holder["sig"] = signature
-                holder["armed"] = True
             else:
                 bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            holder["camera_on"] = True
             output = session.step(bgr)
             return cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
         except (BarrettFaceswapError, ValidationError, LanguageError):
             _close()
             return None
 
+    def on_mic(audio, mode, video, photo, audio_file, override, dry_run: bool, compliance: bool, *model_args):
+        del mode, video, photo, audio_file, override, compliance, model_args
+        samples, sample_rate = _mic_chunk(audio)
+        reference = holder.get("reference")
+        reference_path = reference if isinstance(reference, Path) else None
+        work = holder.get("work")
+        if not isinstance(work, Path):
+            work = Path(tempfile.gettempdir()) / "barrett-live-idle"
+        request = holder.get("request")
+        request_dry = bool(getattr(request, "dry_run", False)) if request is not None else False
+        config = holder.get("config")
+        converted, plan = apply_live_chunk(
+            samples,
+            sample_rate,
+            camera_on=bool(holder.get("camera_on")),
+            reference=reference_path,
+            dry_run=bool(dry_run) or request_dry,
+            tau=float(initial.voice.tau),
+            work=work,
+            converter=holder.get("converter") if callable(holder.get("converter")) else None,
+            config=config if isinstance(config, AppConfig) else None,
+            cache=holder,
+        )
+        played = None if converted is None else (sample_rate, converted)
+        return played, t(_live_voice_key(plan))
+
     def _close() -> None:
         session = holder.get("session")
+        work = holder.get("work")
         holder["session"] = None
         holder["sig"] = None
+        holder["camera_on"] = False
+        holder["reference"] = None
+        holder["request"] = None
+        holder["config"] = None
+        holder["converter"] = None
+        holder["work"] = None
         if session is not None:
             try:
                 session.finish()
             except Exception:
                 holder["session"] = None
+        if isinstance(work, Path):
+            shutil.rmtree(work, ignore_errors=True)
 
     def on_stop():
         session = holder.get("session")
-        holder["session"] = None
-        holder["sig"] = None
         holder["armed"] = False
+        holder["camera_on"] = False
         if session is None:
-            return t("ui.live_idle")
+            _close()
+            return t("ui.live_idle"), t("ui.live_face_only")
         result = session.finish()
-        return t("ui.live_stopped", path=result.output_path)
+        holder["session"] = None
+        _close()
+        return t("ui.live_stopped", path=result.output_path), t("ui.live_face_only")
 
-    live_start.click(on_start, inputs=[live_source, live_dry, live_compliance, *shared], outputs=live_status)
+    def _mode_view(mode, video, photo, audio_file, override):
+        del override
+        flags = source_mode_visibility(mode)
+        ready = source_files_ready(mode, video, photo, audio_file, "camera")
+        return (
+            gr.update(visible=flags["video"]),
+            gr.update(visible=flags["photo"]),
+            gr.update(visible=flags["audio"]),
+            gr.update(visible=flags["voice_override"]),
+            gr.update(interactive=ready),
+        )
+
+    def _files_ready(mode, video, photo, audio_file):
+        ready = source_files_ready(mode, video, photo, audio_file, "camera")
+        return gr.update(interactive=ready)
+
+    live_source_mode.change(
+        _mode_view,
+        inputs=source_inputs,
+        outputs=[live_source_video, live_source, live_source_audio, live_voice_override, live_start],
+    )
+    for widget in (live_source_video, live_source, live_source_audio):
+        widget.change(_files_ready, inputs=source_inputs[:4], outputs=live_start)
+    live_start.click(
+        on_start,
+        inputs=[*source_inputs, live_dry, live_compliance, *shared],
+        outputs=[live_status, live_voice],
+    )
     live_camera.stream(
         on_frame,
-        inputs=[live_camera, live_source, live_dry, live_compliance, *shared],
+        inputs=[live_camera, *source_inputs, live_dry, live_compliance, *shared],
         outputs=live_preview,
     )
-    live_stop.click(on_stop, outputs=live_status)
+    live_mic.stream(
+        on_mic,
+        inputs=[live_mic, *source_inputs, live_dry, live_compliance, *shared],
+        outputs=[live_speaker, live_voice],
+    )
+    live_stop.click(on_stop, outputs=[live_status, live_voice])
     return (
         live_tab,
         live_intro,
+        live_source_mode,
+        live_source_video,
         live_source,
+        live_source_audio,
+        live_voice_override,
         live_start,
         live_stop,
         live_status,
+        live_voice,
         live_advanced,
         live_dry,
         live_compliance,
         live_camera,
+        live_mic,
+        live_speaker,
         live_preview,
     )
 
 
+def _live_voice_key(plan: str) -> str:
+    """Status catalog key for one live microphone chunk."""
+
+    return {
+        "run": "ui.live_voice_ready",
+        "dry_run": "ui.live_voice_dry",
+        "wait": "ui.live_voice_wait",
+        "unavailable": "ui.live_voice_unavailable",
+    }.get(plan, "ui.live_face_only")
+
+
+def _mic_chunk(audio: object) -> tuple[np.ndarray | None, int]:
+    """Gradio's streaming microphone value is ``(sample_rate, samples)``."""
+
+    if audio is None:
+        return None, 16000
+    if isinstance(audio, tuple) and len(audio) == 2 and isinstance(audio[0], (int, float)):
+        rate = int(audio[0]) or 16000
+        data = audio[1]
+        if data is None:
+            return None, rate
+        return np.asarray(data), rate
+    return np.asarray(audio), 16000
+
+
 def _voice_reference_for_mode(mode: str, mode_audio: Path | None, override: Path | None) -> Path | None:
-    """The clip the voice step should use for this source mode.
+    """Uploaded clip for this source mode. See :func:`reference_for_mode`."""
 
-    Video uses an uploaded override, or None so the pipeline can trim speech
-    from the source video. Photo never carries a reference. Photo + audio
-    uses the clip next to the photo.
-    """
-
-    if mode == "photo":
-        return None
-    if mode == "photo_audio":
-        return mode_audio
-    return override
+    return reference_for_mode(mode, mode_audio, override)
 
 
 def _as_path(value: object) -> Path | None:

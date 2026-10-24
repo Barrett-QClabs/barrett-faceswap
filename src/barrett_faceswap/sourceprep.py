@@ -236,20 +236,66 @@ def _attach_speech(
         return request, notes
     if not is_video(request.target_path) or not target_has_audio(request.target_path):
         return request, notes
-    if not probe(video).has_audio:
+    dest = work / "source-speech.wav"
+    if not write_speech_reference(video, dest, work):
         notes.append(t("identity.no_speech"))
         return request, notes
-    dest = work / "source-speech.wav"
+    notes.append(t("identity.speech"))
+    return request.model_copy(update={"voice_reference": dest}), notes
+
+
+def reference_for_mode(mode: str, mode_audio: Path | None, override: Path | None) -> Path | None:
+    """Uploaded clip for this source mode.
+
+    Video mode returns the override, or None so the caller can trim speech
+    from the source video. Photo never has a reference. Photo + audio uses
+    the clip next to the photo.
+    """
+
+    if mode == "photo":
+        return None
+    if mode == "photo_audio":
+        return mode_audio
+    return override
+
+
+def write_speech_reference(video: Path, dest: Path, work: Path) -> bool:
+    """Trim silence and noise from ``video`` into ``dest``. False when nothing usable remains."""
+
+    if not is_video(video) or not probe(video).has_audio:
+        return False
     raw = work / "source-audio.wav"
     extract_audio(video, raw, trim_start=None, trim_end=None, sample_rate=SPEECH_RATE)
     samples, rate = _read_wav(raw)
     trimmed = trim_speech(samples, rate)
     if trimmed is None:
-        notes.append(t("identity.no_speech"))
-        return request, notes
+        return False
     _write_wav(dest, trimmed, rate)
-    notes.append(t("identity.speech"))
-    return request.model_copy(update={"voice_reference": dest}), notes
+    return True
+
+
+def resolve_live_reference(
+    mode: str,
+    source: Path | None,
+    override: Path | None,
+    mode_audio: Path | None,
+    work: Path,
+) -> tuple[Path | None, str]:
+    """Reference for a live session: uploaded clip, else speech from the source video.
+
+    ``upload`` is an override or the photo + audio clip. ``source`` is speech
+    trimmed from a source video. ``none`` means the live run stays face-only.
+    """
+
+    work.mkdir(parents=True, exist_ok=True)
+    uploaded = reference_for_mode(mode, mode_audio, override)
+    if uploaded is not None:
+        return (uploaded, "upload") if uploaded.is_file() else (None, "none")
+    if mode == "video" and source is not None and is_video(source):
+        dest = work / "live-speech.wav"
+        if write_speech_reference(source, dest, work):
+            return dest, "source"
+    return None, "none"
 
 
 def _identity_note(choice: IdentityChoice, *, crop_model: bool) -> str:

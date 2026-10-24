@@ -178,8 +178,11 @@ def test_gradio_blocks_build() -> None:
     assert "检测阈值" in labels
     assert "声音克隆" in values
     assert "启用声音克隆" in labels
-    assert "视频（脸+声音，推荐）" in _choice_labels(demo)
+    assert _choice_labels(demo).count("视频（脸+声音，推荐）") == 2
     assert _radio_value(demo, "视频（脸+声音，推荐）") == "video"
+    assert "麦克风" in labels
+    assert "覆盖参考音色" in labels
+    assert "没有麦克风或没有参考音色，只换脸。" in values
     assert any(isinstance(item, str) and "误检" in item for item in values)
     assert any(getattr(block, "value", None) == 0.5 for block in demo.blocks.values())
     english = build_demo(REPO / "configs" / "default.yaml", language="en")
@@ -190,7 +193,9 @@ def test_gradio_blocks_build() -> None:
     assert "Detect score threshold" in english_labels
     assert "Voice clone" in english_values
     assert "Enable voice clone" in english_labels
-    assert "Video (face + voice, recommended)" in _choice_labels(english)
+    assert _choice_labels(english).count("Video (face + voice, recommended)") == 2
+    assert "Microphone" in english_labels
+    assert "Override reference" in english_labels
     hidden = [
         block
         for block in demo.blocks.values()
@@ -199,6 +204,9 @@ def test_gradio_blocks_build() -> None:
     assert hidden
     assert all(getattr(block, "visible", True) is False for block in hidden)
     video_blocks = [block for block in demo.blocks.values() if getattr(block, "label", None) == "源视频"]
-    assert video_blocks
+    assert len(video_blocks) == 2
     assert all(getattr(block, "visible", True) is not False for block in video_blocks)
+    overrides = [block for block in demo.blocks.values() if getattr(block, "label", None) == "覆盖参考音色"]
+    assert overrides
+    assert all(getattr(block, "visible", True) is not False for block in overrides)
     assert any(isinstance(item, str) and "false positives" in item for item in english_values)
