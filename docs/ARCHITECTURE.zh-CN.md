@@ -4,7 +4,7 @@
 
 对文件的公开调用是 `FaceSwapPipeline.run`。第四阶段加上实时摄像头循环、在 CPU 上保持空闲的 TensorRT 与 CUDA 图选项、fp16 旁路文件查找、商业使用门禁，以及一个不实际训练的训练脚手架。第三阶段的可选换脸图、像素提升、多人脸选择、泊松融合、可续跑任务和可选的无磁盘管道仍然保留。视频目标会交给 `VideoPipeline`。文件路径和实时路径都会在处理器前后调用 `CompliancePolicy`，续跑的任务和管道模式也一样。处理器只返回帧，不写输出文件，因此不能靠某个处理器提前存盘来绕过水印。
 
-`configs/default.yaml` 里的 `compliance.enabled` 保持 `false`。策略对象仍然会执行。在这个默认值下，它会记录强制已关闭，并写出不带标记的文件。
+`configs/default.yaml` 里的 `compliance.enabled` 是 `true`。本地开关把它关掉时，策略对象仍然会执行，记录强制已关闭，并写出不带标记的文件。本地开关是 `BARRETT_DEV_MODE=1`、`BARRETT_COMPLIANCE=off`，以及被 git 忽略的 `configs/local.yaml`。
 
 第一阶段的背景阅读在 [RESEARCH.zh-CN.md](RESEARCH.zh-CN.md)。
 
@@ -86,9 +86,19 @@ ffprobe
 
 `expression.enabled`（默认 true）用这 68 个点把目标眼睛和抿起的嘴贴回去。眼睛的量是 `0.05 + 0.85 * closedness`，嘴的量是 `0.55 * pursedness`，使用 `ear_open` 0.24、`ear_closed` 0.15、`mar_open` 0.045、`mar_closed` 0.012。凸包是眼与眉、以及嘴，画在对齐后的裁剪里。这条路径运行时会跳过 `blend.eye_mode`，因为那个混合会在张开的五点脸上把大部分目标眼睛贴回去。没有 68 个点时，`blend.eye_mode` 仍然运行。增强器把 `1 - closedness` 当作 `eye_openness`。视频默认仍然不跑 `face_enhancer`，除非 `--with-enhancer` 或处理器列表把它加进去。
 
+`sunglasses.enabled`（默认 true）是目标裁剪戴着墨镜时的路径。解析结果里有一条横跨眼线的眼镜，或者双眼之间有一条明显深于额头和脸颊的暗带，就会打开。一整张都暗的裁剪不会打开。第一阶段把贴回加宽到更完整的头（`box_inset` 0.04），并关掉表情，包括 `--eye-mode`，因此不会用镜片下面的关键点。蒙版在中脸的空洞由这次身份覆盖补上，不做修复式填充。第二阶段在 `sunglasses.expression` 打开且有 68 个点时，只混合嘴，强度乘 `mouth_scale`（默认 0.45）。增强器被告知眼睛是张开的，这样不会把镜片当成闭上的眼睑。静态图、视频和实时都走这条换脸路径。
+
+## 源资料库
+
+`library.dir`（默认 `library/`，已被 git 忽略）存放命名资料。每个样本是同一个人的视频、照片或音频。脸向量走 `select_identity`，和源视频用的是同一套留出核对平均。视频样本存的是这一段已经融合好的向量。照片存一张脸的向量。音频不改变脸。裁好的人声按样本顺序接在一起，只保留最新的 `library.voice_seconds` 秒（默认 24），采样率 16 kHz。预览静图用质量最高的那张。换脸用 `still.png`、融合后的向量，以及存在时的 `voice.wav`。一次性上传仍然可用。`barrett-faceswap library` 用来新建、补充、列出和删除。`swap --library 名字` 和 `live --library 名字` 代替 `--source`。两者只能提供一个。
+
+## 多脸对应
+
+图像·视频页可以在一次导出里把每张脸换到不同的源。识别脸读取静图，或视频的第一帧，最多列出四张最大的脸。每一行可以不换、选一份已保存的资料，或上传一张照片。点一次开始，会为这一次运行写出临时的人脸映射 JSON，不会写进 `default.yaml`。一行是 `{source, embedding?, match, reference?}`。`embedding` 是融合后的源身份。`match` 是目标里的那个人，后面的帧先按这个人匹配，再由跟踪保持槽位。选了不换的脸，以及没有对上的人，都保持原样。空镜头保持原样。摄像头页仍然是一张身份。整段只用一个参考音色：第一份带人声的已映射资料，除非另外上传了参考音色，或当前是照片模式。BlendSwap 不用融合向量，而是嵌入源静图。命令行上的 JSON 文件不限四行。
+
 ## 选脸
 
-`swap.selector` 为 `index`（默认，先按面积从大到小，`--target-face-index`）、`many`（每一张检测到的脸，一个源）、`reference`（对参考图做余弦相似度；没有参考图时对源脸），或 `map`。映射文件是 JSON 列表，每项为 `{source, target_index, reference}`。锁定的 `target_index` 直接分配，顺序是面积从大到小。其余脸在 `swap.similarity`（默认 0.45）以上一对一匹配。没有匹配时抛出 `swap.no_match`。
+`swap.selector` 为 `index`（默认，先按面积从大到小，`--target-face-index`）、`many`（每一张检测到的脸，一个源）、`reference`（对参考图做余弦相似度；没有参考图时对源脸），或 `map`。映射文件是 JSON 列表，每项为 `{source, target_index?, reference?, embedding?, match?}`。锁定的 `target_index` 直接分配，顺序是面积从大到小。其余脸在 `swap.similarity`（默认 0.45）以上一对一匹配。没有匹配时抛出 `swap.no_match`，除非这一帧允许在没有脸时原样通过。
 
 `FaceTracker` 是贪心 IoU（`swap.track_iou`，默认 0.3，连续错过 8 帧后丢掉）。一条轨迹一旦分到源槽，后面的帧就保持这个槽。参考和映射默认打开跟踪。
 
@@ -171,7 +181,7 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 - 代码是 MIT，没有打包 FaceFusion、Deep-Live-Cam、roop 或 SimSwap 的源码
 - `download-models` 是显式命令。安装器、界面和 CI 都不会下载权重
-- 合规是完整的包，操作者不打开就保持关闭
+- 合规是完整的包，除非本地开关把它关掉，否则保持打开
 - 文案走英文和中文目录
 - 哈希锁定在操作者填写之前是可选的
 - 内容过滤的默认提供者是 stub：放行该帧，并写明没有加载检测器
@@ -179,4 +189,4 @@ ONNX 约定是本地代码，不是 GFPGAN 或 CodeFormer 训练项目的副本�
 
 ## 仍然延后
 
-这组之外的换脸器（uniface、hififace 等），以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。`compliance.enabled` 在正式发布前保持 false。
+这组之外的换脸器（uniface、hififace 等），以及精确到帧的管道续跑。管道续跑仍按时间戳定位。中文水印用原创位图覆盖 `人工智能生成`；其他字符需要 `compliance.watermark.font_path`。训练脚手架不训练、也不导出权重。TensorRT 和 CUDA 图只在安装了对应提供者时运行。

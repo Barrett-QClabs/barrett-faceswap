@@ -440,6 +440,29 @@ class ExpressionConfig(_Model):
         return int(value)
 
 
+class SunglassesConfig(_Model):
+    """Fuller identity swap, then an optional mild mouth. Eyes under the lenses stay off."""
+
+    enabled: bool = True
+    box_inset: float = 0.04
+    expression: bool = True
+    mouth_scale: float = 0.45
+
+    @field_validator("box_inset")
+    @classmethod
+    def _inset(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 0.45:
+            raise ValueError(t("config.sunglasses_inset"))
+        return float(value)
+
+    @field_validator("mouth_scale")
+    @classmethod
+    def _mouth_scale(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
+
+
 class VideoConfig(_Model):
     """Disk frame pipeline by default. ``mode: pipe`` keeps frames off disk."""
 
@@ -562,12 +585,13 @@ class AuditConfig(_Model):
 class ComplianceConfig(_Model):
     """Production profile.
 
-    ``enabled`` is the master switch. Nested fields apply only after an
-    operator turns enforcement on. The shipped default is off so local
-    dry-runs are not blocked.
+    ``enabled`` is the master switch. The published default is on: consent,
+    a visible label, embedded metadata, the content filter, and an audit
+    line. Local development turns it off with ``BARRETT_DEV_MODE=1``,
+    ``BARRETT_COMPLIANCE=off``, or a gitignored ``configs/local.yaml``.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     consent: ConsentConfig = Field(default_factory=ConsentConfig)
     watermark: WatermarkConfig = Field(default_factory=WatermarkConfig)
     content_filter: ContentFilterConfig = Field(default_factory=ContentFilterConfig)
@@ -588,6 +612,74 @@ class LiveConfig(_Model):
         if int(value) < 1:
             raise ValueError(t("config.live_positive"))
         return int(value)
+
+
+class VoiceConfig(_Model):
+    """Optional zero-shot voice conversion after a video face swap.
+
+    ``enabled`` is the product default. The Gradio toggle still starts off and
+    turns on only after the uploaded target video has an audio stream. A run
+    converts speech only when that toggle (or ``--voice-reference``) is on, a
+    reference clip is present, and the target has audio. A silent target stays
+    face-only.
+    """
+
+    enabled: bool = True
+    engine: str = "openvoice"
+    checkpoint_dir: Path = Field(default_factory=lambda: resolve_config_path("models/openvoice_v2"))
+    # 1 replaces the target timbre. 0 keeps the original track and skips the model.
+    strength: float = 1.0
+    # OpenVoice posterior noise. 0.3 is the upstream default. Higher is more random.
+    tau: float = 0.3
+    # auto uses CUDA when PyTorch can see a GPU, including an RTX 5090 on a cu128 build.
+    device: str = "auto"
+    # Upstream can embed a wavmark payload. Leave this off so compliance stays the only watermark.
+    watermark: bool = False
+
+    @field_validator("checkpoint_dir", mode="before")
+    @classmethod
+    def _checkpoint_dir(cls, value: object) -> Path:
+        return resolve_config_path(value)
+
+    @field_validator("engine")
+    @classmethod
+    def _engine(cls, value: str) -> str:
+        if value != "openvoice":
+            raise ValueError(t("config.voice_engine", value=value, allowed="openvoice"))
+        return value
+
+    @field_validator("device")
+    @classmethod
+    def _device(cls, value: str) -> str:
+        if value not in {"auto", "cuda", "cpu"}:
+            raise ValueError(t("config.voice_device", value=value))
+        return value
+
+    @field_validator("strength", "tau")
+    @classmethod
+    def _unit(cls, value: float) -> float:
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(t("config.unit_interval"))
+        return float(value)
+
+
+class LibraryConfig(_Model):
+    """On-disk source profiles. ``dir`` is relative to the working directory."""
+
+    dir: Path = Field(default_factory=lambda: resolve_config_path("library"))
+    voice_seconds: float = 24.0
+
+    @field_validator("dir", mode="before")
+    @classmethod
+    def _dir(cls, value: object) -> Path:
+        return resolve_config_path(value)
+
+    @field_validator("voice_seconds")
+    @classmethod
+    def _voice_seconds(cls, value: float) -> float:
+        if float(value) <= 0.0:
+            raise ValueError(t("config.library_voice_seconds"))
+        return float(value)
 
 
 class JobsConfig(_Model):
@@ -614,7 +706,10 @@ class AppConfig(_Model):
     masks: MasksConfig = Field(default_factory=MasksConfig)
     landmarks: LandmarkConfig = Field(default_factory=LandmarkConfig)
     expression: ExpressionConfig = Field(default_factory=ExpressionConfig)
+    sunglasses: SunglassesConfig = Field(default_factory=SunglassesConfig)
+    library: LibraryConfig = Field(default_factory=LibraryConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
     live: LiveConfig = Field(default_factory=LiveConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     processors: list[str] = Field(default_factory=lambda: ["face_swapper"])
@@ -724,7 +819,12 @@ def apply_request_overrides(config: AppConfig, request: object) -> AppConfig:
 
 
 def load_config(path: str | Path) -> AppConfig:
-    """Read and validate a YAML config file."""
+    """Read and validate a YAML config file.
+
+    A ``local.yaml`` beside that file is merged on top and is meant to stay
+    gitignored. ``BARRETT_COMPLIANCE`` then wins, and ``BARRETT_DEV_MODE=1``
+    turns compliance off when that variable is unset.
+    """
 
     config_path = Path(path)
     if not config_path.is_file():
@@ -735,7 +835,47 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError(t("config.parse_error", path=config_path, error=exc)) from exc
     if not isinstance(raw, dict):
         raise ConfigError(t("config.not_mapping", path=config_path))
+    local_path = config_path.parent / "local.yaml"
+    if local_path.is_file() and local_path.resolve() != config_path.resolve():
+        try:
+            overlay = yaml.safe_load(local_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ConfigError(t("config.parse_error", path=local_path, error=exc)) from exc
+        if not isinstance(overlay, dict):
+            raise ConfigError(t("config.not_mapping", path=local_path))
+        raw = _merge_mapping(raw, overlay)
+    raw = _apply_compliance_env(raw)
     try:
         return AppConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(t("config.validation", detail=exc)) from exc
+
+
+def _merge_mapping(base: dict, overlay: dict) -> dict:
+    merged = dict(base)
+    for key, value in overlay.items():
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = _merge_mapping(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _apply_compliance_env(raw: dict) -> dict:
+    """Env overrides the YAML master switch. Explicit compliance wins over dev mode."""
+
+    import os
+
+    updated = dict(raw)
+    compliance = dict(updated.get("compliance") or {})
+    dev_mode = os.environ.get("BARRETT_DEV_MODE", "").strip().lower()
+    explicit = os.environ.get("BARRETT_COMPLIANCE", "").strip().lower()
+    if explicit in {"0", "off", "false", "no"}:
+        compliance["enabled"] = False
+    elif explicit in {"1", "on", "true", "yes"}:
+        compliance["enabled"] = True
+    elif dev_mode in {"1", "true", "yes", "on"}:
+        compliance["enabled"] = False
+    updated["compliance"] = compliance
+    return updated

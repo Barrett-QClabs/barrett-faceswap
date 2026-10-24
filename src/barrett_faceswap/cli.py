@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import yaml
 from pydantic import ValidationError
 
@@ -30,9 +31,11 @@ from barrett_faceswap.errors import (
     ModelNotFoundError,
 )
 from barrett_faceswap.i18n import LanguageError, activate_language, t
+from barrett_faceswap.library import library_from_config, parts_from_file
 from barrett_faceswap.model_registry import describe_models
 from barrett_faceswap.pipeline import FaceSwapPipeline, list_processor_names
 from barrett_faceswap.types import SwapRequest
+from barrett_faceswap.vision import is_video
 
 _DEFAULT_CONFIG = "configs/default.yaml"
 
@@ -78,7 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     swap = sub.add_parser("swap", help=t("cli.swap_help"))
-    swap.add_argument("--source", required=True, type=Path, help=t("cli.source"))
+    swap.add_argument("--source", type=Path, default=None, help=t("cli.source"))
+    swap.add_argument("--library", default=None, help=t("cli.library"))
     swap.add_argument("--target", required=True, type=Path, help=t("cli.target"))
     swap.add_argument("--output", required=True, type=Path, help=t("cli.output"))
     swap.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
@@ -107,6 +111,10 @@ def build_parser() -> argparse.ArgumentParser:
     swap.add_argument("--video-encoder", default=None, choices=list(VIDEO_ENCODERS), help=t("cli.video_encoder"))
     swap.add_argument("--video-threads", type=int, default=None, help=t("cli.video_threads"))
     swap.add_argument("--no-audio", action="store_true", help=t("cli.no_audio"))
+    swap.add_argument("--voice-reference", type=Path, default=None, help=t("cli.voice_reference"))
+    swap.add_argument("--no-voice", action="store_true", help=t("cli.no_voice"))
+    swap.add_argument("--voice-strength", type=float, default=None, help=t("cli.voice_strength"))
+    swap.add_argument("--voice-tau", type=float, default=None, help=t("cli.voice_tau"))
     swap.add_argument("--filter-every", type=int, default=None, help=t("cli.filter_every"))
     swap.add_argument(
         "--face-enhancer-model",
@@ -144,6 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--execution-provider", action="append", default=None, help=t("cli.execution_provider"))
     _add_phase3_flags(submit)
     submit.add_argument("--job-id", default=None, help=t("cli.job_id"))
+    submit.add_argument("--enable-compliance", action="store_true", help=t("cli.enable_compliance"))
+    submit.add_argument("--consent-file", type=Path, default=None, help=t("cli.consent_file"))
+    submit.add_argument("--acknowledge-authorized-use", action="store_true", help=t("cli.acknowledge"))
+    submit.add_argument("--consent-subject", default=None, help=t("cli.consent_subject"))
+    submit.add_argument("--consent-statement", default=None, help=t("cli.consent_statement"))
     resume = job_cmds.add_parser("resume", help=t("cli.jobs_resume"))
     resume.add_argument("job_id", help=t("cli.job_id"))
     resume.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
@@ -156,7 +169,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_next.add_argument("--lang", default=None, help=t("cli.lang"))
 
     live = sub.add_parser("live", help=t("cli.live_help"))
-    live.add_argument("--source", required=True, type=Path, help=t("cli.source"))
+    live.add_argument("--source", type=Path, default=None, help=t("cli.source"))
+    live.add_argument("--library", default=None, help=t("cli.library"))
     live.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
     live.add_argument("--lang", default=None, help=t("cli.lang"))
     live.add_argument("--camera", type=int, default=None, help=t("cli.camera"))
@@ -265,6 +279,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     download.add_argument("--force", action="store_true", help=t("cli.download_force"))
     download.add_argument("--from-dir", type=Path, default=None, help=t("cli.download_from_dir"))
+
+    library = sub.add_parser("library", help=t("cli.library_help"))
+    library.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    library.add_argument("--lang", default=None, help=t("cli.lang"))
+    lib_cmds = library.add_subparsers(dest="library_command", required=True)
+    create = lib_cmds.add_parser("create", help=t("cli.library_create_help"))
+    create.add_argument("--name", required=True, help=t("cli.library_name"))
+    create.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    create.add_argument("--lang", default=None, help=t("cli.lang"))
+    add = lib_cmds.add_parser("add", help=t("cli.library_add_help"))
+    add.add_argument("--name", required=True, help=t("cli.library_name"))
+    add.add_argument("--source", required=True, type=Path, help=t("cli.library_source"))
+    add.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    add.add_argument("--lang", default=None, help=t("cli.lang"))
+    listing_profiles = lib_cmds.add_parser("list", help=t("cli.library_list_help"))
+    listing_profiles.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    listing_profiles.add_argument("--lang", default=None, help=t("cli.lang"))
+    delete = lib_cmds.add_parser("delete", help=t("cli.library_delete_help"))
+    delete.add_argument("--name", required=True, help=t("cli.library_name"))
+    delete.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    delete.add_argument("--lang", default=None, help=t("cli.lang"))
+    remove = lib_cmds.add_parser("remove-sample", help=t("cli.library_remove_help"))
+    remove.add_argument("--name", required=True, help=t("cli.library_name"))
+    remove.add_argument("--sample", required=True, help=t("cli.library_sample"))
+    remove.add_argument("--config", default=_DEFAULT_CONFIG, help=t("cli.config"))
+    remove.add_argument("--lang", default=None, help=t("cli.lang"))
     return parser
 
 
@@ -311,6 +351,8 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         return 0
     if namespace.command == "jobs":
         return _dispatch_jobs(namespace)
+    if namespace.command == "library":
+        return _dispatch_library(namespace)
     if namespace.command == "live":
         return _dispatch_live(namespace)
     if namespace.command == "compare":
@@ -354,6 +396,9 @@ def _dispatch(namespace: argparse.Namespace) -> int:
     processors = None
     if namespace.processors:
         processors = [item.strip() for item in namespace.processors.split(",") if item.strip()]
+    _bound = _bind_library(namespace, config)
+    if _bound is not None:
+        return _bound
     request = SwapRequest(
         source_path=namespace.source,
         target_path=namespace.target,
@@ -377,6 +422,10 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         video_encoder=namespace.video_encoder,
         video_threads=namespace.video_threads,
         keep_audio=False if namespace.no_audio else None,
+        voice_reference=namespace.voice_reference,
+        voice_enabled=_voice_enabled(namespace),
+        voice_strength=namespace.voice_strength,
+        voice_tau=namespace.voice_tau,
         filter_every_n_frames=namespace.filter_every,
         enhancer_model=namespace.enhancer_model,
         enhancer_blend=namespace.enhancer_blend,
@@ -395,6 +444,7 @@ def _dispatch(namespace: argparse.Namespace) -> int:
         job_id=namespace.job_id,
         resume=namespace.resume,
         commercial=bool(getattr(namespace, "commercial", False)),
+        source_embedding=namespace.source_embedding,
     )
     config = apply_request_overrides(config, request)
     result = FaceSwapPipeline(config).run(request)
@@ -476,6 +526,11 @@ def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None
         target_path=namespace.target,
         output_path=namespace.output,
         dry_run=bool(getattr(namespace, "dry_run", False)),
+        enable_compliance=bool(getattr(namespace, "enable_compliance", False)),
+        consent_file=getattr(namespace, "consent_file", None),
+        acknowledge_authorized_use=bool(getattr(namespace, "acknowledge_authorized_use", False)),
+        consent_subject=getattr(namespace, "consent_subject", None),
+        consent_statement=getattr(namespace, "consent_statement", None),
         processors=processors,
         execution_providers=getattr(namespace, "execution_provider", None),
         swapper_model=namespace.swapper_model,
@@ -494,10 +549,104 @@ def _request_from_namespace(namespace: argparse.Namespace, *, job_id: str | None
     )
 
 
+def _voice_enabled(namespace: argparse.Namespace) -> bool | None:
+    """A source video opts into voice unless ``--no-voice`` is set.
+
+    An uploaded ``--voice-reference`` still wins inside the pipeline. A still
+    source stays face-only until a reference is passed. A library profile
+    with saved speech sets that reference before this check.
+    """
+
+    if namespace.no_voice:
+        return False
+    if namespace.source is None:
+        return False
+    if namespace.voice_reference is not None or is_video(namespace.source):
+        return True
+    return None
+
+
+def _bind_library(namespace: argparse.Namespace, config) -> int | None:
+    """Use a saved profile as the source, or keep the one-shot file.
+
+    Exactly one of ``--source`` and ``--library`` is accepted. A profile's
+    fused embedding is the identity. Its speech becomes the voice reference
+    unless ``--voice-reference`` or ``--no-voice`` is set. Returns 2 when
+    the choice is missing or doubled.
+    """
+
+    source = getattr(namespace, "source", None)
+    chosen = getattr(namespace, "library", None)
+    if bool(source) == bool(chosen):
+        print(t("cli.library_choice"), file=sys.stderr)
+        return 2
+    namespace.source_embedding = None
+    if not chosen:
+        return None
+    resolved = library_from_config(config).resolve(str(chosen))
+    namespace.source = resolved.still
+    namespace.source_embedding = tuple(
+        float(value) for value in np.asarray(resolved.embedding, dtype=np.float32).reshape(-1)
+    )
+    if (
+        getattr(namespace, "voice_reference", None) is None
+        and resolved.voice is not None
+        and not getattr(namespace, "no_voice", False)
+    ):
+        namespace.voice_reference = resolved.voice
+    return None
+
+
+def _dispatch_library(namespace: argparse.Namespace) -> int:
+    config = load_config(namespace.config)
+    lib = library_from_config(config)
+    command = namespace.library_command
+    if command == "list":
+        rows = lib.list_profiles()
+        if not rows:
+            print(t("library.empty_list"))
+            return 0
+        for row in rows:
+            voice = t("ui.library_voice_yes") if row.has_voice else t("ui.library_voice_no")
+            print(t("library.line", name=row.name, id=row.id, samples=row.samples, fusion=row.fusion, voice=voice))
+        return 0
+    if command == "create":
+        summary = lib.create(namespace.name)
+        print(t("library.created", name=summary.name))
+        return 0
+    if command == "delete":
+        summary = next(
+            (
+                item
+                for item in lib.list_profiles()
+                if item.id == namespace.name or item.name.casefold() == str(namespace.name).casefold()
+            ),
+            None,
+        )
+        if summary is None:
+            raise BarrettFaceswapError(t("library.missing", name=namespace.name))
+        lib.delete(namespace.name)
+        print(t("library.deleted", name=summary.name))
+        return 0
+    if command == "add":
+        parts = parts_from_file(config, namespace.source)
+        summary = lib.add_sample(namespace.name, parts)
+        print(t("library.added", name=summary.name, count=summary.samples))
+        return 0
+    if command == "remove-sample":
+        summary = lib.remove_sample(namespace.name, namespace.sample)
+        print(t("library.removed", name=summary.name, count=summary.samples))
+        return 0
+    return 2
+
+
 def _dispatch_live(namespace: argparse.Namespace) -> int:
     from barrett_faceswap.live import LivePipeline, LoopbackWriter, iter_camera
 
     config = load_config(namespace.config)
+    _bound = _bind_library(namespace, config)
+    if _bound is not None:
+        return _bound
     if namespace.commercial:
         config = config.model_copy(update={"execution": config.execution.model_copy(update={"commercial": True})})
     camera = config.live.camera if namespace.camera is None else namespace.camera
@@ -527,6 +676,7 @@ def _dispatch_live(namespace: argparse.Namespace) -> int:
         commercial=namespace.commercial,
         live_session=True,
         live_frames=namespace.frames,
+        source_embedding=namespace.source_embedding,
     )
     config = apply_request_overrides(config, request)
     writer = LoopbackWriter(namespace.virtual_camera) if namespace.virtual_camera else None

@@ -4,7 +4,7 @@
 
 `FaceSwapPipeline.run` is the public call for a file. Phase 4 adds a realtime webcam loop, TensorRT and CUDA-graph options that stay idle on CPU, an fp16 sibling lookup, a commercial-use gate, and a training scaffold that does not train. Phase 3's selectable swappers, pixel boost, multi-face selection, Poisson blending, resumable jobs, and optional diskless pipe stay in place. A video target is handed to `VideoPipeline`. File and live paths call `CompliancePolicy` before and after the processors, including a resumed job and pipe mode. Processors return frames. They do not write the output file, so a watermark cannot be skipped by a processor that saves early.
 
-`compliance.enabled` stays `false` in `configs/default.yaml`. The policy object still runs. With that default it logs that enforcement is off and writes an unmarked file.
+`compliance.enabled` is `true` in `configs/default.yaml`. The policy object still runs when a local switch turns it off, and then it logs that enforcement is off and writes an unmarked file. Local switches are `BARRETT_DEV_MODE=1`, `BARRETT_COMPLIANCE=off`, and a gitignored `configs/local.yaml`.
 
 Background reading for the first cut is in [RESEARCH.md](RESEARCH.md).
 
@@ -86,9 +86,19 @@ Five-point landmarks become two ellipses. A 106-point set uses the convex hull o
 
 `expression.enabled` (default true) pastes target eyes and a pursed mouth from those 68 points. The eye amount is `0.05 + 0.85 * closedness` and the mouth amount is `0.55 * pursedness`, using `ear_open` 0.24, `ear_closed` 0.15, `mar_open` 0.045, and `mar_closed` 0.012. Hulls are the eye-and-brow rings and the mouth ring, drawn in the aligned crop. When this path runs, `blend.eye_mode` is skipped, because that blend would put most of the target eye back on an open five-point face. Without 68 points, `blend.eye_mode` still runs. The enhancer sees `1 - closedness` as `eye_openness`. Video still leaves `face_enhancer` off unless `--with-enhancer` or the processor list adds it.
 
+`sunglasses.enabled` (default true) is the path when the target crop is wearing sunglasses. A parser glasses bar, or a dark bar across both eyes that is clearly darker than the forehead and the cheeks, turns it on. A flat dark crop does not. Stage 1 widens the paste to a fuller head (`box_inset` 0.04) and leaves expression off, including `--eye-mode`, so landmarks under the lenses are not used. A mid-face hole in the mask is filled by that identity coverage. It is not inpainted. Stage 2, when `sunglasses.expression` is on and 68 points exist, mixes only the mouth, scaled by `mouth_scale` (default 0.45). The enhancer is told the eyes are open so it does not treat the lenses as closed lids. Stills, video, and live all go through this swapper path.
+
+## Source library
+
+`library.dir` (default `library/`, gitignored) stores named profiles. Each sample is a video, a photo, or an audio clip of the same person. Face vectors go through `select_identity`, the same held-out average used for a source video. A video sample stores that clip's fused vector. A photo stores one embedding. Audio does not change the face. Trimmed speech is concatenated in sample order and clipped to the newest `library.voice_seconds` (default 24) at 16 kHz. The preview still is the highest-quality sample. A swap uses `still.png`, the fused embedding, and `voice.wav` when it exists. One-shot upload stays available. `barrett-faceswap library` creates, extends, lists, and deletes profiles. `swap --library NAME` and `live --library NAME` replace `--source`. Pass exactly one of the two.
+
+## Face mapping
+
+The image and video page can send each detected face to a different source in one export. Find faces reads the still, or the first frame of a video, and shows up to four of the largest faces. Each row is keep original, a saved profile, or an uploaded photo. One start writes a temporary face-map JSON for that run. It is not stored in `default.yaml`. A row is `{source, embedding?, match, reference?}`. `embedding` is the fused source identity. `match` is the target person, so later frames follow that person and then the tracker keeps the slot. A face left as keep, and any person who does not match, stays original. An empty frame stays original. The camera tab still uses one identity. One voice reference covers the whole clip: the first mapped profile that has saved speech, unless a reference was uploaded or the mode is photo. BlendSwap ignores the fused vector and embeds the source still. The command-line JSON file is not capped at four rows.
+
 ## Face selection
 
-`swap.selector` is `index` (default, largest face first, `--target-face-index`), `many` (every detected face, one source), `reference` (cosine similarity against a reference image, or against the source face when no reference is passed), or `map`. The map file is a JSON list of `{source, target_index, reference}`. A locked `target_index` is assigned directly, in largest-first order. The remaining faces are matched one-to-one above `swap.similarity` (default 0.45). No match raises `swap.no_match`.
+`swap.selector` is `index` (default, largest face first, `--target-face-index`), `many` (every detected face, one source), `reference` (cosine similarity against a reference image, or against the source face when no reference is passed), or `map`. The map file is a JSON list of `{source, target_index?, reference?, embedding?, match?}`. A locked `target_index` is assigned directly, in largest-first order. The remaining faces are matched one-to-one above `swap.similarity` (default 0.45). No match raises `swap.no_match` unless the frame is allowed to pass through with no face.
 
 `FaceTracker` is greedy IoU (`swap.track_iou`, default 0.3, drop after 8 missed frames). Once a track receives a source slot, later frames keep that slot. Tracking is on by default for reference and map.
 
@@ -171,7 +181,7 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 
 - MIT code, no vendored FaceFusion, Deep-Live-Cam, roop, or SimSwap sources
 - `download-models` is an explicit command. The installer, the UI, and CI do not download weights
-- Compliance is a real package and is off unless the operator opts in
+- Compliance is a real package and is on unless a local switch turns it off
 - Messages go through catalogs in English and Chinese
 - Hash pins are optional until the operator sets them
 - The content filter default is a stub that allows the frame and logs that no detector is loaded
@@ -179,4 +189,4 @@ Compliance wraps this path. `before_process` screens the source and the first ca
 
 ## Still deferred
 
-Swappers beyond this set (uniface, hififace, and others), and frame-exact pipe resume. Pipe resume still seeks by timestamp. The Chinese watermark covers `人工智能生成` with original bitmaps; any other character needs `compliance.watermark.font_path`. The training scaffold does not train or export a weight. TensorRT and CUDA graph capture run only when those providers are installed. `compliance.enabled` stays false until an official launch.
+Swappers beyond this set (uniface, hififace, and others), and frame-exact pipe resume. Pipe resume still seeks by timestamp. The Chinese watermark covers `人工智能生成` with original bitmaps; any other character needs `compliance.watermark.font_path`. The training scaffold does not train or export a weight. TensorRT and CUDA graph capture run only when those providers are installed.

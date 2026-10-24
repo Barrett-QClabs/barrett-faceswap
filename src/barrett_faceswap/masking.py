@@ -41,6 +41,7 @@ class MaskStack:
         self._sam = None
         self._ready = False
         self.eye_mask: np.ndarray | None = None
+        self.labels: np.ndarray | None = None
         self._cached: np.ndarray | None = None
         self._cached_eyes: np.ndarray | None = None
         self._cached_points: np.ndarray | None = None
@@ -73,6 +74,7 @@ class MaskStack:
         self._cached_matrix = None
         self._since = 0
         self.eye_mask = None
+        self.labels = None
 
     def compose(
         self,
@@ -158,6 +160,7 @@ class MaskStack:
             path = None if self.store is None else str(self.store.paths()["parser"])
             region = parser_stub_mask(size, blur, path, landmarks=landmarks)
             eyes = None
+            self.labels = None
         return self._maybe_refine(crop_bgr, size, occlusion), region, eyes
 
     def _maybe_refine(self, crop_bgr, size: int, occlusion: np.ndarray) -> np.ndarray:
@@ -167,6 +170,7 @@ class MaskStack:
 
     def _parse(self, crop_bgr, size: int, blur: int):
         labels = parser_labels(self._parser, crop_bgr, size)
+        self.labels = labels
         region = mask_from_labels(labels, list(self.config.masks.regions), blur)
         return region, eye_mask_from_labels(labels, blur)
 

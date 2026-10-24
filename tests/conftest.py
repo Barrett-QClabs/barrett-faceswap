@@ -1,4 +1,4 @@
-"""Shared fixtures. Compliance tests opt in; the shipped default stays off."""
+"""Shared fixtures. The shipped compliance default is on. Tests that want it off pass enabled=False."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ def _reset_language_and_permission(monkeypatch: pytest.MonkeyPatch):
     set_language("en")
     monkeypatch.delenv("BARRETT_FACESWAP_ALLOW_FILTER_DISABLE", raising=False)
     monkeypatch.delenv("BARRETT_FACESWAP_LANG", raising=False)
+    monkeypatch.delenv("BARRETT_DEV_MODE", raising=False)
+    monkeypatch.delenv("BARRETT_COMPLIANCE", raising=False)
     yield
     set_language("en")
 

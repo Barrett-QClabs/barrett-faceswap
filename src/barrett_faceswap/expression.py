@@ -96,23 +96,35 @@ def preserve_expression(
     points68: np.ndarray,
     matrix: np.ndarray,
     settings,
+    *,
+    include_eyes: bool = True,
+    mouth_scale: float = 1.0,
 ) -> tuple[np.ndarray, float] | None:
-    """Return the pasted crop and ``1 - closedness``, or None when 68 points are absent."""
+    """Return the pasted crop and ``1 - closedness``, or None when 68 points are absent.
+
+    ``include_eyes`` false leaves the eye and brow hulls on the swap. That is
+    the sunglass stage: landmarks under the lenses do not drive expression.
+    ``mouth_scale`` multiplies the mouth amount. ``1`` is the normal paste.
+    """
 
     pts = np.asarray(points68, dtype=np.float32).reshape(-1, 2)
     if pts.shape[0] < 68:
         return None
     crop_points = map_points(pts[:68], matrix)
     eye_amount, mouth_amount, shut = gate_amounts(pts[:68], settings)
+    mouth_amount *= float(np.clip(mouth_scale, 0.0, 1.0))
     side = int(swapped.shape[0])
-    eyes = hull_mask(
-        side,
-        crop_points,
-        _EYE_GROUPS,
-        dilate_px=int(settings.eye_dilate),
-        expand=float(settings.eye_expand),
-        blur=int(settings.blur),
-    )
+    colored = swapped
+    if include_eyes:
+        eyes = hull_mask(
+            side,
+            crop_points,
+            _EYE_GROUPS,
+            dilate_px=int(settings.eye_dilate),
+            expand=float(settings.eye_expand),
+            blur=int(settings.blur),
+        )
+        colored = paste_region(colored, target, eyes, eye_amount)
     mouth = hull_mask(
         side,
         crop_points,
@@ -121,6 +133,7 @@ def preserve_expression(
         expand=float(settings.mouth_expand),
         blur=int(settings.blur),
     )
-    colored = paste_region(swapped, target, eyes, eye_amount)
     colored = paste_region(colored, target, mouth, mouth_amount)
+    if not include_eyes:
+        return colored, 1.0
     return colored, float(1.0 - shut)

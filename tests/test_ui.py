@@ -16,8 +16,11 @@ def test_language_dropdown_updates_every_control() -> None:
     assert get_language() == "zh-CN"
     assert len(english) == len(CONTROLS) == len(chinese)
     source_index = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.source")
-    assert english[source_index]["label"] == "Source face"
-    assert chinese[source_index]["label"] == "源脸"
+    assert english[source_index]["label"] == "Photo"
+    assert chinese[source_index]["label"] == "照片"
+    mode_index = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.source_mode")
+    assert english[mode_index]["label"] == "Source"
+    assert chinese[mode_index]["label"] == "源"
     steps = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.steps")
     assert english[steps]["value"] != chinese[steps]["value"]
     run = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.run")
@@ -30,6 +33,9 @@ def test_language_dropdown_updates_every_control() -> None:
     live = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.live_tab")
     assert english[live]["label"] == "Camera"
     assert chinese[live]["label"] == "摄像头"
+    voice = next(index for index, spec in enumerate(CONTROLS) if spec.key == "ui.voice_title")
+    assert english[voice]["value"] == "Voice clone"
+    assert chinese[voice]["value"] == "声音克隆"
 
 
 def test_ui_language_prefers_the_cli_flag() -> None:
@@ -111,6 +117,8 @@ def test_quality_presets_do_not_collapse_fast_into_balanced() -> None:
     assert "ul.options" in APP_CSS
     assert 'input[type="radio"]' in APP_CSS
     assert "sticky" in APP_CSS
+    assert "bf-voice" in APP_CSS
+    assert "bf-stage-split" in APP_CSS
 
 
 def test_video_progress_hook_ignores_an_unknown_total(tmp_path) -> None:
@@ -131,6 +139,33 @@ def test_video_progress_hook_ignores_an_unknown_total(tmp_path) -> None:
     assert seen == [(3, 10)]
 
 
+def _choice_labels(demo) -> list[str]:
+    labels: list[str] = []
+    for block in demo.blocks.values():
+        for choice in getattr(block, "choices", None) or []:
+            if isinstance(choice, (list, tuple)) and choice:
+                labels.append(str(choice[0]))
+            elif isinstance(choice, str):
+                labels.append(choice)
+    return labels
+
+
+def _radio_value(demo, label: str):
+    for block in demo.blocks.values():
+        choices = getattr(block, "choices", None) or []
+        texts = [str(choice[0]) if isinstance(choice, (list, tuple)) and choice else str(choice) for choice in choices]
+        if label in texts:
+            return getattr(block, "value", None)
+    return None
+
+
+def test_tab_language_script_forwards_both_inputs() -> None:
+    from barrett_faceswap.ui.app import _tab_button_script
+
+    script = _tab_button_script()
+    assert "return [lang, sourceMode];" in script
+
+
 def test_gradio_blocks_build() -> None:
     pytest.importorskip("gradio")
     from barrett_faceswap.i18n import get_language
@@ -148,6 +183,14 @@ def test_gradio_blocks_build() -> None:
     labels = [getattr(block, "label", None) for block in demo.blocks.values()]
     values = [getattr(block, "value", None) for block in demo.blocks.values()]
     assert "检测阈值" in labels
+    assert "声音克隆" in values
+    assert "启用声音克隆" in labels
+    assert _choice_labels(demo).count("视频（脸+声音，推荐）") == 2
+    assert _choice_labels(demo).count("资料库") == 2
+    assert _radio_value(demo, "视频（脸+声音，推荐）") == "video"
+    assert "麦克风" in labels
+    assert "覆盖参考音色" in labels
+    assert "没有麦克风或没有参考音色，只换脸。" in values
     assert any(isinstance(item, str) and "误检" in item for item in values)
     assert any(getattr(block, "value", None) == 0.5 for block in demo.blocks.values())
     english = build_demo(REPO / "configs" / "default.yaml", language="en")
@@ -156,4 +199,57 @@ def test_gradio_blocks_build() -> None:
     english_labels = [getattr(block, "label", None) for block in english.blocks.values()]
     english_values = [getattr(block, "value", None) for block in english.blocks.values()]
     assert "Detect score threshold" in english_labels
+    assert "Voice clone" in english_values
+    assert "Enable voice clone" in english_labels
+    assert _choice_labels(english).count("Video (face + voice, recommended)") == 2
+    assert _choice_labels(english).count("Library") == 2
+    assert "Microphone" in english_labels
+    assert "Override reference" in english_labels
+    hidden = [
+        block
+        for block in demo.blocks.values()
+        if getattr(block, "label", None) in {"照片", "参考音频"}
+    ]
+    assert hidden
+    assert all(getattr(block, "visible", True) is False for block in hidden)
+    video_blocks = [block for block in demo.blocks.values() if getattr(block, "label", None) == "源视频"]
+    assert len(video_blocks) == 2
+    assert all(getattr(block, "visible", True) is not False for block in video_blocks)
+    overrides = [block for block in demo.blocks.values() if getattr(block, "label", None) == "覆盖参考音色"]
+    assert overrides
+    assert all(getattr(block, "visible", True) is not False for block in overrides)
+    library_blocks = []
+    for block in demo.blocks.values():
+        label = getattr(block, "label", None)
+        value = getattr(block, "value", None)
+        if label in {"资料", "新名字", "样本", "样本列表", "资料库"}:
+            library_blocks.append(block)
+        elif isinstance(value, str) and value in {"新建", "加入样本", "移除样本", "删除资料"}:
+            library_blocks.append(block)
+    assert library_blocks
+    assert all(getattr(block, "visible", True) is False for block in library_blocks)
+    assert "识别脸" in values
+    assert any(isinstance(item, str) and "只有在对方授权了这次用途时才使用其人脸" in item for item in values)
+    ack_boxes = [block for block in demo.blocks.values() if getattr(block, "label", None) == "我确认这次使用已获授权"]
+    assert ack_boxes
+    assert all(getattr(block, "value", None) is False for block in ack_boxes)
+    compliance_boxes = [
+        block
+        for block in demo.blocks.values()
+        if getattr(block, "label", None) == "合规" and type(block).__name__ == "Checkbox"
+    ]
+    assert len(compliance_boxes) == 2
+    assert all(getattr(block, "value", None) is True for block in compliance_boxes)
+    face_one = [block for block in demo.blocks.values() if getattr(block, "label", None) == "脸 1"]
+    assert face_one
+    assert all(getattr(block, "visible", True) is False for block in face_one)
+    assert "Find faces" in english_values
+    assert "I confirm this use is authorized" in english_labels
+    assert any(
+        isinstance(item, str) and "Use a face only when that person authorized this use" in item
+        for item in english_values
+    )
+    english_face = [block for block in english.blocks.values() if getattr(block, "label", None) == "Face 1"]
+    assert english_face
+    assert all(getattr(block, "visible", True) is False for block in english_face)
     assert any(isinstance(item, str) and "false positives" in item for item in english_values)

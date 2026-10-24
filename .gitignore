@@ -36,8 +36,21 @@ models/**
 outputs/**
 !outputs/.gitkeep
 
+# Saved source identities. These are private likenesses.
+library/**
+!library/.gitkeep
+
 # Generated local samples (no real faces; recreate with examples/make_synthetic.py)
 examples/synthetic/
 
 # Local permission switch. Absence means "not granted".
 configs/admin.toml
+
+# Local config override. Copy configs/local.example.yaml and edit it.
+configs/local.yaml
+
+# Scratch space for local runs.
+work/**
+
+# Embeddings and other arrays. Library profiles are already ignored above.
+*.npy

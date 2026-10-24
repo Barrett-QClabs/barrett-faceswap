@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,9 +25,12 @@ from barrett_faceswap.pixel_boost import run_tiled
 from barrett_faceswap.processors.registry import register_processor
 from barrett_faceswap.recover import map_points, search_faces
 from barrett_faceswap.preprocess import normalize_crop
+from barrett_faceswap.sunglasses import apply_sunglass_mask, sunglass_plan
 from barrett_faceswap.swap import GraphSwapper, IdentitySwapper, embed_arcface
 from barrett_faceswap.swap_catalog import output_size, swapper_by_name
 from barrett_faceswap.types import Face, ProcessContext
+
+logger = logging.getLogger(__name__)
 from barrett_faceswap.vision import read_image
 
 
@@ -54,6 +58,7 @@ class FaceSwapper:
         self._detector_obj: FaceDetector | None = None
         self._backend_impl = None
         self._landmarker: LandmarkRefiner | None = None
+        self._sunglass_noted = False
         self.stage_seconds = {
             "detect": 0.0,
             "align": 0.0,
@@ -184,12 +189,25 @@ class FaceSwapper:
         entries = self._map_entries(ctx)
         slots: list[_Slot] = []
         for entry in entries:
-            image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
-            hint = ctx.source_face if not entry.source else None
-            arc, source_score = self._embed_image(backend, image, hint)
-            match = arc
-            if entry.reference:
+            use_saved = entry.embedding and self._spec.embedding != "source_image"
+            if use_saved:
+                arc = _unit_embedding(np.asarray(entry.embedding, dtype=np.float32))
+                source_score = 1.0
+            else:
+                image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
+                hint = ctx.source_face if not entry.source else None
+                prepared = ctx.source_embedding if not entry.source else None
+                if prepared is not None:
+                    arc = _unit_embedding(prepared)
+                    source_score = 1.0
+                else:
+                    arc, source_score = self._embed_image(backend, image, hint)
+            if entry.match:
+                match = _unit_embedding(np.asarray(entry.match, dtype=np.float32))
+            elif entry.reference:
                 match, _reference_score = self._embed_image(backend, read_image(Path(entry.reference)))
+            else:
+                match = arc
             if self._spec.embedding in {"emap", "source_image"}:
                 latent = arc
             else:
@@ -327,12 +345,36 @@ class FaceSwapper:
             face_width=max(float(face.bbox[2]) - float(face.bbox[0]), 1.0),
         )
         self.stage_seconds["mask"] += time.perf_counter() - started
+        plan = sunglass_plan(
+            self.config.sunglasses,
+            crop,
+            template,
+            labels=getattr(self.masks, "labels", None),
+        )
+        if plan.active:
+            mask = apply_sunglass_mask(mask, side, self.config.blend.mask_blur, template, plan.box_inset)
+            self._note_sunglasses(ctx)
         started = time.perf_counter()
         colored = apply_color(self.config.blend.color, swapped, crop, mask)
         expressed = None
-        if self.config.expression.enabled and face.landmarks_68 is not None:
-            expressed = preserve_expression(colored, crop, face.landmarks_68, matrix, self.config.expression)
-        if expressed is None:
+        use_expression = self.config.expression.enabled and face.landmarks_68 is not None
+        if plan.active and not plan.expression:
+            use_expression = False
+        if use_expression:
+            expressed = preserve_expression(
+                colored,
+                crop,
+                face.landmarks_68,
+                matrix,
+                self.config.expression,
+                include_eyes=not plan.active,
+                mouth_scale=plan.mouth_scale if plan.active else 1.0,
+            )
+        if plan.active:
+            if expressed is not None:
+                colored, _ignored = expressed
+            ctx.eye_openness = 1.0
+        elif expressed is None:
             eye_points = map_points(points, matrix) if points.shape[0] >= 106 else template
             openness = eye_openness(eye_points)
             ctx.eye_openness = openness
@@ -357,6 +399,24 @@ class FaceSwapper:
             pasted = paste_back(frame, colored, matrix, mask)
         self.stage_seconds["paste"] += time.perf_counter() - started
         return pasted
+
+    def _note_sunglasses(self, ctx: ProcessContext) -> None:
+        if self._sunglass_noted:
+            return
+        self._sunglass_noted = True
+        message = t("sunglasses.path")
+        if ctx.log_every_frame:
+            ctx.notes.append(message)
+        else:
+            logger.info(message)
+
+
+def _unit_embedding(vector: np.ndarray) -> np.ndarray:
+    array = np.asarray(vector, dtype=np.float32).reshape(-1)
+    norm = float(np.linalg.norm(array))
+    if norm <= 0.0:
+        raise NoFaceError(t("identity.no_face"))
+    return array / norm
 
 
 def _area(face: Face) -> float:

@@ -42,7 +42,7 @@ Optional 68-point landmark refiner. `--with-landmarks` stores it at `models/2dfa
 - <https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/2dfan4.onnx>
 - <https://huggingface.co/facefusion/models-3.0.0/resolve/main/2dfan4.onnx>
 
-The weight is the 2018 FAN model by Adrian Bulat (breadbread1984), MIT, redistributed via facefusion-assets. `commercial_use` stays false. A missing file leaves the detector landmarks in place. `compliance.enabled` stays false.
+The weight is the 2018 FAN model by Adrian Bulat (breadbread1984), MIT, redistributed via facefusion-assets. `commercial_use` stays false. A missing file leaves the detector landmarks in place.
 
 Expected names:
 
@@ -248,3 +248,15 @@ Copy each printed sha256 into `configs/default.yaml` under `models.<role>.sha256
 ## A commercial weight
 
 Every filename above is registered with `commercial_use: false`. `barrett-faceswap swap --commercial` refuses them. A weight you train yourself is not downloaded by `scripts/train_swapper.py`. After legal review, add your own registry row with `commercial_use: true`. The gate reads that flag and does not grant an exception for the rows in this table. See [docs/COMPLIANCE.md](../docs/COMPLIANCE.md).
+
+## OpenVoice V2 converter (optional voice)
+
+Not an ONNX face weight, and not fetched by `download-models`. Code and checkpoint are MIT. Layout and the RTX 5090 PyTorch wheel are in [docs/en/voice.md](../docs/en/voice.md).
+
+```bash
+huggingface-cli download myshell-ai/OpenVoiceV2 \
+  converter/config.json converter/checkpoint.pth \
+  --local-dir models/openvoice_v2
+```
+
+`models/openvoice_v2/converter/checkpoint.pth` is the tone-color converter. The base-speaker embeddings in that repo are not required. Do not commit the files.

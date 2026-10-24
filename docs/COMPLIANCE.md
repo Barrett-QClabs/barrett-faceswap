@@ -6,18 +6,18 @@ This is not legal advice. It is the behavior of the code in `src/barrett_faceswa
 
 ## Master switch
 
-`compliance.enabled` defaults to **false**.
+`compliance.enabled` defaults to **true**.
 
-While it is false, `CompliancePolicy.before_process` and `after_process` still run, and they skip the consent requirement, the watermark, content-filter blocks, and the audit log. They log one warning: enforcement is off, and a real likeness needs it on. `--enable-compliance` turns enforcement on for that invocation even if the YAML says false. There is no flag that turns a `true` config back off.
+While it is false, `CompliancePolicy.before_process` and `after_process` still run, and they skip the consent requirement, the watermark, content-filter blocks, and the audit log. They log one warning: enforcement is off. `--enable-compliance` turns enforcement on for that invocation even if the YAML says false. No CLI flag turns a `true` config back off. Local off switches are `BARRETT_DEV_MODE=1`, `BARRETT_COMPLIANCE=off`, and a gitignored `configs/local.yaml`. `BARRETT_COMPLIANCE` wins over dev mode. See `CONTRIBUTING.md`.
 
-The nested block in `configs/default.yaml` is the profile that becomes active when you flip the switch:
+The nested block in `configs/default.yaml` is the profile that is active by default:
 
 - a consent record is mandatory
 - a visible label and embedded metadata are written
 - the content filter runs (default provider `stub`)
 - every completed, refused, or failed run appends one JSON line
 
-Unit tests construct a config with `enabled: true` and exercise those paths. A dry-run of the shipped file does not.
+A dry-run of the shipped file requires an acknowledgement, writes the label, and appends an audit line. The shipped filter provider is `stub`: it allows the frame and logs that no detector is loaded. It is not an NSFW detector and it does not classify age. `nudenet` is optional and is not a dependency. NudeNet does not classify age.
 
 ## Acceptable use
 

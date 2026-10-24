@@ -42,7 +42,7 @@ barrett-faceswap download-models --swapper hyperswap_1a_256 --with-masks --with-
 - <https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/2dfan4.onnx>
 - <https://huggingface.co/facefusion/models-3.0.0/resolve/main/2dfan4.onnx>
 
-这份权重是 Adrian Bulat（breadbread1984）2018 年的 FAN 模型，MIT 许可，经 facefusion-assets 再分发。`commercial_use` 保持 false。文件缺失时保留检测器关键点。`compliance.enabled` 保持 false。
+这份权重是 Adrian Bulat（breadbread1984）2018 年的 FAN 模型，MIT 许可，经 facefusion-assets 再分发。`commercial_use` 保持 false。文件缺失时保留检测器关键点。
 
 期望的文件名：
 
@@ -248,3 +248,15 @@ barrett-faceswap inspect-models
 ## 商业权重
 
 上面每个文件名在注册表里都是 `commercial_use: false`。`barrett-faceswap swap --commercial` 会拒绝它们。`scripts/train_swapper.py` 不会下载你自己训练的权重。法律复核之后，新增一行注册表并把 `commercial_use` 设为 true。门禁只读这个标记，不会给本表中的行开例外。参见 [docs/COMPLIANCE.zh-CN.md](../docs/COMPLIANCE.zh-CN.md)。
+
+## OpenVoice V2 转换器（可选声音）
+
+这不是 ONNX 换脸权重，`download-models` 也不会下载它。代码和检查点是 MIT。目录，以及 RTX 5090 的 PyTorch 轮子，见 [docs/zh-CN/voice.md](../docs/zh-CN/voice.md)。
+
+```bash
+huggingface-cli download myshell-ai/OpenVoiceV2 \
+  converter/config.json converter/checkpoint.pth \
+  --local-dir models/openvoice_v2
+```
+
+`models/openvoice_v2/converter/checkpoint.pth` 是音色转换器。那个仓库里的基础说话人嵌入不是必需的。不要把这些文件提交进仓库。

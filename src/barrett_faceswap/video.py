@@ -314,6 +314,8 @@ class VideoPipeline:
         providers = list(request.execution_providers) if request.execution_providers else list(
             self.config.execution.providers
         )
+        from barrett_faceswap.sourceprep import embedding_array
+
         processors = [create_processor(name, self.config, providers) for name in names]
         shared = ProcessContext(
             source_bgr=source,
@@ -321,6 +323,7 @@ class VideoPipeline:
             target_face_index=request.target_face_index,
             notes=notes,
             log_every_frame=False,
+            source_embedding=embedding_array(request),
         )
         for processor in processors:
             processor.pre_check(shared)

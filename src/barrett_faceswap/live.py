@@ -138,6 +138,8 @@ class LiveSession:
         )
         if self._processors is None:
             self._processors = [create_processor(name, self.config, providers) for name in names]
+        from barrett_faceswap.sourceprep import embedding_array
+
         notes = self._context.notes
         self._shared = ProcessContext(
             source_bgr=_source_image(self.request),
@@ -147,6 +149,7 @@ class LiveSession:
             log_every_frame=False,
             source_face=self._hint_source,
             reuse_masks=True,
+            source_embedding=embedding_array(self.request),
         )
         for processor in self._processors:
             processor.pre_check(self._shared)
@@ -215,6 +218,49 @@ class LivePipeline:
         self.admin_path = admin_path
 
     def run(
+        self,
+        request: SwapRequest,
+        frames,
+        *,
+        writer=None,
+        preview: bool | None = None,
+        processors: list | None = None,
+        hint_source=None,
+        hint_target=None,
+    ) -> tuple[SwapResult, LiveStats]:
+        import tempfile
+
+        from barrett_faceswap.sourceprep import prepare_source
+
+        with tempfile.TemporaryDirectory(prefix="barrett-live-") as directory:
+            original = request
+            request, source_notes = prepare_source(
+                self.config,
+                request.model_copy(update={"voice_enabled": False}),
+                Path(directory),
+            )
+            request = request.model_copy(
+                update={
+                    "voice_enabled": original.voice_enabled,
+                    "voice_reference": original.voice_reference,
+                    "live_session": original.live_session,
+                    "live_frames": original.live_frames,
+                }
+            )
+            result, stats = self._run_threads(
+                request,
+                frames,
+                writer=writer,
+                preview=preview,
+                processors=processors,
+                hint_source=hint_source,
+                hint_target=hint_target,
+            )
+        if source_notes:
+            result.notes = list(source_notes) + list(result.notes)
+        return result, stats
+
+    def _run_threads(
         self,
         request: SwapRequest,
         frames,

@@ -4,13 +4,13 @@
 
 ```text
 usage: barrett-faceswap [-h] [--version] [--lang LANG]
-                        {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models}
+                        {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models,library}
                         ...
 
 对静态图像或视频换脸。开发默认关闭合规强制，避免挡住本地试跑。
 
 positional arguments:
-  {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models}
+  {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models,library}
     swap                做人脸检测、对齐、替换并贴回。目标若是视频，则逐帧处理。
     jobs                把换脸放进队列，中断后可以续跑。
     live                运行实时摄像头循环。源脸向量只计算一次。
@@ -21,16 +21,17 @@ positional arguments:
     benchmark           为处理器链计时，并打印每秒帧数。
     doctor              报告执行提供者、CUDA 与 cuDNN 库，以及模型文件。
     download-models     下载 buffalo_l 和 inswapper_128，校验 sha256，并在镜像之间重试。
+    library             新建、补充、列出和删除已保存的源资料。
 
 options:
   -h, --help            show this help message and exit
   --version             show program's version number and exit
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
-usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPUT
-                             [--config CONFIG] [--dry-run] [--enable-compliance] [--lang LANG]
-                             [--consent-file CONSENT_FILE] [--acknowledge-authorized-use]
-                             [--consent-subject CONSENT_SUBJECT]
+usage: barrett-faceswap swap [-h] [--source SOURCE] [--library LIBRARY] --target TARGET --output
+                             OUTPUT [--config CONFIG] [--dry-run] [--enable-compliance]
+                             [--lang LANG] [--consent-file CONSENT_FILE]
+                             [--acknowledge-authorized-use] [--consent-subject CONSENT_SUBJECT]
                              [--consent-statement CONSENT_STATEMENT] [--no-watermark]
                              [--disable-content-filter]
                              [--content-filter-provider {none,stub,nudenet,custom}]
@@ -40,6 +41,8 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
                              [--target-face-index TARGET_FACE_INDEX] [--trim-start TRIM_START]
                              [--trim-end TRIM_END] [--video-encoder {libx264,h264_nvenc}]
                              [--video-threads VIDEO_THREADS] [--no-audio]
+                             [--voice-reference VOICE_REFERENCE] [--no-voice]
+                             [--voice-strength VOICE_STRENGTH] [--voice-tau VOICE_TAU]
                              [--filter-every FILTER_EVERY]
                              [--face-enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}]
                              [--enhancer-blend ENHANCER_BLEND] [--enhancer-weight ENHANCER_WEIGHT]
@@ -53,12 +56,14 @@ usage: barrett-faceswap swap [-h] --source SOURCE --target TARGET --output OUTPU
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
+  --library LIBRARY     已保存的源资料。用它代替 --source。融合后的脸和声音就是身份。
   --target TARGET       目标图像或视频。这个文件里的人脸会被替换。
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --dry-run             跳过 ONNX 推理。权重还没下载时可以用它走通命令。
-  --enable-compliance   为本轮打开同意校验、水印、内容过滤和审计。
+  --enable-compliance   为本轮强制打开同意校验、水印、内容过滤和审计。随仓库提供的默认值已经是打开。
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
   --consent-file CONSENT_FILE
                         源人脸的 JSON 同意清单。
@@ -91,6 +96,13 @@ options:
   --video-threads VIDEO_THREADS
                         同时处理的帧数。
   --no-audio            丢弃源音轨，不再混回输出。
+  --voice-reference VOICE_REFERENCE
+                        参考音色（wav、mp3 或 m4a）。会覆盖从源视频里取出的人声。目标必须本来就有音轨。
+  --no-voice            不要做声音转换，即使提供了参考音色、配置也打开了。
+  --voice-strength VOICE_STRENGTH
+                        克隆强度，0 到 1。1 替换音色。0 保留原音轨。默认 1。
+  --voice-tau VOICE_TAU
+                        OpenVoice 随机度 tau，0 到 1。默认 0.3。更高更随机，不是更强的克隆。
   --filter-every FILTER_EVERY
                         合规打开时，每隔 N 帧过滤一次。最后一帧总会被检查。
   --face-enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}, --enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}
@@ -107,7 +119,8 @@ options:
   --many-faces          用源身份替换每一张检测到的脸。
   --reference REFERENCE
                         参考静态图。替换与这张身份最接近的目标脸。
-  --face-map FACE_MAP   JSON 文件，把源图像映射到目标序号或参考图。
+  --face-map FACE_MAP   JSON 文件，把每个源对应到一张目标脸。一行是 {source, target_index?, reference?, embedding?,
+                        match?}。embedding 是源身份，match 是目标里的人。图像·视频页会为这一次运行写出这个文件。
   --blend-mode {alpha,poisson}
                         贴回方式：alpha 或 poisson。
   --color-transfer {none,mean_std,lab,histogram}
@@ -147,11 +160,15 @@ usage: barrett-faceswap jobs submit [-h] --source SOURCE --target TARGET --outpu
                                     [--blend-mode {alpha,poisson}]
                                     [--color-transfer {none,mean_std,lab,histogram}]
                                     [--video-mode {disk,pipe}] [--eye-mode {swap,blend,target}]
-                                    [--with-enhancer] [--job-id JOB_ID]
+                                    [--with-enhancer] [--job-id JOB_ID] [--enable-compliance]
+                                    [--consent-file CONSENT_FILE] [--acknowledge-authorized-use]
+                                    [--consent-subject CONSENT_SUBJECT]
+                                    [--consent-statement CONSENT_STATEMENT]
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
   --target TARGET       目标图像或视频。这个文件里的人脸会被替换。
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
@@ -169,7 +186,8 @@ options:
   --many-faces          用源身份替换每一张检测到的脸。
   --reference REFERENCE
                         参考静态图。替换与这张身份最接近的目标脸。
-  --face-map FACE_MAP   JSON 文件，把源图像映射到目标序号或参考图。
+  --face-map FACE_MAP   JSON 文件，把每个源对应到一张目标脸。一行是 {source, target_index?, reference?, embedding?,
+                        match?}。embedding 是源身份，match 是目标里的人。图像·视频页会为这一次运行写出这个文件。
   --blend-mode {alpha,poisson}
                         贴回方式：alpha 或 poisson。
   --color-transfer {none,mean_std,lab,histogram}
@@ -180,6 +198,15 @@ options:
                         眼部处理：swap、blend（默认，尽量保留目标眼睛）或 target。
   --with-enhancer       同时运行 face_enhancer。眼部使用 enhancer.eye_blend。
   --job-id JOB_ID       任务编号。字母、数字、下划线和连字符。
+  --enable-compliance   为本轮强制打开同意校验、水印、内容过滤和审计。随仓库提供的默认值已经是打开。
+  --consent-file CONSENT_FILE
+                        源人脸的 JSON 同意清单。
+  --acknowledge-authorized-use
+                        声明你已获授权使用源人脸。
+  --consent-subject CONSENT_SUBJECT
+                        与 --acknowledge-authorized-use 一起记录的主体编号。
+  --consent-statement CONSENT_STATEMENT
+                        可选的确认语句。省略时会记入一句默认声明。
 
 usage: barrett-faceswap jobs resume [-h] [--config CONFIG] [--lang LANG] job_id
 
@@ -205,8 +232,8 @@ options:
   --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
-usage: barrett-faceswap live [-h] --source SOURCE [--config CONFIG] [--lang LANG]
-                             [--camera CAMERA] [--frames FRAMES] [--no-preview]
+usage: barrett-faceswap live [-h] [--source SOURCE] [--library LIBRARY] [--config CONFIG]
+                             [--lang LANG] [--camera CAMERA] [--frames FRAMES] [--no-preview]
                              [--virtual-camera VIRTUAL_CAMERA] [--dry-run] [--enable-compliance]
                              [--consent-file CONSENT_FILE] [--acknowledge-authorized-use]
                              [--consent-subject CONSENT_SUBJECT]
@@ -222,7 +249,9 @@ usage: barrett-faceswap live [-h] --source SOURCE [--config CONFIG] [--lang LANG
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
+  --library LIBRARY     已保存的源资料。用它代替 --source。融合后的脸和声音就是身份。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
   --camera CAMERA       OpenCV 摄像头序号。默认是 live.camera。
@@ -231,7 +260,7 @@ options:
   --virtual-camera VIRTUAL_CAMERA
                         可选的 v4l2loopback 设备，例如 /dev/video2。
   --dry-run             跳过 ONNX 推理。权重还没下载时可以用它走通命令。
-  --enable-compliance   为本轮打开同意校验、水印、内容过滤和审计。
+  --enable-compliance   为本轮强制打开同意校验、水印、内容过滤和审计。随仓库提供的默认值已经是打开。
   --consent-file CONSENT_FILE
                         源人脸的 JSON 同意清单。
   --acknowledge-authorized-use
@@ -254,7 +283,8 @@ options:
   --many-faces          用源身份替换每一张检测到的脸。
   --reference REFERENCE
                         参考静态图。替换与这张身份最接近的目标脸。
-  --face-map FACE_MAP   JSON 文件，把源图像映射到目标序号或参考图。
+  --face-map FACE_MAP   JSON 文件，把每个源对应到一张目标脸。一行是 {source, target_index?, reference?, embedding?,
+                        match?}。embedding 是源身份，match 是目标里的人。图像·视频页会为这一次运行写出这个文件。
   --blend-mode {alpha,poisson}
                         贴回方式：alpha 或 poisson。
   --color-transfer {none,mean_std,lab,histogram}
@@ -273,7 +303,8 @@ usage: barrett-faceswap compare [-h] --source SOURCE --target TARGET --output OU
 
 options:
   -h, --help            show this help message and exit
-  --source SOURCE       源图像。人脸身份来自这个文件。
+  --source SOURCE       源脸。可以是一张照片，或一段同时有脸和声音的视频。视频会抽样得到身份。目标有音轨时，这段视频里的人声就是参考音色，除非另外传了 --voice-
+                        reference。
   --target TARGET       目标图像或视频。这个文件里的人脸会被替换。
   --output OUTPUT       图像或视频的写出路径。
   --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
@@ -362,4 +393,63 @@ options:
                         同时下载这个遮挡模型。不会下载 sam2_refine。
   --force               即使本地文件已经匹配，也重新下载。
   --from-dir FROM_DIR   下载前先从这个目录复制匹配的 ONNX 文件。仍会校验 SHA-256。
+
+usage: barrett-faceswap library [-h] [--config CONFIG] [--lang LANG]
+                                {create,add,list,delete,remove-sample} ...
+
+positional arguments:
+  {create,add,list,delete,remove-sample}
+    create              新建一份空的命名资料。
+    add                 加入一段视频、照片或音频，并融合进这份资料。
+    list                列出已保存的资料。
+    delete              删除一份资料及其样本。
+    remove-sample       移除一个样本，并重新融合剩下的。
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG       YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library create [-h] --name NAME [--config CONFIG] [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library add [-h] --name NAME --source SOURCE [--config CONFIG]
+                                    [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --source SOURCE  要加入的视频、照片或音频。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library list [-h] [--config CONFIG] [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library delete [-h] --name NAME [--config CONFIG] [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
+
+usage: barrett-faceswap library remove-sample [-h] --name NAME --sample SAMPLE [--config CONFIG]
+                                              [--lang LANG]
+
+options:
+  -h, --help       show this help message and exit
+  --name NAME      资料名称。
+  --sample SAMPLE  要移除的样本编号。
+  --config CONFIG  YAML 配置路径。配置里的相对路径相对当前工作目录解析。
+  --lang LANG      界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 ```

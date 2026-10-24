@@ -220,8 +220,42 @@ expression:
   mar_closed: 0.012
   blur: 9
 
+# Target sunglasses. Stage 1 is a fuller identity paste with expression off,
+# so eye landmarks under the lenses are not used. Stage 2 may mix a mild
+# mouth from the other landmarks. The mid-face is covered by the swap.
+# It is not inpainted. Set enabled to false to keep the normal expression path.
+sunglasses:
+  enabled: true
+  box_inset: 0.04
+  expression: true
+  mouth_scale: 0.45
+
+# Named source profiles. New video, photo, and audio samples are fused into
+# the same identity. The directory is private and is not committed.
+library:
+  dir: library
+  voice_seconds: 24
+
 jobs:
   root: jobs
+
+# Zero-shot voice conversion for a video that already has speech.
+# The Gradio toggle starts off and turns on when the uploaded target has an
+# audio stream. Conversion runs only when the toggle is on, a reference clip
+# is set, and that audio stream exists. A silent target stays face-only.
+# Weights are not downloaded. See docs/zh-CN/voice.md.
+voice:
+  enabled: true
+  engine: openvoice
+  checkpoint_dir: models/openvoice_v2
+  # 1 replaces the timbre. 0 keeps the original track and does not load the model.
+  strength: 1.0
+  # OpenVoice posterior noise. 0.3 is the upstream default.
+  tau: 0.3
+  # auto | cuda | cpu. auto uses CUDA when this PyTorch build can see the GPU.
+  device: auto
+  # OpenVoice can embed its own watermark. Leave false so compliance stays the only one.
+  watermark: false
 
 # face_enhancer is registered and stays out of this list, including for video.
 # The page opens on this stack: hyperswap_1a_256, landmarks.refine auto,
@@ -234,7 +268,9 @@ processors:
 # The nested block is the production profile. It stays dormant while the
 # master switch is false, so local dry-runs are not blocked.
 compliance:
-  enabled: false
+  # Published default. Turn off locally with BARRETT_DEV_MODE=1,
+  # BARRETT_COMPLIANCE=off, or a gitignored configs/local.yaml.
+  enabled: true
   consent:
     required: true
   watermark:

@@ -1,5 +1,5 @@
 site_name: Barrett FaceSwap
-site_description: Realtime face swap, commercial gate, and bilingual docs.
+site_description: "barrett-faceswap — open-source AI face swap & voice cloning in one click: deepfake-quality video, image and real-time webcam face swap with multi-face mapping, a FaceFusion / Deep-Live-Cam alternative with bilingual Chinese-English UI."
 docs_dir: docs
 theme:
   name: material
@@ -31,6 +31,7 @@ nav:
   - Commercial: commercial.md
   - Compliance: compliance.md
   - CLI: cli.md
+  - Voice: voice.md
 exclude_docs: |
   ARCHITECTURE.md
   ARCHITECTURE.zh-CN.md

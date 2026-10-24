@@ -46,6 +46,8 @@ class ProcessContext:
     eye_openness: float | None = None
     # When set, the source embedding uses this face and skips source detection.
     source_face: Face | None = None
+    # L2-normalized identity from several source frames. Skips a second embed.
+    source_embedding: np.ndarray | None = None
 
 
 class SwapRequest(BaseModel):
@@ -97,6 +99,13 @@ class SwapRequest(BaseModel):
     detect_score: float | None = None
     live_session: bool = False
     live_frames: int = 0
+    # None follows config.voice.enabled, and still needs a reference clip.
+    voice_enabled: bool | None = None
+    voice_reference: Path | None = None
+    voice_strength: float | None = None
+    voice_tau: float | None = None
+    # Set when a source video's faces were averaged or the best frame was embedded.
+    source_embedding: tuple[float, ...] | None = None
 
 
 @dataclass
@@ -107,3 +116,5 @@ class SwapResult:
     dry_run: bool
     compliance_enabled: bool
     notes: list[str] = field(default_factory=list)
+    # off | converted | no_audio | no_reference | dry_run | strength_zero
+    voice_status: str = "off"

@@ -56,7 +56,9 @@ def test_unknown_language_is_rejected() -> None:
 
 def test_gradio_labels_follow_the_active_language() -> None:
     set_language("en")
-    assert gradio_labels()["ui.source"] == "Source face"
+    assert gradio_labels()["ui.source"] == "Photo"
+    assert gradio_labels()["ui.source_mode_video"] == "Video (face + voice, recommended)"
     set_language("zh-CN")
-    assert gradio_labels()["ui.source"] == "源脸"
+    assert gradio_labels()["ui.source"] == "照片"
+    assert gradio_labels()["ui.source_mode_video"] == "视频（脸+声音，推荐）"
     assert set(gradio_labels()) == set(UI_KEYS)

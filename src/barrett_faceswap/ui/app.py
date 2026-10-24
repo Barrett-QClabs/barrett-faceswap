@@ -12,19 +12,33 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import numpy as np
 from pydantic import ValidationError
 
 from barrett_faceswap.config import (
     ENHANCER_MODELS,
     EXECUTION_PROVIDERS,
     VIDEO_ENCODERS,
+    AppConfig,
     apply_request_overrides,
     load_config,
 )
 from barrett_faceswap.errors import BarrettFaceswapError
 from barrett_faceswap.i18n import LanguageError, get_language, normalize_language, set_language, t
+from barrett_faceswap.library import library_from_config, parts_from_file
+from barrett_faceswap.mapping import (
+    KEEP,
+    MAP_SLOTS,
+    UPLOAD,
+    compile_assignments,
+    detect_target_faces,
+    mapping_is_complete,
+    write_face_map,
+)
 from barrett_faceswap.media.ffmpeg import VIDEO_OUTPUT_SUFFIXES, read_first_frame
 from barrett_faceswap.pipeline import FaceSwapPipeline
+from barrett_faceswap.sourceprep import reference_for_mode, resolve_live_reference, source_mode_visibility
+from barrett_faceswap.voice import target_has_audio, voice_toggle_for_target
 from barrett_faceswap.swap_catalog import (
     BLEND_MODES,
     COLOR_TRANSFERS,
@@ -129,7 +143,26 @@ ul.options li.selected {{
 }}
 footer {{ display: none !important; }}
 .bf-layout {{ align-items: stretch; gap: 16px; }}
+.bf-stage-split {{ align-items: stretch; gap: 16px; }}
 .bf-preview {{ min-height: 420px; }}
+.bf-voice {{
+  border: 1px solid {_LINE};
+  border-radius: 14px;
+  padding: 4px 8px 8px;
+  min-width: 260px;
+}}
+.bf-source-mode fieldset,
+.bf-source-mode .wrap {{
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}}
+.bf-source-mode label:has(input[type="radio"]) {{
+  flex: 1 1 140px !important;
+  justify-content: center !important;
+  text-align: center !important;
+  min-height: 52px !important;
+}}
 .gradio-container button.primary,
 .gradio-container .bf-cta {{
   min-height: 48px;
@@ -235,6 +268,7 @@ footer {{ display: none !important; }}
 .bf-actions button:disabled {{ opacity: 0.4; }}
 @media (max-width: 959px) {{
   .bf-layout {{ flex-direction: column !important; }}
+  .bf-stage-split {{ flex-direction: column !important; }}
   .bf-stage {{ order: -1; }}
   .bf-actions {{
     position: sticky;
@@ -318,10 +352,40 @@ class ControlSpec:
 CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.brand", "value"),
     ControlSpec("ui.language", "label"),
+    ControlSpec("ui.disclaimer", "value"),
+    ControlSpec("ui.ack", "label"),
+    ControlSpec("ui.ack_subject", "label"),
     ControlSpec("ui.media_tab", "label"),
     ControlSpec("ui.steps", "value"),
+    ControlSpec("ui.source_mode", "label"),
+    ControlSpec("ui.source_video", "label"),
     ControlSpec("ui.source", "label"),
+    ControlSpec("ui.source_audio", "label"),
+    ControlSpec("ui.library_profile", "label"),
+    ControlSpec("ui.library_name", "label"),
+    ControlSpec("ui.library_create", "value"),
+    ControlSpec("ui.library_sample", "label"),
+    ControlSpec("ui.library_add", "value"),
+    ControlSpec("ui.library_samples", "label"),
+    ControlSpec("ui.library_remove", "value"),
+    ControlSpec("ui.library_delete", "value"),
+    ControlSpec("ui.library_status", "label"),
     ControlSpec("ui.target", "label"),
+    ControlSpec("ui.map_title", "value"),
+    ControlSpec("ui.map_scan", "value"),
+    ControlSpec("ui.map_status", "label"),
+    ControlSpec("ui.map_face_1", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
+    ControlSpec("ui.map_face_2", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
+    ControlSpec("ui.map_face_3", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
+    ControlSpec("ui.map_face_4", "label"),
+    ControlSpec("ui.map_source", "label"),
+    ControlSpec("ui.map_file", "label"),
     ControlSpec("ui.swapper_model", "label"),
     ControlSpec("ui.swapper_hint", "value"),
     ControlSpec("ui.quality", "label"),
@@ -363,20 +427,50 @@ CONTROLS: tuple[ControlSpec, ...] = (
     ControlSpec("ui.preview", "value"),
     ControlSpec("ui.run", "value"),
     ControlSpec("ui.preview_image", "label"),
+    ControlSpec("ui.voice_title", "value"),
+    ControlSpec("ui.voice_enable", "label"),
+    ControlSpec("ui.voice_reference", "label"),
+    ControlSpec("ui.voice_hint", "value"),
+    ControlSpec("ui.voice_advanced", "label"),
+    ControlSpec("ui.voice_strength", "label"),
+    ControlSpec("ui.voice_tau", "label"),
+    ControlSpec("ui.voice_status", "label"),
     ControlSpec("ui.progress_label", "label"),
     ControlSpec("ui.status", "label"),
     ControlSpec("ui.live_tab", "label"),
     ControlSpec("ui.live_intro", "value"),
-    ControlSpec("ui.live_source", "label"),
+    ControlSpec("ui.source_mode", "label"),
+    ControlSpec("ui.source_video", "label"),
+    ControlSpec("ui.source", "label"),
+    ControlSpec("ui.source_audio", "label"),
+    ControlSpec("ui.library_profile", "label"),
+    ControlSpec("ui.live_voice_override", "label"),
     ControlSpec("ui.live_start", "value"),
     ControlSpec("ui.live_stop", "value"),
     ControlSpec("ui.live_status", "label"),
+    ControlSpec("ui.live_voice", "label"),
     ControlSpec("ui.advanced", "label"),
     ControlSpec("ui.dry_run", "label"),
     ControlSpec("ui.compliance", "label"),
     ControlSpec("ui.live_camera", "label"),
+    ControlSpec("ui.live_mic", "label"),
+    ControlSpec("ui.live_speaker", "label"),
     ControlSpec("ui.live_preview", "label"),
 )
+
+
+def outcome_text(result: object, fallback_key: str) -> str:
+    """Status line after a run. Voice outcomes replace the plain wrote-path line."""
+
+    status = str(getattr(result, "voice_status", "off") or "off")
+    key = {
+        "converted": "ui.done_voice",
+        "no_audio": "ui.done_no_audio",
+        "no_reference": "ui.done_no_reference",
+        "dry_run": "ui.done_dry_voice",
+        "strength_zero": "ui.done_strength_zero",
+    }.get(status, fallback_key)
+    return t(key, path=getattr(result, "output_path", ""))
 
 
 def video_encoder_for_run(target: Path, encoder: str | None, *, preview_only: bool) -> str | None:
@@ -423,6 +517,135 @@ def launch_ui(
 
     demo = build_demo(config_path, language=language)
     demo.launch(server_name=host, server_port=int(port), share=share)
+
+
+def _source_mode_choices() -> list[tuple[str, str]]:
+    return [
+        (t("ui.source_mode_video"), "video"),
+        (t("ui.source_mode_photo"), "photo"),
+        (t("ui.source_mode_photo_audio"), "photo_audio"),
+        (t("ui.source_mode_library"), "library"),
+    ]
+
+
+def _voice_hint_key(mode: str | None) -> str:
+    return {
+        "photo": "ui.voice_hint_photo",
+        "photo_audio": "ui.voice_hint_audio",
+        "library": "ui.voice_hint_library",
+    }.get(str(mode or "video"), "ui.voice_hint_video")
+
+
+def _profile_choice_pairs(config_file: Path) -> list[tuple[str, str]]:
+    return [(item.name, item.id) for item in library_from_config(load_config(config_file)).list_profiles()]
+
+
+def _sample_choice_pairs(config_file: Path, profile: object) -> list[tuple[str, str]]:
+    key = str(profile or "").strip()
+    if not key:
+        return []
+    try:
+        return library_from_config(load_config(config_file)).sample_choices(key)
+    except BarrettFaceswapError:
+        return []
+
+
+def _library_status_text(config_file: Path, profile: object) -> str:
+    rows = library_from_config(load_config(config_file)).list_profiles()
+    key = str(profile or "").strip()
+    if not key:
+        return t("ui.library_empty") if not rows else t("ui.library_need_profile")
+    summary = next((item for item in rows if item.id == key or item.name.casefold() == key.casefold()), None)
+    if summary is None:
+        return t("library.missing", name=key)
+    voice = t("ui.library_voice_yes") if summary.has_voice else t("ui.library_voice_no")
+    return t(
+        "ui.library_status_line",
+        name=summary.name,
+        count=summary.samples,
+        fusion=summary.fusion,
+        voice=voice,
+    )
+
+
+def _profile_summary(config_file: Path, profile: object):
+    key = str(profile or "").strip()
+    if not key:
+        return None
+    rows = library_from_config(load_config(config_file)).list_profiles()
+    return next((item for item in rows if item.id == key or item.name.casefold() == key.casefold()), None)
+
+
+def _map_choices(config_file: Path) -> list[tuple[str, str]]:
+    choices = [(t("ui.map_keep"), KEEP), (t("ui.map_upload"), UPLOAD)]
+    for summary in library_from_config(load_config(config_file)).list_profiles():
+        choices.append((summary.name, summary.id))
+    return choices
+
+
+def _mapping_ready(rest: tuple[object, ...]) -> bool:
+    if len(rest) < MAP_SLOTS * 2:
+        return False
+    return mapping_is_complete(rest[:MAP_SLOTS], rest[MAP_SLOTS : MAP_SLOTS * 2])
+
+
+def acknowledgement_ready(compliance_on: bool, ack: object, subject: object, consent: object = None) -> bool:
+    """True when this run may start under the loaded compliance switch."""
+
+    if not compliance_on:
+        return True
+    if _as_path(consent) is not None:
+        return True
+    return bool(ack) and bool(str(subject or "").strip())
+
+
+def _gate_from_rest(rest: tuple[object, ...]) -> tuple[bool, str, object]:
+    """Ack checkbox, subject text, and optional consent file after the map widgets."""
+
+    offset = MAP_SLOTS * 2
+    if len(rest) < offset + 4:
+        return False, "", None
+    visible = str(rest[offset + 1] or "").strip()
+    advanced = str(rest[offset + 3] or "").strip()
+    acknowledged = bool(rest[offset]) or bool(advanced)
+    return acknowledged, visible or advanced, rest[offset + 2]
+
+
+def source_files_ready(
+    mode: str | None,
+    video: object,
+    photo: object,
+    audio: object,
+    target: object,
+    profile: object = None,
+    *,
+    mapped: bool = False,
+    compliance_on: bool = False,
+    ack: object = None,
+    subject: object = None,
+    consent: object = None,
+) -> bool:
+    """True when the uploads for the selected source mode, and a target, are set."""
+
+    if _as_path(target) is None:
+        return False
+    if mapped:
+        files_ready = True
+    else:
+        flags = source_mode_visibility(mode)
+        if flags["library"]:
+            files_ready = bool(str(profile or "").strip())
+        elif flags["video"]:
+            files_ready = _as_path(video) is not None
+        elif _as_path(photo) is None:
+            files_ready = False
+        elif flags["audio"]:
+            files_ready = _as_path(audio) is not None
+        else:
+            files_ready = True
+    if not files_ready:
+        return False
+    return acknowledgement_ready(compliance_on, ack, subject, consent)
 
 
 def _quality_choices() -> list[tuple[str, str]]:
@@ -562,7 +785,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
         initial.masks.occluder_model,
     )
 
-    def on_language(selected: str):
+    def on_language(selected: str, source_mode: str):
         updates = language_updates(selected)
         wrapped = []
         for spec, payload in zip(CONTROLS, updates, strict=True):
@@ -571,6 +794,14 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 data["choices"] = _language_choices()
             elif spec.key == "ui.quality":
                 data["choices"] = _quality_choices()
+            elif spec.key == "ui.source_mode":
+                data["choices"] = _source_mode_choices()
+            elif spec.key == "ui.library_profile":
+                data["choices"] = _profile_choice_pairs(config_file)
+            elif spec.key == "ui.map_source":
+                data["choices"] = _map_choices(config_file)
+            elif spec.key == "ui.voice_hint":
+                data["value"] = t(_voice_hint_key(source_mode))
             wrapped.append(gr.update(**data))
         return wrapped
 
@@ -609,42 +840,134 @@ def build_demo(config_path: str | Path, language: str | None = None):
             return gr.skip()
         return gr.update(value=nxt)
 
-    def _files_ready(source, target):
-        ready = _as_path(source) is not None and _as_path(target) is not None
+    def _voice_for_mode(mode: str | None, target: Path | None, profile: object = None) -> tuple[bool, str]:
+        if mode == "photo":
+            return False, t("ui.voice_hint_photo")
+        if mode == "library":
+            summary = _profile_summary(config_file, profile)
+            if summary is None:
+                rows = library_from_config(load_config(config_file)).list_profiles()
+                return False, t("ui.library_empty") if not rows else t("ui.library_need_profile")
+            if not summary.has_face:
+                return False, t("library.no_face", name=summary.name)
+            if not summary.has_voice:
+                return False, t("ui.library_no_voice")
+            enabled, _message = voice_toggle_for_target(target, auto_enable=bool(initial.voice.enabled))
+            if enabled:
+                return True, t("ui.voice_ready_library")
+            return False, _message
+        enabled, message = voice_toggle_for_target(target, auto_enable=bool(initial.voice.enabled))
+        if mode == "photo_audio" and enabled:
+            message = t("ui.voice_ready_audio")
+        return enabled, message
+
+    def _files_ready(mode, video, photo, audio, target, profile=None, *rest):
+        acknowledged, subject, consent = _gate_from_rest(rest)
+        ready = source_files_ready(
+            mode,
+            video,
+            photo,
+            audio,
+            target,
+            profile,
+            mapped=_mapping_ready(rest),
+            compliance_on=bool(initial.compliance.enabled),
+            ack=acknowledged,
+            subject=subject,
+            consent=consent,
+        )
         return gr.update(interactive=ready), gr.update(interactive=ready)
+
+    def _target_changed(mode, video, photo, audio, target, profile=None, *rest):
+        preview_button_update, run_button_update = _files_ready(
+            mode, video, photo, audio, target, profile, *rest
+        )
+        enabled, message = _voice_for_mode(mode, _as_path(target), profile)
+        return preview_button_update, run_button_update, gr.update(value=enabled), message
+
+    def _mode_view(mode, video, photo, audio, target, profile=None, *rest):
+        flags = source_mode_visibility(mode)
+        shown = flags["library"]
+        preview_button_update, run_button_update = _files_ready(
+            mode, video, photo, audio, target, profile, *rest
+        )
+        enabled, message = _voice_for_mode(mode, _as_path(target), profile)
+        samples = _sample_choice_pairs(config_file, profile)
+        return (
+            gr.update(visible=flags["video"]),
+            gr.update(visible=flags["photo"]),
+            gr.update(visible=flags["audio"]),
+            gr.update(visible=shown, choices=_profile_choice_pairs(config_file), value=profile or None),
+            gr.update(visible=shown),
+            gr.update(visible=shown),
+            gr.update(visible=shown),
+            gr.update(visible=shown),
+            gr.update(visible=shown, choices=samples, value=None),
+            gr.update(visible=shown),
+            gr.update(visible=shown),
+            gr.update(visible=shown, value=_library_status_text(config_file, profile)),
+            gr.update(visible=flags["voice_override"]),
+            t(_voice_hint_key(mode)),
+            gr.update(value=enabled),
+            message,
+            preview_button_update,
+            run_button_update,
+        )
 
     def _preview_array(path: Path):
         image = read_first_frame(path) if is_video(path) else read_image(path)
         return cv2.cvtColor(image, cv2.COLOR_BGR2RGB).copy()
 
-    def _stream_video(request: SwapRequest, status_key: str, progress):
-        box: dict[str, object] = {"done": 0, "total": 0, "result": None, "error": None}
+    def _stream_video(request: SwapRequest, status_key: str, progress, *, voice_planned: bool):
+        box: dict[str, object] = {"done": 0, "total": 0, "result": None, "error": None, "stage": "face"}
 
         def hook(done: int, total: int) -> None:
             box["done"] = int(done)
             box["total"] = int(total)
+            if box.get("stage") in {None, "", "face"}:
+                box["stage"] = "face"
+
+        def stage(name: str) -> None:
+            box["stage"] = name
 
         def worker() -> None:
             try:
                 config = apply_request_overrides(load_config(config_file), request)
-                box["result"] = FaceSwapPipeline(config).run(request, on_progress=hook)
+                box["result"] = FaceSwapPipeline(config).run(request, on_progress=hook, on_stage=stage)
             except Exception as exc:  # noqa: BLE001 - re-raised on the handler thread
                 box["error"] = exc
+
+        def lines(done: int, total: int, stage_name: str) -> tuple[str, float, str]:
+            if stage_name == "voice":
+                return t("ui.progress_voice"), 0.9, t("ui.progress_voice")
+            if stage_name == "mux":
+                return t("ui.progress_mux"), 0.97, t("ui.progress_mux")
+            if total and voice_planned:
+                message = t("ui.progress_face", done=done, total=total)
+                return message, 0.85 * (done / total), message
+            if total:
+                message = t("ui.progress", done=done, total=total)
+                return message, done / total, message
+            waiting = t("ui.waiting")
+            return waiting, 0, waiting if voice_planned else ""
 
         thread = threading.Thread(target=worker, name="barrett-ui-video", daemon=True)
         thread.start()
         while thread.is_alive():
             done = int(box["done"])
             total = int(box["total"])
-            if total:
-                progress((done, total), desc=t("ui.progress", done=done, total=total))
-                message = t("ui.progress", done=done, total=total)
-                fraction = done / total
+            stage_name = str(box.get("stage") or "face")
+            message, fraction, voice_line = lines(done, total, stage_name)
+            if stage_name == "voice":
+                progress(0.9, desc=message)
+            elif stage_name == "mux":
+                progress(0.97, desc=message)
+            elif total:
+                progress((done, total), desc=message)
             else:
-                progress(0, desc=t("ui.waiting"))
-                message = t("ui.waiting")
-                fraction = 0
-            yield gr.skip(), message, fraction
+                progress(0, desc=message)
+            voice_update = voice_line if voice_planned or stage_name in {"voice", "mux"} else gr.skip()
+            yield gr.skip(), message, fraction, voice_update
             thread.join(0.4)
         error = box["error"]
         if error is not None:
@@ -652,12 +975,18 @@ def build_demo(config_path: str | Path, language: str | None = None):
         result = box["result"]
         done = int(box["done"]) or 1
         total = int(box["total"]) or 1
-        progress((total, total), desc=t("ui.progress", done=total, total=total))
-        yield _preview_array(result.output_path), t(status_key, path=result.output_path), 1
+        finished = outcome_text(result, status_key)
+        voice_final = finished if getattr(result, "voice_status", "off") != "off" else gr.skip()
+        progress((total, total), desc=finished)
+        yield _preview_array(result.output_path), finished, 1, voice_final
 
     def on_execute(
         selected_language: str,
-        source: object,
+        source_mode: str,
+        source_video: object,
+        source_photo: object,
+        source_audio: object,
+        library_profile: object,
         target: object,
         output_text: str,
         swapper_model: str,
@@ -686,21 +1015,81 @@ def build_demo(config_path: str | Path, language: str | None = None):
         commercial: bool,
         consent: object,
         subject: str,
+        voice_on: bool,
+        voice_clip: object,
+        voice_strength_value: float,
+        voice_tau_value: float,
+        map_state: object,
+        map_pick_1: object,
+        map_pick_2: object,
+        map_pick_3: object,
+        map_pick_4: object,
+        map_file_1: object,
+        map_file_2: object,
+        map_file_3: object,
+        map_file_4: object,
+        ack_box: bool,
+        ack_subject_value: str,
         preview_only: bool,
         progress=gr.Progress(track_tqdm=False),
     ):
         try:
             language_updates(selected_language or get_language())
-            source_path = _as_path(source)
+            mode = source_mode if source_mode in {"video", "photo", "photo_audio", "library"} else "video"
+            flags = source_mode_visibility(mode)
             target_path = _as_path(target)
-            if source_path is None or target_path is None:
-                yield None, t("ui.need_files"), 0
-                return
+            library_embedding = None
+            mode_audio = None
+            map_voice: Path | None = None
+            rows = compile_assignments(
+                map_state,
+                [map_pick_1, map_pick_2, map_pick_3, map_pick_4],
+                [map_file_1, map_file_2, map_file_3, map_file_4],
+                library_from_config(load_config(config_file)),
+            )
+            if rows:
+                if target_path is None:
+                    yield None, t("ui.need_files"), 0, t("ui.voice_idle")
+                    return
+                source_path = Path(rows[0].source)
+                voiced = next((row.voice for row in rows if row.voice), None)
+                map_voice = Path(voiced) if voiced else None
+                if mode == "photo_audio":
+                    mode_audio = map_voice or _as_path(source_audio)
+                elif mode == "library":
+                    mode_audio = map_voice
+            elif flags["library"]:
+                key = str(library_profile or "").strip()
+                if not key:
+                    yield None, t("ui.library_need_profile"), 0, t("ui.voice_idle")
+                    return
+                if target_path is None:
+                    yield None, t("ui.need_files"), 0, t("ui.voice_idle")
+                    return
+                resolved = library_from_config(load_config(config_file)).resolve(key)
+                source_path = resolved.still
+                library_embedding = tuple(float(value) for value in np.asarray(resolved.embedding, dtype=np.float32).reshape(-1))
+                mode_audio = resolved.voice
+            else:
+                source_path = _as_path(source_video) if flags["video"] else _as_path(source_photo)
+                if source_path is None or target_path is None:
+                    yield None, t("ui.need_files"), 0, t("ui.voice_idle")
+                    return
+                if flags["video"] and not is_video(source_path):
+                    yield None, t("ui.need_source_video"), 0, t("ui.voice_idle")
+                    return
+                if not flags["video"] and is_video(source_path):
+                    yield None, t("ui.need_source_photo"), 0, t("ui.voice_idle")
+                    return
+                mode_audio = _as_path(source_audio) if flags["audio"] else None
+                if flags["audio"] and mode_audio is None:
+                    yield None, t("ui.need_source_audio"), 0, t("ui.voice_idle")
+                    return
             processors = ["face_swapper"]
             if enhancer_on:
                 processors.append("face_enhancer")
             if not processors:
-                yield None, t("ui.need_processor"), 0
+                yield None, t("ui.need_processor"), 0, t("ui.voice_idle")
                 return
             with tempfile.TemporaryDirectory(prefix="barrett-faceswap-ui-") as directory:
                 temp = Path(directory)
@@ -725,7 +1114,23 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     if is_video(target_path) and output.suffix.lower() not in VIDEO_OUTPUT_SUFFIXES:
                         output = output.with_suffix(".mp4")
                 consent_path = _as_path(consent)
-                subject_text = (subject or "").strip()
+                visible_subject = str(ack_subject_value or "").strip()
+                advanced_subject = str(subject or "").strip()
+                subject_text = visible_subject or advanced_subject
+                acknowledged = bool(ack_box) or bool(advanced_subject)
+                will_enforce = bool(initial.compliance.enabled or compliance)
+                if will_enforce and consent_path is None and not (acknowledged and subject_text):
+                    yield None, t("ui.ack_need"), 0, t("ui.voice_idle")
+                    return
+                selected_face_map = _as_path(face_map)
+                uploaded_voice = None if preview_only else _as_path(voice_clip)
+                if rows:
+                    selected_face_map = temp / "face-map.json"
+                    write_face_map(selected_face_map, rows)
+                    if mode == "video" and uploaded_voice is None and map_voice is not None:
+                        uploaded_voice = map_voice
+                    elif mode in {"photo_audio", "library"} and uploaded_voice is not None:
+                        mode_audio = uploaded_voice
                 request = SwapRequest(
                     source_path=source_path,
                     target_path=request_target,
@@ -733,7 +1138,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     dry_run=bool(dry_run),
                     enable_compliance=bool(compliance),
                     consent_file=consent_path,
-                    acknowledge_authorized_use=bool(subject_text) and consent_path is None,
+                    acknowledge_authorized_use=consent_path is None and acknowledged and bool(subject_text),
                     consent_subject=subject_text or None,
                     processors=list(processors),
                     execution_providers=list(providers) if providers else None,
@@ -749,7 +1154,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     pixel_boost=int(pixel_boost),
                     many_faces=bool(many_faces),
                     reference_path=_as_path(reference),
-                    face_map=_as_path(face_map),
+                    face_map=selected_face_map,
                     blend_mode=blend_mode,
                     color_transfer=color_transfer,
                     eye_mode=eye_mode,
@@ -758,18 +1163,35 @@ def build_demo(config_path: str | Path, language: str | None = None):
                     target_face_index=int(target_index or 0),
                     with_enhancer=bool(enhancer_on),
                     detect_score=float(detect_score),
+                    source_embedding=library_embedding,
+                    voice_enabled=False if mode == "photo" or preview_only else bool(voice_on),
+                    voice_reference=_voice_reference_for_mode(mode, mode_audio, uploaded_voice),
+                    voice_strength=float(voice_strength_value),
+                    voice_tau=float(voice_tau_value),
                 )
                 full_video = is_video(target_path) and not preview_only
+                will_reference = request.voice_reference is not None or (
+                    mode == "video" and bool(request.voice_enabled)
+                )
+                voice_planned = (
+                    full_video
+                    and bool(request.voice_enabled)
+                    and will_reference
+                    and not dry_run
+                    and target_has_audio(target_path)
+                )
                 if full_video:
-                    yield from _stream_video(request, status_key, progress)
+                    yield from _stream_video(request, status_key, progress, voice_planned=voice_planned)
                     return
                 progress(0, desc=t("ui.progress_running"))
                 config = apply_request_overrides(load_config(config_file), request)
                 result = FaceSwapPipeline(config).run(request)
                 progress(1, desc=t("ui.progress_running"))
-                yield _preview_array(result.output_path), t(status_key, path=result.output_path), 1
+                text = t(status_key, path=result.output_path) if preview_only else outcome_text(result, status_key)
+                voice_final = gr.skip() if preview_only or result.voice_status == "off" else text
+                yield _preview_array(result.output_path), text, 1, voice_final
         except (BarrettFaceswapError, ValidationError, LanguageError) as exc:
-            yield None, str(exc), 0
+            yield None, str(exc), 0, str(exc)
 
     def on_preview(*args, progress=gr.Progress(track_tqdm=False)):
         yield from on_execute(*args, True, progress)
@@ -785,17 +1207,108 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 value=active_language,
                 label=t("ui.language"),
             )
+        disclaimer = gr.Markdown(t("ui.disclaimer"))
+        with gr.Row():
+            ack = gr.Checkbox(value=False, label=t("ui.ack"))
+            ack_subject = gr.Textbox(value="", label=t("ui.ack_subject"))
         with gr.Tabs():
             with gr.Tab(t("ui.media_tab")) as media_tab:
                 with gr.Row(elem_classes=["bf-layout"]):
                     with gr.Column(scale=38, elem_classes=["bf-controls"]):
                         steps = gr.Markdown(t("ui.steps"))
-                        source = gr.Image(
+                        source_mode = gr.Radio(
+                            choices=_source_mode_choices(),
+                            value="video",
+                            label=t("ui.source_mode"),
+                            elem_classes=["bf-source-mode"],
+                        )
+                        source_video = gr.File(
+                            type="filepath",
+                            file_count="single",
+                            file_types=[".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"],
+                            label=t("ui.source_video"),
+                        )
+                        source_photo = gr.Image(
                             type="filepath",
                             sources=["upload", "clipboard"],
                             label=t("ui.source"),
+                            visible=False,
+                        )
+                        source_audio = gr.Audio(
+                            type="filepath",
+                            sources=["upload"],
+                            label=t("ui.source_audio"),
+                            visible=False,
+                        )
+                        library_profile = gr.Dropdown(
+                            choices=_profile_choice_pairs(config_file),
+                            value=None,
+                            label=t("ui.library_profile"),
+                            visible=False,
+                        )
+                        library_name = gr.Textbox(value="", label=t("ui.library_name"), visible=False)
+                        library_create = gr.Button(t("ui.library_create"), visible=False)
+                        library_sample = gr.File(
+                            type="filepath",
+                            file_count="single",
+                            label=t("ui.library_sample"),
+                            visible=False,
+                        )
+                        library_add = gr.Button(t("ui.library_add"), visible=False)
+                        library_samples = gr.Dropdown(
+                            choices=[],
+                            value=None,
+                            label=t("ui.library_samples"),
+                            visible=False,
+                        )
+                        with gr.Row():
+                            library_remove = gr.Button(t("ui.library_remove"), visible=False)
+                            library_delete = gr.Button(t("ui.library_delete"), visible=False)
+                        library_status = gr.Textbox(
+                            value=t("ui.library_empty"),
+                            label=t("ui.library_status"),
+                            interactive=False,
+                            visible=False,
                         )
                         target = gr.File(type="filepath", label=t("ui.target"), file_count="single")
+                        map_title = gr.Markdown(t("ui.map_title"))
+                        map_scan = gr.Button(t("ui.map_scan"))
+                        map_status = gr.Textbox(
+                            value=t("ui.map_idle"),
+                            label=t("ui.map_status"),
+                            interactive=False,
+                        )
+                        map_state = gr.State(None)
+                        map_rows: list = []
+                        map_images: list = []
+                        map_picks: list = []
+                        map_files: list = []
+                        for index in range(1, MAP_SLOTS + 1):
+                            with gr.Row(visible=False) as map_row:
+                                map_image = gr.Image(
+                                    type="numpy",
+                                    interactive=False,
+                                    height=128,
+                                    label=t(f"ui.map_face_{index}"),
+                                    visible=False,
+                                )
+                                map_pick = gr.Dropdown(
+                                    choices=_map_choices(config_file),
+                                    value=KEEP,
+                                    label=t("ui.map_source"),
+                                    visible=False,
+                                )
+                                map_file = gr.File(
+                                    type="filepath",
+                                    file_count="single",
+                                    file_types=[".png", ".jpg", ".jpeg", ".webp", ".bmp"],
+                                    label=t("ui.map_file"),
+                                    visible=False,
+                                )
+                            map_rows.append(map_row)
+                            map_images.append(map_image)
+                            map_picks.append(map_pick)
+                            map_files.append(map_file)
                         swapper_model = gr.Dropdown(
                             choices=list(SWAPPER_NAMES),
                             value=initial.swap.model,
@@ -917,12 +1430,43 @@ def build_demo(config_path: str | Path, language: str | None = None):
                                 interactive=False,
                             )
                     with gr.Column(scale=62, elem_classes=["bf-stage"]):
-                        preview = gr.Image(
-                            type="numpy",
-                            label=t("ui.preview_image"),
-                            height=520,
-                            elem_classes=["bf-preview"],
-                        )
+                        with gr.Row(elem_classes=["bf-stage-split"]):
+                            with gr.Column(scale=3):
+                                preview = gr.Image(
+                                    type="numpy",
+                                    label=t("ui.preview_image"),
+                                    height=520,
+                                    elem_classes=["bf-preview"],
+                                )
+                            with gr.Column(scale=2, elem_classes=["bf-voice"]):
+                                voice_title = gr.Markdown(t("ui.voice_title"))
+                                voice_enable = gr.Checkbox(value=False, label=t("ui.voice_enable"))
+                                voice_reference = gr.Audio(
+                                    type="filepath",
+                                    sources=["upload"],
+                                    label=t("ui.voice_reference"),
+                                )
+                                voice_hint = gr.Markdown(t("ui.voice_hint"))
+                                with gr.Accordion(t("ui.voice_advanced"), open=False) as voice_advanced:
+                                    voice_strength = gr.Slider(
+                                        0,
+                                        1,
+                                        value=float(initial.voice.strength),
+                                        step=0.05,
+                                        label=t("ui.voice_strength"),
+                                    )
+                                    voice_tau = gr.Slider(
+                                        0,
+                                        1,
+                                        value=float(initial.voice.tau),
+                                        step=0.05,
+                                        label=t("ui.voice_tau"),
+                                    )
+                                voice_status = gr.Textbox(
+                                    value=t("ui.voice_idle"),
+                                    label=t("ui.voice_status"),
+                                    interactive=False,
+                                )
                         progress_bar = gr.Slider(
                             0,
                             1,
@@ -939,14 +1483,22 @@ def build_demo(config_path: str | Path, language: str | None = None):
             (
                 live_tab,
                 live_intro,
+                live_source_mode,
+                live_source_video,
                 live_source,
+                live_source_audio,
+                live_library,
+                live_voice_override,
                 live_start,
                 live_stop,
                 live_status,
+                live_voice,
                 live_advanced,
                 live_dry,
                 live_compliance,
                 live_camera,
+                live_mic,
+                live_speaker,
                 live_preview,
             ) = _live_tab(
                 gr,
@@ -961,14 +1513,46 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 weight,
                 execution,
                 detect_score,
+                ack,
+                ack_subject,
             )
         labeled = [
             brand,
             language,
+            disclaimer,
+            ack,
+            ack_subject,
             media_tab,
             steps,
-            source,
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
+            library_profile,
+            library_name,
+            library_create,
+            library_sample,
+            library_add,
+            library_samples,
+            library_remove,
+            library_delete,
+            library_status,
             target,
+            map_title,
+            map_scan,
+            map_status,
+            map_images[0],
+            map_picks[0],
+            map_files[0],
+            map_images[1],
+            map_picks[1],
+            map_files[1],
+            map_images[2],
+            map_picks[2],
+            map_files[2],
+            map_images[3],
+            map_picks[3],
+            map_files[3],
             swapper_model,
             swapper_hint,
             quality,
@@ -1010,23 +1594,43 @@ def build_demo(config_path: str | Path, language: str | None = None):
             preview_button,
             run_button,
             preview,
+            voice_title,
+            voice_enable,
+            voice_reference,
+            voice_hint,
+            voice_advanced,
+            voice_strength,
+            voice_tau,
+            voice_status,
             progress_bar,
             status,
             live_tab,
             live_intro,
+            live_source_mode,
+            live_source_video,
             live_source,
+            live_source_audio,
+            live_library,
+            live_voice_override,
             live_start,
             live_stop,
             live_status,
+            live_voice,
             live_advanced,
             live_dry,
             live_compliance,
             live_camera,
+            live_mic,
+            live_speaker,
             live_preview,
         ]
         form = [
             language,
-            source,
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
+            library_profile,
             target,
             output,
             swapper_model,
@@ -1055,11 +1659,20 @@ def build_demo(config_path: str | Path, language: str | None = None):
             commercial,
             consent,
             subject,
+            voice_enable,
+            voice_reference,
+            voice_strength,
+            voice_tau,
+            map_state,
+            *map_picks,
+            *map_files,
+            ack,
+            ack_subject,
         ]
         if len(labeled) != len(CONTROLS):
             raise BarrettFaceswapError(t("ui.control_mismatch", found=len(labeled), expected=len(CONTROLS)))
         tab_js = _tab_button_script()
-        language.change(on_language, inputs=[language], outputs=labeled, js=tab_js)
+        language.change(on_language, inputs=[language, source_mode], outputs=labeled, js=tab_js)
         preset_inputs = [quality, swapper_model, pixel_boost, enhancer_on, enhancer, blend, weight, occluder_model]
         preset_outputs = [swapper_model, pixel_boost, enhancer_on, enhancer, blend, weight, occluder_model]
         quality.change(apply_preset, inputs=preset_inputs, outputs=preset_outputs)
@@ -1069,10 +1682,281 @@ def build_demo(config_path: str | Path, language: str | None = None):
                 inputs=[quality, swapper_model, pixel_boost, enhancer_on, occluder_model],
                 outputs=quality,
             )
-        source.change(_files_ready, inputs=[source, target], outputs=[preview_button, run_button])
-        target.change(_files_ready, inputs=[source, target], outputs=[preview_button, run_button])
-        preview_button.click(on_preview, inputs=form, outputs=[preview, status, progress_bar])
-        run_button.click(on_run, inputs=form, outputs=[preview, status, progress_bar])
+        mode_inputs = [
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
+            target,
+            library_profile,
+            *map_picks,
+            *map_files,
+            ack,
+            ack_subject,
+            consent,
+            subject,
+        ]
+        library_outputs = [
+            library_status,
+            library_profile,
+            live_library,
+            library_samples,
+            preview_button,
+            run_button,
+            voice_enable,
+            voice_status,
+            *map_picks,
+        ]
+
+        def _profile_pair(selected):
+            choices = _profile_choice_pairs(config_file)
+            return gr.update(choices=choices, value=selected), gr.update(choices=choices, value=selected)
+
+        def _after_library(mode, video, photo, audio, target, selected, status_line, *rest):
+            media_profile, live_profile = _profile_pair(selected)
+            preview_update, run_update = _files_ready(mode, video, photo, audio, target, selected, *rest)
+            enabled, message = _voice_for_mode(mode, _as_path(target), selected)
+            samples = gr.update(choices=_sample_choice_pairs(config_file, selected), value=None)
+            map_choice_updates = tuple(gr.update(choices=_map_choices(config_file)) for _pick in map_picks)
+            return (
+                status_line,
+                media_profile,
+                live_profile,
+                samples,
+                preview_update,
+                run_update,
+                gr.update(value=enabled),
+                message,
+                *map_choice_updates,
+            )
+
+        def on_library_create(name, mode, video, photo, audio, target, *rest):
+            try:
+                summary = library_from_config(load_config(config_file)).create(str(name or ""))
+            except (BarrettFaceswapError, ValidationError) as exc:
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
+            return _after_library(
+                mode, video, photo, audio, target, summary.id, t("ui.library_created", name=summary.name), *rest
+            )
+
+        def on_library_add(profile, sample_file, mode, video, photo, audio, target, *rest):
+            path = _as_path(sample_file)
+            if not str(profile or "").strip():
+                return (t("ui.library_need_profile"),) + (gr.skip(),) * (len(library_outputs) - 1)
+            if path is None:
+                return (t("ui.library_need_sample"),) + (gr.skip(),) * (len(library_outputs) - 1)
+            try:
+                parts = parts_from_file(load_config(config_file), path)
+                summary = library_from_config(load_config(config_file)).add_sample(str(profile), parts)
+            except (BarrettFaceswapError, ValidationError) as exc:
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
+            return _after_library(
+                mode,
+                video,
+                photo,
+                audio,
+                target,
+                summary.id,
+                t("ui.library_added", name=summary.name, count=summary.samples),
+                *rest,
+            )
+
+        def on_library_remove(profile, sample_id, mode, video, photo, audio, target, *rest):
+            if not str(profile or "").strip():
+                return (t("ui.library_need_profile"),) + (gr.skip(),) * (len(library_outputs) - 1)
+            if not str(sample_id or "").strip():
+                return (t("ui.library_need_sample"),) + (gr.skip(),) * (len(library_outputs) - 1)
+            try:
+                summary = library_from_config(load_config(config_file)).remove_sample(str(profile), str(sample_id))
+            except (BarrettFaceswapError, ValidationError) as exc:
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
+            return _after_library(
+                mode,
+                video,
+                photo,
+                audio,
+                target,
+                summary.id,
+                t("ui.library_removed", name=summary.name, count=summary.samples),
+                *rest,
+            )
+
+        def on_library_delete(profile, mode, video, photo, audio, target, *rest):
+            key = str(profile or "").strip()
+            if not key:
+                return (t("ui.library_need_profile"),) + (gr.skip(),) * (len(library_outputs) - 1)
+            summary = _profile_summary(config_file, key)
+            if summary is None:
+                return (t("library.missing", name=key),) + (gr.skip(),) * (len(library_outputs) - 1)
+            try:
+                library_from_config(load_config(config_file)).delete(key)
+            except (BarrettFaceswapError, ValidationError) as exc:
+                return (str(exc),) + (gr.skip(),) * (len(library_outputs) - 1)
+            return _after_library(
+                mode, video, photo, audio, target, None, t("ui.library_deleted", name=summary.name), *rest
+            )
+
+        def on_library_pick(profile, mode, video, photo, audio, target, *rest):
+            preview_update, run_update = _files_ready(mode, video, photo, audio, target, profile, *rest)
+            enabled, message = _voice_for_mode(mode, _as_path(target), profile)
+            _media, live_profile = _profile_pair(profile or None)
+            return (
+                preview_update,
+                run_update,
+                gr.update(value=enabled),
+                message,
+                _library_status_text(config_file, profile),
+                gr.update(choices=_sample_choice_pairs(config_file, profile), value=None),
+                live_profile,
+            )
+
+        library_action_inputs = [
+            source_mode,
+            source_video,
+            source_photo,
+            source_audio,
+            target,
+            *map_picks,
+            *map_files,
+            ack,
+            ack_subject,
+            consent,
+            subject,
+        ]
+        map_root = Path(tempfile.mkdtemp(prefix="barrett-map-"))
+        scan_count = {"n": 0}
+
+        def _map_cleared():
+            choices = _map_choices(config_file)
+            updates = []
+            for _index in range(MAP_SLOTS):
+                updates.extend(
+                    [
+                        gr.update(visible=False),
+                        gr.update(value=None, visible=False),
+                        gr.update(value=KEEP, choices=choices, visible=False),
+                        gr.update(value=None, visible=False),
+                    ]
+                )
+            return updates
+
+        def on_map_scan(target_file):
+            cleared = _map_cleared()
+            path = _as_path(target_file)
+            if path is None:
+                return (t("ui.map_need_target"), None, *cleared)
+            try:
+                image = read_first_frame(path) if is_video(path) else read_image(path)
+                scan_count["n"] += 1
+                result = detect_target_faces(load_config(config_file), image, map_root / str(scan_count["n"]))
+            except (BarrettFaceswapError, ValidationError) as exc:
+                return (str(exc), None, *cleared)
+            if not result.faces:
+                return (t("ui.map_none"), [], *cleared)
+            choices = _map_choices(config_file)
+            state = []
+            updates = []
+            for index in range(MAP_SLOTS):
+                if index < len(result.faces):
+                    face = result.faces[index]
+                    state.append({"match": list(face.match), "reference": face.reference})
+                    updates.extend(
+                        [
+                            gr.update(visible=True),
+                            gr.update(value=cv2.cvtColor(face.thumb, cv2.COLOR_BGR2RGB), visible=True),
+                            gr.update(value=KEEP, choices=choices, visible=True),
+                            gr.update(value=None, visible=False),
+                        ]
+                    )
+                else:
+                    updates.extend(
+                        [
+                            gr.update(visible=False),
+                            gr.update(value=None, visible=False),
+                            gr.update(value=KEEP, choices=choices, visible=False),
+                            gr.update(value=None, visible=False),
+                        ]
+                    )
+            if result.total > len(result.faces):
+                message = t("ui.map_found_more", count=result.total, shown=len(result.faces))
+            else:
+                message = t("ui.map_found", count=result.total)
+            return (message, state, *updates)
+
+        def on_map_pick(mode, video, photo, audio, target_file, profile, *rest):
+            picks = rest[:MAP_SLOTS]
+            preview_update, run_update = _files_ready(mode, video, photo, audio, target_file, profile, *rest)
+            file_updates = [gr.update(visible=str(pick or KEEP) == UPLOAD) for pick in picks]
+            return (*file_updates, preview_update, run_update)
+
+        scan_outputs = [map_status, map_state]
+        for map_row, map_image, map_pick, map_file in zip(map_rows, map_images, map_picks, map_files, strict=True):
+            scan_outputs.extend([map_row, map_image, map_pick, map_file])
+        map_scan.click(on_map_scan, inputs=[target], outputs=scan_outputs)
+        for map_pick in map_picks:
+            map_pick.change(on_map_pick, inputs=mode_inputs, outputs=[*map_files, preview_button, run_button])
+        for map_file in map_files:
+            map_file.change(on_map_pick, inputs=mode_inputs, outputs=[*map_files, preview_button, run_button])
+        source_mode.change(
+            _mode_view,
+            inputs=mode_inputs,
+            outputs=[
+                source_video,
+                source_photo,
+                source_audio,
+                library_profile,
+                library_name,
+                library_create,
+                library_sample,
+                library_add,
+                library_samples,
+                library_remove,
+                library_delete,
+                library_status,
+                voice_reference,
+                voice_hint,
+                voice_enable,
+                voice_status,
+                preview_button,
+                run_button,
+            ],
+        )
+        for widget in (source_video, source_photo, source_audio):
+            widget.change(_files_ready, inputs=mode_inputs, outputs=[preview_button, run_button])
+        target.change(
+            _target_changed,
+            inputs=mode_inputs,
+            outputs=[preview_button, run_button, voice_enable, voice_status],
+        )
+        for widget in (ack, ack_subject, consent, subject):
+            widget.change(_files_ready, inputs=mode_inputs, outputs=[preview_button, run_button])
+        library_profile.change(
+            on_library_pick,
+            inputs=[library_profile, *library_action_inputs],
+            outputs=[preview_button, run_button, voice_enable, voice_status, library_status, library_samples, live_library],
+        )
+        library_create.click(
+            on_library_create,
+            inputs=[library_name, *library_action_inputs],
+            outputs=library_outputs,
+        )
+        library_add.click(
+            on_library_add,
+            inputs=[library_profile, library_sample, *library_action_inputs],
+            outputs=library_outputs,
+        )
+        library_remove.click(
+            on_library_remove,
+            inputs=[library_profile, library_samples, *library_action_inputs],
+            outputs=library_outputs,
+        )
+        library_delete.click(
+            on_library_delete,
+            inputs=[library_profile, *library_action_inputs],
+            outputs=library_outputs,
+        )
+        preview_button.click(on_preview, inputs=form, outputs=[preview, status, progress_bar, voice_status])
+        run_button.click(on_run, inputs=form, outputs=[preview, status, progress_bar, voice_status])
     return demo
 
 
@@ -1091,7 +1975,7 @@ def _tab_button_script() -> str:
     live_en = captured["live-en"]
     live_zh = captured["live-zh-CN"]
     return (
-        "(lang) => {"
+        "(lang, sourceMode) => {"
         f" const media = lang === 'zh-CN' ? {media_zh!r} : {media_en!r};"
         f" const live = lang === 'zh-CN' ? {live_zh!r} : {live_en!r};"
         " const known = new Map(["
@@ -1108,7 +1992,7 @@ def _tab_button_script() -> str:
         " paint();"
         " setTimeout(paint, 0);"
         " setTimeout(paint, 250);"
-        " return lang;"
+        " return [lang, sourceMode];"
         "}"
     )
 
@@ -1126,25 +2010,82 @@ def _live_tab(
     weight,
     execution,
     detect_score,
+    ack,
+    ack_subject,
 ):
-    """Webcam tab. Model controls are the ones on the image/video tab."""
+    """Webcam tab. The source choices match the media tab. Voice needs the mic."""
+
+    import shutil
+    import tempfile
 
     from barrett_faceswap.live import LiveSession
+    from barrett_faceswap.live_voice import apply_live_chunk
+    from barrett_faceswap.sourceprep import prepare_source
 
-    holder: dict[str, object] = {"session": None, "armed": False, "sig": None}
+    holder: dict[str, object] = {
+        "session": None,
+        "armed": False,
+        "sig": None,
+        "camera_on": False,
+        "work": None,
+        "request": None,
+        "config": None,
+        "reference": None,
+        "converter": None,
+    }
     with gr.Tab(t("ui.live_tab")) as live_tab:
         live_intro = gr.Markdown(t("ui.live_intro"))
         with gr.Row(elem_classes=["bf-layout"]):
             with gr.Column(scale=38, elem_classes=["bf-controls"]):
+                live_source_mode = gr.Radio(
+                    choices=_source_mode_choices(),
+                    value="video",
+                    label=t("ui.source_mode"),
+                    elem_classes=["bf-source-mode"],
+                )
+                live_source_video = gr.File(
+                    type="filepath",
+                    file_count="single",
+                    file_types=[".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"],
+                    label=t("ui.source_video"),
+                )
                 live_source = gr.Image(
                     type="filepath",
                     sources=["upload", "clipboard"],
-                    label=t("ui.live_source"),
+                    label=t("ui.source"),
+                    visible=False,
+                )
+                live_source_audio = gr.Audio(
+                    type="filepath",
+                    sources=["upload"],
+                    label=t("ui.source_audio"),
+                    visible=False,
+                )
+                live_library = gr.Dropdown(
+                    choices=_profile_choice_pairs(config_file),
+                    value=None,
+                    label=t("ui.library_profile"),
+                    visible=False,
+                )
+                live_voice_override = gr.Audio(
+                    type="filepath",
+                    sources=["upload"],
+                    label=t("ui.live_voice_override"),
                 )
                 with gr.Row(elem_classes=["bf-actions"]):
-                    live_start = gr.Button(t("ui.live_start"), variant="primary", elem_classes=["bf-cta"])
+                    live_start = gr.Button(
+                        t("ui.live_start"),
+                        variant="primary",
+                        elem_classes=["bf-cta"],
+                        interactive=False,
+                    )
                     live_stop = gr.Button(t("ui.live_stop"), variant="secondary")
                 live_status = gr.Textbox(label=t("ui.live_status"), interactive=False)
+                live_voice = gr.Textbox(
+                    value=t("ui.live_face_only"),
+                    label=t("ui.live_voice"),
+                    interactive=False,
+                )
                 with gr.Accordion(t("ui.advanced"), open=False) as live_advanced:
                     live_dry = gr.Checkbox(value=True, label=t("ui.dry_run"))
                     live_compliance = gr.Checkbox(
@@ -1159,6 +2100,17 @@ def _live_tab(
                     label=t("ui.live_camera"),
                     height=220,
                 )
+                live_mic = gr.Audio(
+                    sources=["microphone"],
+                    streaming=True,
+                    type="numpy",
+                    label=t("ui.live_mic"),
+                )
+                live_speaker = gr.Audio(
+                    label=t("ui.live_speaker"),
+                    interactive=False,
+                    autoplay=True,
+                )
                 live_preview = gr.Image(
                     type="numpy",
                     label=t("ui.live_preview"),
@@ -1166,10 +2118,47 @@ def _live_tab(
                     elem_classes=["bf-preview"],
                 )
 
+    source_inputs = [
+        live_source_mode,
+        live_source_video,
+        live_source,
+        live_source_audio,
+        live_library,
+        live_voice_override,
+    ]
+
+    def _source_choice(mode, video, photo, audio_file, profile):
+        selected = mode if mode in {"video", "photo", "photo_audio", "library"} else "video"
+        flags = source_mode_visibility(selected)
+        if flags["library"]:
+            key = str(profile or "").strip()
+            if not key:
+                raise BarrettFaceswapError(t("ui.library_need_profile"))
+            resolved = library_from_config(load_config(config_file)).resolve(key)
+            embedding = tuple(float(value) for value in np.asarray(resolved.embedding, dtype=np.float32).reshape(-1))
+            return selected, resolved.still, resolved.voice, embedding
+        source_path = _as_path(video) if flags["video"] else _as_path(photo)
+        if source_path is None:
+            raise BarrettFaceswapError(t("ui.need_files"))
+        if flags["video"] and not is_video(source_path):
+            raise BarrettFaceswapError(t("ui.need_source_video"))
+        if not flags["video"] and is_video(source_path):
+            raise BarrettFaceswapError(t("ui.need_source_photo"))
+        mode_audio = _as_path(audio_file) if flags["audio"] else None
+        if flags["audio"] and mode_audio is None:
+            raise BarrettFaceswapError(t("ui.need_source_audio"))
+        return selected, source_path, mode_audio, None
+
     def _request(
-        source,
+        mode,
+        video,
+        photo,
+        audio_file,
+        profile,
         dry_run: bool,
         compliance: bool,
+        ack_on: bool,
+        subject_text: str,
         swapper: str,
         boost: int,
         occluder: str,
@@ -1179,21 +2168,24 @@ def _live_tab(
         enhancer_weight: float,
         providers: list[str] | None,
         detect_score: float,
-    ) -> SwapRequest:
-        source_path = _as_path(source)
-        if source_path is None:
-            raise BarrettFaceswapError(t("ui.need_files"))
+    ) -> tuple[str, Path, Path | None, SwapRequest]:
+        selected, source_path, mode_audio, embedding = _source_choice(mode, video, photo, audio_file, profile)
+        subject = str(subject_text or "").strip()
+        acknowledged = bool(ack_on) and bool(subject)
+        if bool(initial.compliance.enabled or compliance) and not acknowledged:
+            raise BarrettFaceswapError(t("ui.ack_need"))
         processors = ["face_swapper"]
         if enhancer_enabled:
             processors.append("face_enhancer")
-        return SwapRequest(
+        request = SwapRequest(
             source_path=source_path,
             target_path=Path("camera-ui"),
             output_path=Path("outputs/live-ui-session.txt"),
             dry_run=bool(dry_run),
             enable_compliance=bool(compliance),
             live_session=True,
-            acknowledge_authorized_use=False,
+            acknowledge_authorized_use=acknowledged,
+            consent_subject=subject or None,
             processors=processors,
             swapper_model=swapper,
             pixel_boost=int(boost),
@@ -1204,13 +2196,24 @@ def _live_tab(
             execution_providers=list(providers) if providers else None,
             with_enhancer=bool(enhancer_enabled),
             detect_score=float(detect_score),
+            source_embedding=embedding,
+            voice_enabled=False,
         )
+        return selected, source_path, mode_audio, request
 
-    def _signature(source, dry_run, compliance, swapper, boost, occluder, enhancer_enabled, model, blend_value, weight_value, providers, detect_score):
+    def _signature(mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args):
+        swapper, boost, occluder, enhancer_enabled, model, blend_value, weight_value, providers, detect_score = model_args
         return (
-            str(_as_path(source)),
+            str(mode),
+            str(_as_path(video)),
+            str(_as_path(photo)),
+            str(_as_path(audio_file)),
+            str(profile or ""),
+            str(_as_path(override)),
             bool(dry_run),
             bool(compliance),
+            bool(ack_on),
+            str(subject_text or "").strip(),
             str(swapper),
             int(boost),
             str(occluder),
@@ -1234,82 +2237,255 @@ def _live_tab(
         detect_score,
     ]
 
-    def on_start(source, dry_run: bool, compliance: bool, *model_args):
+    def _arm(mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args):
         _close()
-        try:
-            _request(source, dry_run, compliance, *model_args)
-        except BarrettFaceswapError as exc:
-            return str(exc)
+        selected, source_path, mode_audio, request = _request(
+            mode, video, photo, audio_file, profile, dry_run, compliance, ack_on, subject_text, *model_args
+        )
+        work = Path(tempfile.mkdtemp(prefix="barrett-live-"))
+        config = apply_request_overrides(load_config(config_file), request)
+        prepared, _notes = prepare_source(
+            config,
+            request.model_copy(update={"voice_enabled": False}),
+            work,
+        )
+        reference, _kind = resolve_live_reference(
+            selected,
+            source_path,
+            _as_path(override),
+            mode_audio,
+            work,
+        )
+        holder["work"] = work
+        holder["config"] = config
+        holder["request"] = prepared
+        holder["reference"] = reference
+        holder["converter"] = None
         holder["armed"] = True
-        return t("ui.live_ready")
+        holder["camera_on"] = False
+        holder["sig"] = _signature(
+            mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args
+        )
+        if reference is None:
+            return t("ui.live_ready"), t("ui.live_face_only")
+        if dry_run:
+            return t("ui.live_ready"), t("ui.live_voice_dry")
+        return t("ui.live_ready"), t("ui.live_voice_wait")
 
-    def on_frame(frame, source, dry_run: bool, compliance: bool, *model_args):
+    def on_start(mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, ack_on, subject_text, *model_args):
+        try:
+            status, voice = _arm(
+                mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args
+            )
+        except (BarrettFaceswapError, ValidationError, LanguageError) as exc:
+            _close()
+            return str(exc), t("ui.live_face_only")
+        return status, voice
+
+    def on_frame(frame, mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, ack_on, subject_text, *model_args):
         if frame is None:
             return None
         try:
             if not holder.get("armed"):
                 return frame
-            signature = _signature(source, dry_run, compliance, *model_args)
+            signature = _signature(
+                mode, video, photo, audio_file, profile, override, dry_run, compliance, ack_on, subject_text, *model_args
+            )
             session = holder.get("session")
             if session is None or holder.get("sig") != signature:
-                _close()
-                config = load_config(config_file)
-                request = _request(source, dry_run, compliance, *model_args)
-                config = apply_request_overrides(config, request)
+                _arm(
+                    mode,
+                    video,
+                    photo,
+                    audio_file,
+                    profile,
+                    override,
+                    dry_run,
+                    compliance,
+                    ack_on,
+                    subject_text,
+                    *model_args,
+                )
+                request = holder.get("request")
+                config = holder.get("config")
+                if not isinstance(request, SwapRequest) or config is None:
+                    return frame
                 session = LiveSession(config, request)
                 bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 session.start(bgr)
                 holder["session"] = session
-                holder["sig"] = signature
-                holder["armed"] = True
             else:
                 bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            holder["camera_on"] = True
             output = session.step(bgr)
             return cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
         except (BarrettFaceswapError, ValidationError, LanguageError):
             _close()
             return None
 
+    def on_mic(audio, mode, video, photo, audio_file, profile, override, dry_run: bool, compliance: bool, ack_on, subject_text, *model_args):
+        del mode, video, photo, audio_file, profile, override, compliance, ack_on, subject_text, model_args
+        samples, sample_rate = _mic_chunk(audio)
+        reference = holder.get("reference")
+        reference_path = reference if isinstance(reference, Path) else None
+        work = holder.get("work")
+        if not isinstance(work, Path):
+            work = Path(tempfile.gettempdir()) / "barrett-live-idle"
+        request = holder.get("request")
+        request_dry = bool(getattr(request, "dry_run", False)) if request is not None else False
+        config = holder.get("config")
+        converted, plan = apply_live_chunk(
+            samples,
+            sample_rate,
+            camera_on=bool(holder.get("camera_on")),
+            reference=reference_path,
+            dry_run=bool(dry_run) or request_dry,
+            tau=float(initial.voice.tau),
+            work=work,
+            converter=holder.get("converter") if callable(holder.get("converter")) else None,
+            config=config if isinstance(config, AppConfig) else None,
+            cache=holder,
+        )
+        played = None if converted is None else (sample_rate, converted)
+        return played, t(_live_voice_key(plan))
+
     def _close() -> None:
         session = holder.get("session")
+        work = holder.get("work")
         holder["session"] = None
         holder["sig"] = None
+        holder["camera_on"] = False
+        holder["reference"] = None
+        holder["request"] = None
+        holder["config"] = None
+        holder["converter"] = None
+        holder["work"] = None
         if session is not None:
             try:
                 session.finish()
             except Exception:
                 holder["session"] = None
+        if isinstance(work, Path):
+            shutil.rmtree(work, ignore_errors=True)
 
     def on_stop():
         session = holder.get("session")
-        holder["session"] = None
-        holder["sig"] = None
         holder["armed"] = False
+        holder["camera_on"] = False
         if session is None:
-            return t("ui.live_idle")
+            _close()
+            return t("ui.live_idle"), t("ui.live_face_only")
         result = session.finish()
-        return t("ui.live_stopped", path=result.output_path)
+        holder["session"] = None
+        _close()
+        return t("ui.live_stopped", path=result.output_path), t("ui.live_face_only")
 
-    live_start.click(on_start, inputs=[live_source, live_dry, live_compliance, *shared], outputs=live_status)
+    def _live_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box) -> bool:
+        return source_files_ready(
+            mode,
+            video,
+            photo,
+            audio_file,
+            "camera",
+            profile,
+            compliance_on=bool(initial.compliance.enabled or compliance_box),
+            ack=ack_on,
+            subject=subject_text,
+        )
+
+    def _mode_view(mode, video, photo, audio_file, profile, override, ack_on, subject_text, compliance_box):
+        del override
+        flags = source_mode_visibility(mode)
+        ready = _live_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box)
+        return (
+            gr.update(visible=flags["video"]),
+            gr.update(visible=flags["photo"]),
+            gr.update(visible=flags["audio"]),
+            gr.update(visible=flags["library"], choices=_profile_choice_pairs(config_file)),
+            gr.update(visible=flags["voice_override"]),
+            gr.update(interactive=ready),
+        )
+
+    def _files_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box):
+        ready = _live_ready(mode, video, photo, audio_file, profile, ack_on, subject_text, compliance_box)
+        return gr.update(interactive=ready)
+
+    gate_inputs = [ack, ack_subject, live_compliance]
+    live_source_mode.change(
+        _mode_view,
+        inputs=[*source_inputs, *gate_inputs],
+        outputs=[live_source_video, live_source, live_source_audio, live_library, live_voice_override, live_start],
+    )
+    for widget in (live_source_video, live_source, live_source_audio, live_library, ack, ack_subject, live_compliance):
+        widget.change(_files_ready, inputs=[*source_inputs[:5], *gate_inputs], outputs=live_start)
+    live_start.click(
+        on_start,
+        inputs=[*source_inputs, live_dry, live_compliance, ack, ack_subject, *shared],
+        outputs=[live_status, live_voice],
+    )
     live_camera.stream(
         on_frame,
-        inputs=[live_camera, live_source, live_dry, live_compliance, *shared],
+        inputs=[live_camera, *source_inputs, live_dry, live_compliance, ack, ack_subject, *shared],
         outputs=live_preview,
     )
-    live_stop.click(on_stop, outputs=live_status)
+    live_mic.stream(
+        on_mic,
+        inputs=[live_mic, *source_inputs, live_dry, live_compliance, ack, ack_subject, *shared],
+        outputs=[live_speaker, live_voice],
+    )
+    live_stop.click(on_stop, outputs=[live_status, live_voice])
     return (
         live_tab,
         live_intro,
+        live_source_mode,
+        live_source_video,
         live_source,
+        live_source_audio,
+        live_library,
+        live_voice_override,
         live_start,
         live_stop,
         live_status,
+        live_voice,
         live_advanced,
         live_dry,
         live_compliance,
         live_camera,
+        live_mic,
+        live_speaker,
         live_preview,
     )
+
+
+def _live_voice_key(plan: str) -> str:
+    """Status catalog key for one live microphone chunk."""
+
+    return {
+        "run": "ui.live_voice_ready",
+        "dry_run": "ui.live_voice_dry",
+        "wait": "ui.live_voice_wait",
+        "unavailable": "ui.live_voice_unavailable",
+    }.get(plan, "ui.live_face_only")
+
+
+def _mic_chunk(audio: object) -> tuple[np.ndarray | None, int]:
+    """Gradio's streaming microphone value is ``(sample_rate, samples)``."""
+
+    if audio is None:
+        return None, 16000
+    if isinstance(audio, tuple) and len(audio) == 2 and isinstance(audio[0], (int, float)):
+        rate = int(audio[0]) or 16000
+        data = audio[1]
+        if data is None:
+            return None, rate
+        return np.asarray(data), rate
+    return np.asarray(audio), 16000
+
+
+def _voice_reference_for_mode(mode: str, mode_audio: Path | None, override: Path | None) -> Path | None:
+    """Uploaded clip for this source mode. See :func:`reference_for_mode`."""
+
+    return reference_for_mode(mode, mode_audio, override)
 
 
 def _as_path(value: object) -> Path | None:

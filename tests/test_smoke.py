@@ -24,9 +24,9 @@ def test_package_imports() -> None:
     assert "face_enhancer" in available_processors()
 
 
-def test_shipped_compliance_default_is_off() -> None:
+def test_shipped_compliance_default_is_on() -> None:
     config = load_config(REPO / "configs" / "default.yaml")
-    assert config.compliance.enabled is False
+    assert config.compliance.enabled is True
     assert config.ui.language == "zh-CN"
     assert config.models.swapper.sha256 is None
     assert config.models.detector.path.name == "det_10g.onnx"
@@ -48,7 +48,7 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.masks.stride_motion == 0.04
     assert config.video.max_face_gap == 10
     assert config.video.smooth == "one_euro"
-    assert config.compliance.enabled is False
+    assert config.compliance.enabled is True
     assert config.models.gfpgan.path.name == "gfpgan_1.4.onnx"
     assert config.execution.commercial is False
     assert config.execution.precision == "fp32"
@@ -77,10 +77,23 @@ def test_shipped_compliance_default_is_off() -> None:
     assert config.expression.ear_open == pytest.approx(0.24)
     assert config.expression.ear_closed == pytest.approx(0.15)
     assert config.expression.blur == 9
+    assert config.sunglasses.enabled is True
+    assert config.sunglasses.box_inset == pytest.approx(0.04)
+    assert config.sunglasses.expression is True
+    assert config.sunglasses.mouth_scale == pytest.approx(0.45)
+    assert config.library.dir.name == "library"
+    assert config.library.voice_seconds == pytest.approx(24.0)
     assert config.swap.pixel_boost == 0
     assert config.landmarks.profile_ratio == pytest.approx(0.22)
     assert config.models.landmark.path.name == "2dfan4.onnx"
-    assert config.compliance.enabled is False
+    assert config.compliance.enabled is True
+    assert config.voice.enabled is True
+    assert config.voice.engine == "openvoice"
+    assert config.voice.strength == pytest.approx(1.0)
+    assert config.voice.tau == pytest.approx(0.3)
+    assert config.voice.device == "auto"
+    assert config.voice.watermark is False
+    assert config.voice.checkpoint_dir.name == "openvoice_v2"
 
 
 def test_dry_run_without_models_or_consent(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

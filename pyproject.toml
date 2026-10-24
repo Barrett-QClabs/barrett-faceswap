@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "barrett-faceswap"
 version = "0.4.0"
-description = "Face-swap toolkit: live webcam, multiple swappers, video, jobs, a bilingual Gradio UI, and an opt-in compliance gate."
+description = "barrett-faceswap — open-source AI face swap & voice cloning in one click: deepfake-quality video, image and real-time webcam face swap with multi-face mapping, a FaceFusion / Deep-Live-Cam alternative with bilingual Chinese-English UI."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -41,6 +41,24 @@ dependencies = [
 cpu = ["onnxruntime>=1.17"]
 gpu = ["onnxruntime-gpu[cuda,cudnn]>=1.21"]
 ui = ["gradio>=4.44,<6"]
+# Optional OpenVoice V2 tone-color converter. Do not pip-install OpenVoice's
+# own requirements.txt: it pins numpy 1.22 and Gradio 3. Install that package
+# with --no-deps after this extra. RTX 5090 needs a PyTorch wheel built with
+# CUDA 12.8 or newer (sm_120). See docs/en/voice.md.
+voice = [
+  "torch>=2.7",
+  "torchaudio>=2.7",
+  "librosa>=0.10",
+  "soundfile>=0.12",
+  "scipy>=1.11",
+  "unidecode>=1.3",
+  "inflect>=7",
+  "eng-to-ipa>=0.0.2",
+  "pypinyin>=0.50",
+  "cn2an>=0.5.22",
+  "jieba>=0.42",
+  "langid>=1.1",
+]
 dev = ["pytest>=8.0", "gradio>=4.44,<6"]
 docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "mkdocs-static-i18n>=1.2"]
 
