@@ -4,7 +4,7 @@
 sample of target frames is filtered before the swap, a sample of output frames
 is filtered after it, and every output frame is watermarked. One audit line is
 written for the finished file. Enforcement off skips those steps. The default
-config leaves enforcement off.
+config enables enforcement.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from barrett_faceswap.config import AppConfig
 from barrett_faceswap.errors import ConfigError, MediaToolError, UnsupportedMediaError
 from barrett_faceswap.i18n import t
 from barrett_faceswap.jobs import JobState, JobStore
+from barrett_faceswap.output import reserve_output, temporary_output
 from barrett_faceswap.media.ffmpeg import (
     VIDEO_OUTPUT_SUFFIXES,
     RawVideoPipe,
@@ -92,9 +93,15 @@ class VideoPipeline:
         store: JobStore | None,
     ) -> SwapResult:
         context = None
+        owned_output = None
+        work_output = None
         workspace: tempfile.TemporaryDirectory[str] | None = None
         try:
             self._check_paths(request)
+            owned_output = reserve_output(request.output_path)
+            request = request.model_copy(update={"output_path": owned_output})
+            work_output = temporary_output(owned_output)
+            work_output.unlink()
             info = probe(request.target_path)
             trim_start, trim_end = _trim_bounds(request, info.duration)
             if job is not None and store is not None:
@@ -149,7 +156,7 @@ class VideoPipeline:
                     )
             audio_mode = encode_video(
                 processed_dir,
-                request.output_path,
+                work_output,
                 fps=info.fps,
                 encoder=self.config.video.encoder,
                 crf=self.config.video.crf,
@@ -161,6 +168,7 @@ class VideoPipeline:
             )
             context.notes.append(t("video.audio_mode", mode=audio_mode))
             context.notes.append(t("video.frames_done", count=len(frames)))
+            work_output.replace(owned_output)
             result = self.policy.complete_output(context, request)
             if job is not None and store is not None:
                 job.next_frame = len(frames)
@@ -168,6 +176,10 @@ class VideoPipeline:
                 store.save(job)
             return result
         except Exception as exc:
+            if owned_output is not None:
+                owned_output.unlink(missing_ok=True)
+            if work_output is not None:
+                work_output.unlink(missing_ok=True)
             if context is not None:
                 self.policy.abort(context, exc)
             raise
@@ -184,9 +196,15 @@ class VideoPipeline:
         """Decode, process, and encode without writing a PNG for every frame."""
 
         context = None
+        owned_output = None
+        work_output = None
         pipe: RawVideoPipe | None = None
         try:
             self._check_paths(request)
+            owned_output = reserve_output(request.output_path)
+            request = request.model_copy(update={"output_path": owned_output})
+            work_output = temporary_output(owned_output)
+            work_output.unlink()
             info = probe(request.target_path)
             trim_start, trim_end = _trim_bounds(request, info.duration)
             width, height = even_size(info.width, info.height)
@@ -217,7 +235,7 @@ class VideoPipeline:
             seek = (start / info.fps) if start else None
             pipe = RawVideoPipe(
                 request.target_path,
-                request.output_path,
+                work_output,
                 width=width,
                 height=height,
                 fps=info.fps,
@@ -277,6 +295,7 @@ class VideoPipeline:
             context.notes = list(notes)
             context.notes.append(t("video.audio_mode", mode=audio_mode))
             context.notes.append(t("video.frames_done", count=produced))
+            work_output.replace(owned_output)
             result = self.policy.complete_output(context, request)
             if job is not None and store is not None:
                 job.next_frame = index
@@ -287,7 +306,10 @@ class VideoPipeline:
         except Exception as exc:
             if pipe is not None:
                 pipe.abort()
-            request.output_path.unlink(missing_ok=True)
+            if owned_output is not None:
+                owned_output.unlink(missing_ok=True)
+            if work_output is not None:
+                work_output.unlink(missing_ok=True)
             if context is not None:
                 self.policy.abort(context, exc)
             raise

@@ -8,6 +8,7 @@ default.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +20,7 @@ import numpy as np
 
 from barrett_faceswap.errors import MediaToolError
 from barrett_faceswap.i18n import t
+from barrett_faceswap.output import temporary_output
 from barrett_faceswap.vision import read_image
 
 VIDEO_OUTPUT_SUFFIXES = {".mp4", ".mkv", ".mov"}
@@ -165,7 +167,7 @@ def build_encode_command(
     pattern = frames_dir / "frame_%06d.png"
     command = [
         ffmpeg,
-        "-y",
+        "-n",
         "-hide_banner",
         "-loglevel",
         "error",
@@ -200,7 +202,20 @@ def build_encode_command(
     return command
 
 
-def encode_video(
+def encode_video(frames_dir: Path, output: Path, **options) -> str:
+    """Encode privately, then publish without replacing an existing file."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        raise FileExistsError(output)
+    with tempfile.TemporaryDirectory(prefix=".barrett-encode-", dir=output.parent) as directory:
+        temporary = Path(directory) / ("video" + output.suffix)
+        mode = _encode_video(frames_dir, temporary, **options)
+        # link() is exclusive, including if another writer appeared during encode.
+        os.link(temporary, output)
+        return mode
+
+
+def _encode_video(
     frames_dir: Path,
     output: Path,
     *,
@@ -220,6 +235,8 @@ def encode_video(
     """
 
     output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        raise FileExistsError(output)
     trimmed = trim_start is not None or trim_end is not None
     if keep_audio and has_audio and audio_source is not None:
         mode = "aac" if trimmed else "copy"
@@ -476,7 +493,7 @@ def replace_video_audio(video: Path, audio: Path) -> None:
 
     if not video.is_file():
         raise MediaToolError(t("vision.missing", path=video))
-    temp = video.with_name(f"{video.stem}.voice-tmp{video.suffix}")
+    temp = temporary_output(video)
     try:
         _run(build_replace_audio_command(video, audio, temp))
         if not temp.is_file():
@@ -549,7 +566,7 @@ def build_encode_pipe_command(
         raise MediaToolError(t("config.encoder", allowed="libx264, h264_nvenc"))
     command = [
         _ffmpeg_bin(),
-        "-y",
+        "-n",
         "-hide_banner",
         "-loglevel",
         "error",
@@ -670,22 +687,30 @@ class RawVideoPipe:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        self.encode = subprocess.Popen(
-            build_encode_pipe_command(
-                output,
-                width=self.width,
-                height=self.height,
-                fps=fps,
-                encoder=encoder,
-                crf=crf,
-                audio_source=audio_source,
-                audio_mode=audio_mode,
-                trim_start=trim_start,
-                trim_end=trim_end,
-            ),
-            stdin=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        try:
+            self.encode = subprocess.Popen(
+                build_encode_pipe_command(
+                    output,
+                    width=self.width,
+                    height=self.height,
+                    fps=fps,
+                    encoder=encoder,
+                    crf=crf,
+                    audio_source=audio_source,
+                    audio_mode=audio_mode,
+                    trim_start=trim_start,
+                    trim_end=trim_end,
+                ),
+                stdin=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except BaseException:
+            self.decode.kill()
+            self.decode.wait()
+            for stream in (self.decode.stdout, self.decode.stderr):
+                if stream is not None:
+                    stream.close()
+            raise
         self._threads = [
             threading.Thread(target=self._drain, args=(self.decode.stderr,), daemon=True),
             threading.Thread(target=self._drain, args=(self.encode.stderr,), daemon=True),

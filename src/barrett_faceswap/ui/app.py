@@ -1823,8 +1823,8 @@ def build_demo(config_path: str | Path, language: str | None = None):
             consent,
             subject,
         ]
-        map_root = Path(tempfile.mkdtemp(prefix="barrett-map-"))
-        scan_count = {"n": 0}
+        from barrett_faceswap.ui.map_workspace import MapWorkspace
+        map_workspace = MapWorkspace()
 
         def _map_cleared():
             choices = _map_choices(config_file)
@@ -1841,17 +1841,20 @@ def build_demo(config_path: str | Path, language: str | None = None):
             return updates
 
         def on_map_scan(target_file):
+            map_root = map_workspace.reset()
             cleared = _map_cleared()
             path = _as_path(target_file)
             if path is None:
+                map_workspace.cleanup()
                 return (t("ui.map_need_target"), None, *cleared)
             try:
                 image = read_first_frame(path) if is_video(path) else read_image(path)
-                scan_count["n"] += 1
-                result = detect_target_faces(load_config(config_file), image, map_root / str(scan_count["n"]))
+                result = detect_target_faces(load_config(config_file), image, map_root)
             except (BarrettFaceswapError, ValidationError) as exc:
+                map_workspace.cleanup()
                 return (str(exc), None, *cleared)
             if not result.faces:
+                map_workspace.cleanup()
                 return (t("ui.map_none"), [], *cleared)
             choices = _map_choices(config_file)
             state = []
@@ -1957,6 +1960,7 @@ def build_demo(config_path: str | Path, language: str | None = None):
         )
         preview_button.click(on_preview, inputs=form, outputs=[preview, status, progress_bar, voice_status])
         run_button.click(on_run, inputs=form, outputs=[preview, status, progress_bar, voice_status])
+    demo.unload(map_workspace.cleanup)
     return demo
 
 

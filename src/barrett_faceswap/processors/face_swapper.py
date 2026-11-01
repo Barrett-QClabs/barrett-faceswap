@@ -169,7 +169,14 @@ class FaceSwapper:
     def _detect(self, image: np.ndarray) -> list[Face]:
         started = time.perf_counter()
         try:
-            return self._detector().detect(image)
+            detector = self._detector()
+            detect = getattr(detector, "try_detect", None)
+            if detect is None:
+                detect = detector.detect
+            try:
+                return detect(image)
+            except NoFaceError:
+                return []
         finally:
             self.stage_seconds["detect"] += time.perf_counter() - started
 
@@ -197,7 +204,7 @@ class FaceSwapper:
                 image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
                 hint = ctx.source_face if not entry.source else None
                 prepared = ctx.source_embedding if not entry.source else None
-                if prepared is not None:
+                if prepared is not None and self._spec.embedding != "source_image":
                     arc = _unit_embedding(prepared)
                     source_score = 1.0
                 else:
@@ -205,7 +212,12 @@ class FaceSwapper:
             if entry.match:
                 match = _unit_embedding(np.asarray(entry.match, dtype=np.float32))
             elif entry.reference:
-                match, _reference_score = self._embed_image(backend, read_image(Path(entry.reference)))
+                reference = read_image(Path(entry.reference))
+                reference_face = select_face(self._detect(reference), 0)
+                match = self._arc_of(reference, reference_face)
+            elif self._spec.embedding == "source_image":
+                match_image = ctx.source_bgr if not entry.source else read_image(Path(entry.source))
+                match = self._arc_of(match_image, select_face(self._detect(match_image), 0))
             else:
                 match = arc
             if self._spec.embedding in {"emap", "source_image"}:
@@ -256,6 +268,8 @@ class FaceSwapper:
     ) -> list[tuple[Face, _Slot]]:
         selector = self.config.swap.selector
         if selector == "index":
+            if ctx.allow_missing_face and not 0 <= ctx.target_face_index < len(ordered):
+                return []
             return [(select_face(ordered, ctx.target_face_index), slots[0])]
         if selector == "many":
             return [(face, slots[0]) for face in ordered]
@@ -265,26 +279,39 @@ class FaceSwapper:
         pairs: list[tuple[Face, _Slot]] = []
         pending: list[int] = []
         taken: set[int] = set()
+        occupied: set[int] = set()
         for index, face in enumerate(ordered):
             track = tracks[index] if tracks is not None else None
-            if track is not None and track.slot is not None and track.slot < len(slots):
+            if (
+                track is not None
+                and track.slot is not None
+                and 0 <= track.slot < len(slots)
+                and track.slot not in occupied
+            ):
                 pairs.append((face, slots[track.slot]))
                 taken.add(index)
+                occupied.add(track.slot)
             else:
                 pending.append(index)
         for slot_index, slot in enumerate(slots):
-            if slot.target_index is None:
+            if slot.target_index is None or slot_index in occupied:
                 continue
             if slot.target_index < 0 or slot.target_index >= len(ordered):
+                if ctx.allow_missing_face:
+                    continue
                 raise NoFaceError(t("detect.bad_index", index=slot.target_index, last=len(ordered) - 1))
             face_index = slot.target_index
             if face_index in taken:
                 continue
             pairs.append((ordered[face_index], slot))
             taken.add(face_index)
+            occupied.add(slot_index)
             if tracks is not None:
                 tracks[face_index].slot = slot_index
-        open_slots = [index for index, slot in enumerate(slots) if slot.target_index is None]
+        open_slots = [
+            index for index, slot in enumerate(slots)
+            if slot.target_index is None and index not in occupied
+        ]
         open_faces = [index for index in pending if index not in taken]
         if open_slots and open_faces:
             vectors = [self._arc_of(frame, ordered[index]) for index in open_faces]

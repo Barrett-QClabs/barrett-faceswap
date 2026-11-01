@@ -251,8 +251,7 @@ def prepare_source(
     spec = swapper_by_name(config.swap.model)
     notes.append(_identity_note(choice, crop_model=spec.embedding == "source_image"))
     update: dict[str, object] = {"source_path": still}
-    if spec.embedding != "source_image":
-        update["source_embedding"] = tuple(float(value) for value in choice.vector.tolist())
+    update["source_embedding"] = tuple(float(value) for value in choice.vector.tolist())
     updated = request.model_copy(update=update)
     return _attach_speech(config, updated, request.source_path, work, notes)
 
