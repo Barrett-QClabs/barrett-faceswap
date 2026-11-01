@@ -228,15 +228,28 @@ class FaceLibrary:
 
     def _find_dir(self, key: str) -> Path | None:
         text = str(key or "").strip()
-        if not text or not self.root.is_dir():
+        # Display names may contain spaces, but filesystem keys use _fresh_id's alphabet.
+        directory_key = re.sub(r"\s+", "-", text)
+        if not re.fullmatch(r"[\w-]+", directory_key) or not self.root.is_dir():
             return None
-        direct = self.root / text
-        if (direct / "profile.json").is_file():
+        root = self.root.resolve()
+        direct = self.root / directory_key
+        if (
+            not direct.is_symlink()
+            and direct.resolve().is_relative_to(root)
+            and not (direct / "profile.json").is_symlink()
+            and (direct / "profile.json").is_file()
+        ):
             return direct
         folded = text.casefold()
         for path in self.root.iterdir():
             record = path / "profile.json"
-            if not record.is_file():
+            if (
+                path.is_symlink()
+                or record.is_symlink()
+                or not path.resolve().is_relative_to(root)
+                or not record.is_file()
+            ):
                 continue
             payload = _read_json(record)
             if str(payload.get("id", "")).casefold() == folded or str(payload.get("name", "")).casefold() == folded:
@@ -286,15 +299,16 @@ def _parts_from_video(config: AppConfig, source: Path) -> SampleParts:
             voice_enabled=False,
         )
         updated, _notes = prepare_source(config, request, work)
-        if not updated.source_embedding:
-            raise BarrettFaceswapError(t("library.no_face", name=source.name))
+        vector = updated.source_embedding
+        if not vector:
+            vector, _quality, _still = embed_still(config, read_image(updated.source_path))
         speech = None
         speech_path = work / "speech.wav"
         if write_speech_reference(source, speech_path, work):
             speech, _rate = _read_wav(speech_path)
         return SampleParts(
             kind="video",
-            embedding=np.asarray(updated.source_embedding, dtype=np.float32),
+            embedding=np.asarray(vector, dtype=np.float32),
             quality=1.0,
             still=read_image(updated.source_path),
             speech=speech,

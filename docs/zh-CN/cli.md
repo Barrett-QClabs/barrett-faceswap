@@ -4,8 +4,7 @@
 
 ```text
 usage: barrett-faceswap [-h] [--version] [--lang LANG]
-                        {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models,library}
-                        ...
+                        {swap,jobs,live,compare,inspect-models,list-processors,ui,benchmark,doctor,download-models,library} ...
 
 对静态图像或视频换脸。开发默认关闭合规强制，避免挡住本地试跑。
 
@@ -28,8 +27,8 @@ options:
   --version             show program's version number and exit
   --lang LANG           界面语言：en 或 zh-CN。优先于环境变量 BARRETT_FACESWAP_LANG 和 ui.language。
 
-usage: barrett-faceswap swap [-h] [--source SOURCE] [--library LIBRARY] --target TARGET --output
-                             OUTPUT [--config CONFIG] [--dry-run] [--enable-compliance]
+usage: barrett-faceswap swap [-h] [--source SOURCE] [--library LIBRARY] --target TARGET
+                             --output OUTPUT [--config CONFIG] [--dry-run] [--enable-compliance]
                              [--lang LANG] [--consent-file CONSENT_FILE]
                              [--acknowledge-authorized-use] [--consent-subject CONSENT_SUBJECT]
                              [--consent-statement CONSENT_STATEMENT] [--no-watermark]
@@ -105,14 +104,14 @@ options:
                         OpenVoice 随机度 tau，0 到 1。默认 0.3。更高更随机，不是更强的克隆。
   --filter-every FILTER_EVERY
                         合规打开时，每隔 N 帧过滤一次。最后一帧总会被检查。
-  --face-enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}, --enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}
+  --face-enhancer-model, --enhancer-model {gfpgan_1.4,codeformer,gpen_bfr_512,gpen_bfr_1024,gpen_bfr_2048,restoreformer_plus_plus}
                         增强图。默认 gfpgan_1.4。codeformer 的保真默认是 0.7，除非设置 --enhancer-weight。还包括
                         gpen_bfr_512、gpen_bfr_1024、gpen_bfr_2048 和 restoreformer_plus_plus。
   --enhancer-blend ENHANCER_BLEND
                         增强混合系数，0 到 1。1 表示用修复结果替换裁剪。有解析文件时只混合皮肤。
   --enhancer-weight ENHANCER_WEIGHT
                         CodeFormer 保真，0 到 1。默认 0.7。图里没有该输入时会被忽略。
-  --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
+  --face-swapper-model, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
                         换脸图。默认是 hyperswap_1a_256。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
   --pixel-boost PIXEL_BOOST
                         对齐裁剪的边长。0 表示模型原生尺寸（inswapper 则用 swap.resolution）。
@@ -179,7 +178,7 @@ options:
   --execution-provider EXECUTION_PROVIDER
                         优先使用的执行提供者。可重复该参数以指定顺序。同时列出时优先 CUDA。tensorrt 会建立引擎缓存。tensorrt.fp16 默认是
                         false。
-  --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
+  --face-swapper-model, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
                         换脸图。默认是 hyperswap_1a_256。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
   --pixel-boost PIXEL_BOOST
                         对齐裁剪的边长。0 表示模型原生尺寸（inswapper 则用 swap.resolution）。
@@ -276,7 +275,7 @@ options:
                         false。
   --occluder-model {xseg_1,xseg_2,xseg_3,sam2_refine}
                         遮挡图：xseg_1、xseg_2、xseg_3 或 sam2_refine。sam2_refine 需要本地 ONNX。
-  --face-swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
+  --face-swapper-model, --swapper-model {inswapper_128,hyperswap_1a_256,hyperswap_1b_256,hyperswap_1c_256,simswap_256,simswap_unofficial_512,blendswap_256,ghost_1_256,ghost_2_256,ghost_3_256}
                         换脸图。默认是 hyperswap_1a_256。其他名称需要对应的 ONNX，以及匹配的向量或源裁剪。
   --pixel-boost PIXEL_BOOST
                         对齐裁剪的边长。0 表示模型原生尺寸（inswapper 则用 swap.resolution）。

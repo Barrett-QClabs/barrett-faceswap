@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw, PngImagePlugin
 
 from barrett_faceswap.errors import WatermarkError
 from barrett_faceswap.i18n import t
+from barrett_faceswap.output import reserve_output, temporary_output
 
 AI_TEXT_KEY = "barrett.faceswap.ai_generated"
 SOFTWARE_TAG = "barrett-faceswap"
@@ -109,7 +110,7 @@ def save_image(
     watermark: bool,
     text: str,
     font_path: Path | None = None,
-) -> None:
+) -> Path:
     """Write ``image_bgr``. When ``watermark`` is set, embed a visible label and metadata."""
 
     marked = apply_visible_watermark(image_bgr, text, font_path=font_path) if watermark else image_bgr
@@ -117,26 +118,43 @@ def save_image(
     rgb = cv2.cvtColor(marked, cv2.COLOR_BGR2RGB)
     image = Image.fromarray(rgb)
     suffix = path.suffix.lower()
-    if suffix == ".png":
-        info = PngImagePlugin.PngInfo()
-        if watermark:
-            _add_png_text(info, text)
-        image.save(path, pnginfo=info)
-    elif suffix in {".jpg", ".jpeg"}:
-        exif = Image.Exif()
-        if watermark:
-            exif[0x010E] = text
-            exif[0x0131] = SOFTWARE_TAG
-            exif[0x9286] = f"AI-generated=true; label={text}".encode("utf-8")
-        image.save(path, quality=95, exif=exif.tobytes() if watermark else None)
-    elif suffix == ".webp":
-        image.save(path)
-    elif suffix == ".bmp":
-        image.save(path)
-    else:
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
         raise WatermarkError(t("watermark.suffix", suffix=suffix))
-    if watermark:
-        write_metadata_sidecar(path, text)
+    path = reserve_output(path)
+    temporary = None
+    sidecar = None
+    try:
+        temporary = temporary_output(path)
+        if suffix == ".png":
+            info = PngImagePlugin.PngInfo()
+            if watermark:
+                _add_png_text(info, text)
+            image.save(temporary, pnginfo=info)
+        elif suffix in {".jpg", ".jpeg"}:
+            exif = Image.Exif()
+            if watermark:
+                exif[0x010E] = text
+                exif[0x0131] = SOFTWARE_TAG
+                exif[0x9286] = f"AI-generated=true; label={text}".encode("utf-8")
+            image.save(temporary, quality=95, exif=exif.tobytes() if watermark else None)
+        elif suffix == ".webp":
+            image.save(temporary)
+        elif suffix == ".bmp":
+            image.save(temporary)
+        else:
+            raise WatermarkError(t("watermark.suffix", suffix=suffix))
+        if watermark:
+            sidecar = write_metadata_sidecar(path, text)
+        temporary.replace(path)
+        return path
+    except BaseException:
+        path.unlink(missing_ok=True)
+        if sidecar is not None:
+            sidecar.unlink(missing_ok=True)
+        raise
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def write_metadata_sidecar(path: Path, text: str) -> Path:
@@ -149,7 +167,8 @@ def write_metadata_sidecar(path: Path, text: str) -> Path:
         "software": SOFTWARE_TAG,
         "output": path.name,
     }
-    sidecar.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    with sidecar.open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2) + "\n")
     return sidecar
 
 
@@ -168,7 +187,7 @@ def apply_video_metadata(path: Path, text: str) -> VideoMarkResult:
             sidecar=sidecar,
             detail=t("watermark.ffmpeg_missing"),
         )
-    temporary = path.with_suffix(".tagged" + path.suffix)
+    temporary = temporary_output(path)
     import subprocess
 
     command = [
@@ -183,16 +202,18 @@ def apply_video_metadata(path: Path, text: str) -> VideoMarkResult:
         "+faststart",
         str(temporary),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
-    if completed.returncode != 0 or not temporary.is_file():
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not temporary.is_file():
+            return VideoMarkResult(
+                container_tagged=False,
+                sidecar=sidecar,
+                detail=t("watermark.ffmpeg_failed"),
+            )
+        temporary.replace(path)
+        return VideoMarkResult(container_tagged=True, sidecar=sidecar, detail=t("watermark.ffmpeg_ok"))
+    finally:
         temporary.unlink(missing_ok=True)
-        return VideoMarkResult(
-            container_tagged=False,
-            sidecar=sidecar,
-            detail=t("watermark.ffmpeg_failed"),
-        )
-    temporary.replace(path)
-    return VideoMarkResult(container_tagged=True, sidecar=sidecar, detail=t("watermark.ffmpeg_ok"))
 
 
 def video_metadata_args(text: str) -> list[str]:

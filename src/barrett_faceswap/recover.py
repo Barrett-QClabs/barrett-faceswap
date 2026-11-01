@@ -66,40 +66,12 @@ class FaceStream:
         return ready
 
     def _flush(self, right_index: int, right_faces: list[Face], tag: str) -> list[Recovered]:
-        del tag
-        left = self._last
-        pending = self._pending
-        self._pending = []
-        ready: list[Recovered] = []
-        right_primary = _primary(right_faces)
-        left_face = _primary(left[1]) if left is not None else None
-        for index, frame in pending:
-            dist_left = index - left[0] if left is not None else 10**9
-            dist_right = right_index - index
-            if (
-                dist_left <= self.max_gap
-                and dist_right <= self.max_gap
-                and left is not None
-                and left_face is not None
-                and right_primary is not None
-            ):
-                span = max(1, right_index - left[0])
-                alpha = (index - left[0]) / span
-                face = _lerp(left_face, right_primary, alpha)
-                ready.append(self._emit(index, frame, [face], "filled"))
-            elif dist_left <= dist_right and left_face is not None and dist_left <= self.max_gap:
-                ready.append(self._emit(index, frame, [_copy_face(left_face)], "filled"))
-            elif right_primary is not None and dist_right <= self.max_gap:
-                ready.append(self._emit(index, frame, [_copy_face(right_primary)], "filled"))
-            else:
-                ready.append(self._emit(index, frame, [], "passthrough"))
-        return ready
+        del right_index, right_faces, tag
+        pending, self._pending = self._pending, []
+        return [self._emit(index, frame, [], "passthrough") for index, frame in pending]
 
     def _from_past(self, index: int, frame: np.ndarray) -> Recovered:
-        if self._last is not None and index - self._last[0] <= self.max_gap:
-            primary = _primary(self._last[1])
-            if primary is not None:
-                return self._emit(index, frame, [_copy_face(primary)], "filled")
+        # An absent detection is not evidence of a face in this frame.
         return self._emit(index, frame, [], "passthrough")
 
     def _emit(self, index: int, frame: np.ndarray, faces: list[Face], tag: str) -> Recovered:

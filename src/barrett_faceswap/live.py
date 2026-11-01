@@ -149,6 +149,7 @@ class LiveSession:
             log_every_frame=False,
             source_face=self._hint_source,
             reuse_masks=True,
+            allow_missing_face=True,
             source_embedding=embedding_array(self.request),
         )
         for processor in self._processors:
@@ -178,8 +179,6 @@ class LiveSession:
                 try:
                     detected = _detect_with(self._processors, frame)
                 except NoFaceError:
-                    if self._hint_target is None:
-                        raise
                     detected = []
                 if not detected and self._hint_target is not None:
                     detected = [self._hint_target]

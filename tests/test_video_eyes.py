@@ -35,7 +35,7 @@ def _face(origin: float) -> Face:
     )
 
 
-def test_face_stream_interpolates_inside_the_gap() -> None:
+def test_face_stream_passes_empty_frames_between_detections() -> None:
     stream = FaceStream(max_gap=10, smooth="none")
     blank = np.zeros((4, 4, 3), dtype=np.uint8)
     ready = []
@@ -43,12 +43,12 @@ def test_face_stream_interpolates_inside_the_gap() -> None:
     for index in range(1, 4):
         ready.extend(stream.push(index, blank, [], "miss"))
     ready.extend(stream.push(4, blank, [_face(40)], "hit"))
-    filled = [item for item in ready if item.tag == "filled"]
-    assert [item.index for item in filled] == [1, 2, 3]
-    assert filled[1].faces[0].landmarks[0, 0] == pytest.approx(20.0)
+    empty = [item for item in ready if item.tag == "passthrough"]
+    assert [item.index for item in empty] == [1, 2, 3]
+    assert all(item.faces == [] and item.frame is blank for item in empty)
     assert stream.counts["detected"] == 2
-    assert stream.counts["filled"] == 3
-    assert stream.counts["passthrough"] == 0
+    assert stream.counts["filled"] == 0
+    assert stream.counts["passthrough"] == 3
 
 
 def test_face_stream_passthrough_beyond_the_gap_and_at_the_end() -> None:
@@ -60,8 +60,8 @@ def test_face_stream_passthrough_beyond_the_gap_and_at_the_end() -> None:
         ready.extend(stream.push(index, blank, [], "miss"))
     ready.extend(stream.finish())
     by_index = {item.index: item for item in ready}
-    assert by_index[1].tag == "filled"
-    assert by_index[2].tag == "filled"
+    assert by_index[1].tag == "passthrough"
+    assert by_index[2].tag == "passthrough"
     assert by_index[3].tag == "passthrough"
     assert by_index[5].tag == "passthrough"
     assert stream.counts["passthrough"] >= 2

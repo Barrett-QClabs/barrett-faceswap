@@ -57,6 +57,7 @@ class FaceSwapPipeline:
                         store=store,
                         on_progress=on_progress,
                     )
+                    request = request.model_copy(update={"output_path": result.output_path})
                     result = apply_voice(
                         self.config,
                         request,

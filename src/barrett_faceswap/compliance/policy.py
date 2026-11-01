@@ -64,6 +64,7 @@ class ComplianceContext:
     target_sha256: str | None = None
     decisions: list[dict] = field(default_factory=list)
     checker: object | None = None
+    sources: list[dict] = field(default_factory=list)
 
 
 class CompliancePolicy:
@@ -107,7 +108,7 @@ class CompliancePolicy:
 
     def after_process(self, context: ComplianceContext, frame, request: SwapRequest) -> SwapResult:
         if not context.enabled:
-            save_image(frame, request.output_path, watermark=False, text="")
+            request.output_path = save_image(frame, request.output_path, watermark=False, text="")
             return SwapResult(
                 output_path=request.output_path,
                 dry_run=request.dry_run,
@@ -119,7 +120,7 @@ class CompliancePolicy:
             reason = t("filter.blocked", role="output", reason=decision.reason)
             self._write(context, "refused", reason=reason)
             raise ContentBlockedError(reason)
-        save_image(
+        request.output_path = save_image(
             frame,
             request.output_path,
             watermark=context.watermark_enabled,
@@ -235,7 +236,17 @@ class CompliancePolicy:
         *,
         target_samples: Sequence[np.ndarray] | None,
     ) -> None:
-        self._reject_frame(read_image(request.source_path), context, role="source")
+        sources = [request.source_path]
+        if self.config.swap.selector == "map" and self.config.swap.face_map is not None:
+            from barrett_faceswap.facesel import load_face_map
+            sources.extend(Path(entry.source) for entry in load_face_map(str(self.config.swap.face_map)) if entry.source)
+        context.sources = [
+            {"path": str(source), "sha256": hash_file(source),
+             "role": "source" if index == 0 else f"source[{index}]"}
+            for index, source in enumerate(dict.fromkeys(sources))
+        ]
+        for source in context.sources:
+            self._reject_frame(read_image(Path(source["path"])), context, role=source["role"])
         if request.live_session:
             if not target_samples:
                 raise ComplianceError(t("compliance.live_samples_missing"))
@@ -299,6 +310,7 @@ class CompliancePolicy:
                 "target": str(context.request.target_path),
                 "output_path": str(output) if event == "completed" else None,
                 "source_sha256": context.source_sha256,
+                "sources": context.sources,
                 "target_sha256": context.target_sha256,
                 "output_sha256": output_hash,
                 "consent_id": context.consent.consent_id if context.consent else None,
